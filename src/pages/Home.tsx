@@ -60,10 +60,14 @@ export default function Home() {
           </Link>
         </div>
 
-        <div className="text-center">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link to="/register-restaurant" className="inline-flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium bg-orange-100/50 hover:bg-orange-100 px-6 py-3 rounded-full transition-colors">
             <PlusCircle size={20} />
-            Сакате да го додадете вашиот ресторан? Регистрирајте се тука.
+            Сакате да го додадете вашиот ресторан?
+          </Link>
+          <Link to="/register-delivery" className="inline-flex items-center gap-2 text-emerald-600 hover:text-emerald-700 font-medium bg-emerald-100/50 hover:bg-emerald-100 px-6 py-3 rounded-full transition-colors">
+            <PlusCircle size={20} />
+            Сакате да станете доставувач?
           </Link>
         </div>
       </div>

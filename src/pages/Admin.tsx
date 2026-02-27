@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface PendingRestaurant {
@@ -21,6 +21,20 @@ interface PendingRestaurant {
   username?: string;
 }
 
+interface DeliveryPartner {
+  id: number;
+  name: string;
+  city: string;
+  address: string;
+  email: string;
+  phone: string;
+  bank_account: string;
+  working_hours: string;
+  preferred_restaurants: string;
+  status: string;
+  username?: string;
+}
+
 const DAYS_MAP: Record<string, string> = {
   monday: 'Понеделник', tuesday: 'Вторник', wednesday: 'Среда',
   thursday: 'Четврток', friday: 'Петок', saturday: 'Сабота', sunday: 'Недела'
@@ -28,24 +42,37 @@ const DAYS_MAP: Record<string, string> = {
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
+  const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
+  const [approvedDelivery, setApprovedDelivery] = useState<DeliveryPartner[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState<PendingRestaurant | null>(null);
+  const [selectedDelivery, setSelectedDelivery] = useState<DeliveryPartner | null>(null);
   const [contractPercentage, setContractPercentage] = useState<number>(15);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
-    fetchRestaurants();
+    fetchData();
   }, []);
 
-  const fetchRestaurants = async () => {
+  const fetchData = async () => {
     const resPending = await fetch('/api/admin/restaurants/pending');
     setPendingRestaurants(await resPending.json());
     
     const resApproved = await fetch('/api/admin/restaurants/approved');
     setApprovedRestaurants(await resApproved.json());
+
+    const resOrders = await fetch('/api/admin/orders');
+    setOrders(await resOrders.json());
+
+    const resPendingDel = await fetch('/api/admin/delivery/pending');
+    setPendingDelivery(await resPendingDel.json());
+
+    const resApprovedDel = await fetch('/api/admin/delivery/approved');
+    setApprovedDelivery(await resApprovedDel.json());
   };
 
   const openApprovalModal = (rest: PendingRestaurant) => {
@@ -53,6 +80,14 @@ export default function Admin() {
     setContractPercentage(15);
     setCredentials({
       username: `rest_${rest.id}_${Math.random().toString(36).substring(2, 6)}`,
+      password: Math.random().toString(36).substring(2, 8)
+    });
+  };
+
+  const openDeliveryApprovalModal = (partner: DeliveryPartner) => {
+    setSelectedDelivery(partner);
+    setCredentials({
+      username: `del_${partner.id}_${Math.random().toString(36).substring(2, 6)}`,
       password: Math.random().toString(36).substring(2, 8)
     });
   };
@@ -77,7 +112,30 @@ export default function Admin() {
     if (res.ok) {
       alert('Ресторанот е успешно одобрен!');
       setSelectedRestaurant(null);
-      fetchRestaurants();
+      fetchData();
+    }
+  };
+
+  const handleApproveDelivery = async () => {
+    if (!selectedDelivery) return;
+    if (!credentials.username || !credentials.password) {
+      alert('Внесете корисничко име и лозинка!');
+      return;
+    }
+    
+    const res = await fetch(`/api/admin/delivery/${selectedDelivery.id}/approve`, { 
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        username: credentials.username,
+        password: credentials.password
+      })
+    });
+    
+    if (res.ok) {
+      alert('Доставувачот е успешно одобрен!');
+      setSelectedDelivery(null);
+      fetchData();
     }
   };
 
@@ -86,7 +144,16 @@ export default function Admin() {
     const res = await fetch(`/api/admin/restaurants/${id}/reject`, { method: 'POST' });
     if (res.ok) {
       if (selectedRestaurant?.id === id) setSelectedRestaurant(null);
-      fetchRestaurants();
+      fetchData();
+    }
+  };
+
+  const handleRejectDelivery = async (id: number) => {
+    if (!confirm('Дали сте сигурни дека сакате да го одбиете доставувачот?')) return;
+    const res = await fetch(`/api/admin/delivery/${id}/reject`, { method: 'POST' });
+    if (res.ok) {
+      if (selectedDelivery?.id === id) setSelectedDelivery(null);
+      fetchData();
     }
   };
 
@@ -112,7 +179,7 @@ export default function Admin() {
         
         if (res.ok) {
           alert('Податоците се успешно импортирани!');
-          fetchRestaurants();
+          fetchData();
         } else {
           const errData = await res.json();
           alert(`Грешка при импортирање: ${errData.error || 'Непозната грешка'}`);
@@ -170,6 +237,20 @@ export default function Admin() {
             >
               <Database size={16} />
               База на податоци
+            </button>
+            <button 
+              onClick={() => setActiveTab('orders')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <FileText size={16} />
+              Нарачки
+            </button>
+            <button 
+              onClick={() => setActiveTab('delivery')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'delivery' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Bike size={16} />
+              Доставувачи
             </button>
           </div>
         </div>
@@ -229,6 +310,135 @@ export default function Admin() {
             
             <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-xl text-sm text-yellow-800">
               <strong>Внимание:</strong> Импортирањето на нов фајл целосно ќе ги избрише моменталните податоци во системот и ќе ги замени со тие од фајлот.
+            </div>
+          </div>
+        ) : activeTab === 'orders' ? (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <FileText className="text-blue-500" />
+              Сите нарачки
+            </h2>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">ID</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Клиент</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Ресторан</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Статус</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Вкупно</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Код</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {orders.map(order => (
+                    <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="p-4 text-sm font-bold text-slate-800">#{order.id}</td>
+                      <td className="p-4">
+                        <p className="text-sm font-bold text-slate-800">{order.customer_name}</p>
+                        <p className="text-xs text-slate-500">{order.delivery_address}</p>
+                      </td>
+                      <td className="p-4 text-sm text-slate-600">
+                        {approvedRestaurants.find(r => r.id === order.restaurant_id)?.name || `ID: ${order.restaurant_id}`}
+                      </td>
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
+                          order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                          order.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                          order.status === 'delivering' ? 'bg-purple-100 text-purple-700' :
+                          order.status === 'completed' ? 'bg-green-100 text-green-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="p-4 text-sm font-bold text-slate-800">{order.total_price} ден.</td>
+                      <td className="p-4">
+                        {order.delivery_code ? (
+                          <div className="text-[10px] font-mono bg-slate-100 p-1 rounded max-w-[150px] truncate" title={order.delivery_code}>
+                            {order.delivery_code}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 text-xs">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {orders.length === 0 && (
+                <div className="p-12 text-center text-slate-400">Нема пронајдено нарачки.</div>
+              )}
+            </div>
+          </div>
+        ) : activeTab === 'delivery' ? (
+          <div className="space-y-8">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <Bike className="text-emerald-500" />
+                Барања за нови доставувачи
+                {pendingDelivery.length > 0 && (
+                  <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-bold ml-2">
+                    {pendingDelivery.length}
+                  </span>
+                )}
+              </h2>
+              
+              {pendingDelivery.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <p>Нема нови барања за доставувачи.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {pendingDelivery.map(partner => (
+                    <div key={partner.id} className="border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center hover:border-emerald-300 transition-colors cursor-pointer" onClick={() => openDeliveryApprovalModal(partner)}>
+                      <div>
+                        <h3 className="font-bold text-lg text-slate-800 mb-1">{partner.name}</h3>
+                        <div className="flex flex-wrap gap-4 text-sm text-slate-500">
+                          <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
+                          <span>📧 {partner.email}</span>
+                          <span>📞 {partner.phone}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 w-full md:w-auto">
+                        <button onClick={() => openDeliveryApprovalModal(partner)} className="flex-1 md:flex-none bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors">
+                          <FileText size={18} /> Прегледај
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <CheckCircle className="text-emerald-500" />
+                Активни доставувачи
+                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-bold ml-2">
+                  {approvedDelivery.length}
+                </span>
+              </h2>
+              
+              {approvedDelivery.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <p>Нема активни доставувачи.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {approvedDelivery.map(partner => (
+                    <div key={partner.id} className="border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center hover:border-emerald-300 transition-colors">
+                      <div>
+                        <h3 className="font-bold text-lg text-slate-800 mb-1">{partner.name}</h3>
+                        <div className="flex flex-wrap gap-4 text-sm text-slate-500">
+                          <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
+                          <span>👤 {partner.username}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -436,6 +646,96 @@ export default function Admin() {
                   </button>
                   <button onClick={handleApprove} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20">
                     Одобри Ресторан
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delivery Review Modal */}
+      {selectedDelivery && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 p-6 flex items-center justify-between z-10">
+              <h2 className="text-2xl font-bold text-slate-800">Преглед на доставувач</h2>
+              <button onClick={() => setSelectedDelivery(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-8">
+              {/* Basic Info */}
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Bike className="text-emerald-500" /> Лични податоци</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <div><span className="text-slate-500 text-sm block">Име</span><span className="font-medium">{selectedDelivery.name}</span></div>
+                  <div><span className="text-slate-500 text-sm block">Град</span><span className="font-medium">{selectedDelivery.city}</span></div>
+                  <div className="md:col-span-2"><span className="text-slate-500 text-sm block">Адреса</span><span className="font-medium">{selectedDelivery.address}</span></div>
+                  <div><span className="text-slate-500 text-sm block">Е-маил</span><span className="font-medium">{selectedDelivery.email}</span></div>
+                  <div><span className="text-slate-500 text-sm block">Телефон</span><span className="font-medium">{selectedDelivery.phone}</span></div>
+                  <div className="md:col-span-2"><span className="text-slate-500 text-sm block">Жиро сметка</span><span className="font-medium font-mono">{selectedDelivery.bank_account}</span></div>
+                </div>
+              </div>
+
+              {/* Working Hours */}
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Clock className="text-emerald-500" /> Работно време</h3>
+                {renderWorkingHours(selectedDelivery.working_hours)}
+              </div>
+
+              {/* Preferred Restaurants */}
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Store className="text-emerald-500" /> Избрани ресторани за соработка</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {JSON.parse(selectedDelivery.preferred_restaurants || '[]').map((restId: number) => {
+                    const rest = approvedRestaurants.find(r => r.id === restId);
+                    return (
+                      <div key={restId} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-3">
+                        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-slate-400 border border-slate-100">
+                          <Store size={16} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{rest?.name || `Ресторан ID: ${restId}`}</p>
+                          <p className="text-[10px] text-slate-500">{rest?.address}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Approval Section */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6">
+                <h3 className="text-lg font-bold text-emerald-900 mb-4 flex items-center gap-2"><LogIn className="text-emerald-600" /> Кредиенцијали и Одобрување</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-emerald-900 mb-2">Корисничко име</label>
+                    <input 
+                      type="text" 
+                      value={credentials.username} 
+                      onChange={e => setCredentials({...credentials, username: e.target.value})}
+                      className="w-full p-3 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-emerald-900 mb-2">Лозинка</label>
+                    <input 
+                      type="text" 
+                      value={credentials.password} 
+                      onChange={e => setCredentials({...credentials, password: e.target.value})}
+                      className="w-full p-3 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => handleRejectDelivery(selectedDelivery.id)} className="bg-white text-red-600 border border-red-200 hover:bg-red-50 px-6 py-3 rounded-xl font-bold transition-colors">
+                    Одбиј
+                  </button>
+                  <button onClick={handleApproveDelivery} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20">
+                    Одобри Доставувач
                   </button>
                 </div>
               </div>

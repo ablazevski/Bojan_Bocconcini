@@ -36,9 +36,13 @@ db.exec(`
     items TEXT,
     total_price REAL,
     status TEXT DEFAULT 'pending',
+    delivery_code TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
+
+// Migration for delivery_code
+try { db.exec('ALTER TABLE orders ADD COLUMN delivery_code TEXT'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS restaurants (
@@ -54,6 +58,7 @@ db.exec(`
     spare_1 TEXT,
     spare_2 TEXT,
     spare_3 TEXT,
+    spare_4 TEXT,
     status TEXT DEFAULT 'pending',
     username TEXT,
     password TEXT,
@@ -65,6 +70,26 @@ db.exec(`
 // Migration for contract_percentage and working_hours
 try { db.exec('ALTER TABLE restaurants ADD COLUMN contract_percentage REAL DEFAULT 0'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN working_hours TEXT DEFAULT "{}"'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN spare_4 TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN logo_url TEXT'); } catch (e) {}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS delivery_partners (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    city TEXT,
+    address TEXT,
+    email TEXT,
+    phone TEXT,
+    bank_account TEXT,
+    working_hours TEXT DEFAULT '{}',
+    preferred_restaurants TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'pending',
+    username TEXT,
+    password TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
 // Seed data if empty
 const count = db.prepare('SELECT COUNT(*) as count FROM menu_items').get() as {count: number};
@@ -174,12 +199,12 @@ if (restCount.count === 0) {
   
     // --- RESTAURANT REGISTRATION & ADMIN ---
   app.post("/api/restaurants/register", (req, res) => {
-    const { name, city, address, email, phone, bank_account, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, working_hours } = req.body;
+    const { name, city, address, email, phone, bank_account, logo_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
     const insert = db.prepare(`
-      INSERT INTO restaurants (name, city, address, email, phone, bank_account, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, working_hours, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+      INSERT INTO restaurants (name, city, address, email, phone, bank_account, logo_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
     `);
-    const result = insert.run(name, city, address, email, phone, bank_account, has_own_delivery ? 1 : 0, JSON.stringify(delivery_zones || []), spare_1, spare_2, spare_3, JSON.stringify(working_hours || {}));
+    const result = insert.run(name, city, address, email, phone, bank_account, logo_url, has_own_delivery ? 1 : 0, JSON.stringify(delivery_zones || []), spare_1, spare_2, spare_3, spare_4, JSON.stringify(working_hours || {}));
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
@@ -207,6 +232,54 @@ if (restCount.count === 0) {
     res.json({ success: true });
   });
 
+  // --- DELIVERY PARTNER REGISTRATION & ADMIN ---
+  app.post("/api/delivery/register", (req, res) => {
+    const { name, city, address, email, phone, bank_account, working_hours, preferred_restaurants } = req.body;
+    const insert = db.prepare(`
+      INSERT INTO delivery_partners (name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `);
+    const result = insert.run(name, city, address, email, phone, bank_account, JSON.stringify(working_hours || {}), JSON.stringify(preferred_restaurants || []));
+    res.json({ success: true, id: result.lastInsertRowid });
+  });
+
+  app.get("/api/admin/delivery/pending", (req, res) => {
+    const items = db.prepare("SELECT * FROM delivery_partners WHERE status = 'pending'").all();
+    res.json(items);
+  });
+
+  app.get("/api/admin/delivery/approved", (req, res) => {
+    const items = db.prepare("SELECT * FROM delivery_partners WHERE status = 'approved'").all();
+    res.json(items);
+  });
+
+  app.post("/api/admin/delivery/:id/approve", (req, res) => {
+    const id = req.params.id;
+    const { username, password } = req.body;
+    db.prepare("UPDATE delivery_partners SET status = 'approved', username = ?, password = ? WHERE id = ?").run(username, password, id);
+    res.json({ success: true, username, password });
+  });
+
+  app.post("/api/admin/delivery/:id/reject", (req, res) => {
+    db.prepare("UPDATE delivery_partners SET status = 'rejected' WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/delivery/login", (req, res) => {
+    const { username, password } = req.body;
+    const partner = db.prepare("SELECT * FROM delivery_partners WHERE username = ? AND password = ? AND status = 'approved'").get(username, password);
+    if (partner) {
+      res.json({ success: true, partner });
+    } else {
+      res.status(401).json({ success: false, message: "Невалидно корисничко име или лозинка" });
+    }
+  });
+
+  app.get("/api/restaurants/by-city/:city", (req, res) => {
+    const restaurants = db.prepare("SELECT id, name, address FROM restaurants WHERE city = ? AND status = 'approved'").all(req.params.city);
+    res.json(restaurants);
+  });
+
   // --- RESTAURANT LOGIN & SETTINGS ---
   app.post("/api/restaurants/login", (req, res) => {
     const { username, password } = req.body;
@@ -225,9 +298,9 @@ if (restCount.count === 0) {
   });
 
   app.put("/api/restaurants/:id/settings", (req, res) => {
-    const { password, phone, bank_account, logo_url } = req.body;
-    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, spare_1 = ? WHERE id = ?")
-      .run(password, phone, bank_account, logo_url, req.params.id);
+    const { password, phone, bank_account, logo_url, spare_1, spare_2, spare_3, spare_4 } = req.body;
+    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ? WHERE id = ?")
+      .run(password, phone, bank_account, logo_url, spare_1, spare_2, spare_3, spare_4, req.params.id);
     res.json({ success: true });
   });
 
@@ -326,8 +399,68 @@ if (restCount.count === 0) {
 
   app.put("/api/orders/:orderId/status", (req, res) => {
     const { status } = req.body;
+    const { orderId } = req.params;
+    
+    let delivery_code = null;
+    if (status === 'accepted') {
+      // Generate delivery code: Name, Address, and 4 spare fields from restaurant
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+      const restaurant = db.prepare("SELECT * FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
+      
+      const codeData = {
+        customer: order.customer_name,
+        address: order.delivery_address,
+        restaurant_name: restaurant.name,
+        spare_1: restaurant.spare_1 || '',
+        spare_2: restaurant.spare_2 || '',
+        spare_3: restaurant.spare_3 || '',
+        spare_4: restaurant.spare_4 || ''
+      };
+      delivery_code = JSON.stringify(codeData);
+      
+      db.prepare("UPDATE orders SET status = ?, delivery_code = ? WHERE id = ?").run(status, delivery_code, orderId);
+    } else {
+      db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+    }
+    
+    res.json({ success: true, delivery_code });
+  });
+
+  app.get("/api/delivery/orders", (req, res) => {
+    const partnerId = req.query.partnerId;
+    if (!partnerId) {
+      return res.json([]);
+    }
+    const partner = db.prepare("SELECT preferred_restaurants FROM delivery_partners WHERE id = ?").get(partnerId) as any;
+    if (!partner) return res.json([]);
+    
+    const preferred = JSON.parse(partner.preferred_restaurants || '[]');
+    if (preferred.length === 0) return res.json([]);
+    
+    const placeholders = preferred.map(() => '?').join(',');
+    const orders = db.prepare(`SELECT * FROM orders WHERE restaurant_id IN (${placeholders}) AND status IN ('accepted', 'delivering') ORDER BY created_at DESC`).all(...preferred);
+    res.json(orders);
+  });
+
+  app.post("/api/delivery/login", (req, res) => {
+    const { username, password } = req.body;
+    const partner = db.prepare("SELECT * FROM delivery_partners WHERE username = ? AND password = ? AND status = 'approved'").get(username, password) as any;
+    if (partner) {
+      res.json({ success: true, partner });
+    } else {
+      res.status(401).json({ error: "Невалидни податоци или профилот не е одобрен" });
+    }
+  });
+
+  app.put("/api/delivery/orders/:orderId/status", (req, res) => {
+    const { status } = req.body;
     db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, req.params.orderId);
     res.json({ success: true });
+  });
+
+  app.get("/api/admin/orders", (req, res) => {
+    const orders = db.prepare("SELECT * FROM orders ORDER BY created_at DESC").all();
+    res.json(orders);
   });
 
   // --- MENU ENDPOINTS ---

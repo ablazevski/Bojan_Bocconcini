@@ -33,6 +33,7 @@ interface Order {
   items: string;
   total_price: number;
   status: string;
+  delivery_code: string;
   created_at: string;
 }
 
@@ -53,7 +54,11 @@ export default function Restaurant() {
     password: '',
     phone: '',
     bank_account: '',
-    logo_url: ''
+    logo_url: '',
+    spare_1: '',
+    spare_2: '',
+    spare_3: '',
+    spare_4: ''
   });
 
   useEffect(() => {
@@ -62,7 +67,11 @@ export default function Restaurant() {
         password: loggedInRestaurant.password || '',
         phone: loggedInRestaurant.phone || '',
         bank_account: loggedInRestaurant.bank_account || '',
-        logo_url: loggedInRestaurant.spare_1 || ''
+        logo_url: loggedInRestaurant.logo_url || '',
+        spare_1: loggedInRestaurant.spare_1 || '',
+        spare_2: loggedInRestaurant.spare_2 || '',
+        spare_3: loggedInRestaurant.spare_3 || '',
+        spare_4: loggedInRestaurant.spare_4 || ''
       });
     }
   }, [loggedInRestaurant]);
@@ -77,7 +86,7 @@ export default function Restaurant() {
       body: JSON.stringify(settingsForm)
     });
     if (res.ok) {
-      const updatedRest = { ...loggedInRestaurant, ...settingsForm, spare_1: settingsForm.logo_url };
+      const updatedRest = { ...loggedInRestaurant, ...settingsForm };
       setLoggedInRestaurant(updatedRest);
       localStorage.setItem('restaurant_auth', JSON.stringify(updatedRest));
       alert('Поставките се успешно зачувани!');
@@ -416,24 +425,54 @@ export default function Restaurant() {
                           <h3 className="font-bold text-lg text-slate-800">Нарачка #{order.id}</h3>
                           <p className="text-sm text-slate-500">{new Date(order.created_at).toLocaleString()}</p>
                         </div>
-                        <select 
-                          value={order.status}
-                          onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                          className={`px-4 py-2 rounded-xl text-sm font-bold border-0 cursor-pointer transition-colors ${
-                            order.status === 'pending' ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' :
-                            order.status === 'accepted' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' :
-                            order.status === 'delivering' ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' :
-                            order.status === 'completed' ? 'bg-green-100 text-green-700 hover:bg-green-200' :
-                            'bg-red-100 text-red-700 hover:bg-red-200'
-                          }`}
-                        >
-                          <option value="pending">Чека потврда</option>
-                          <option value="accepted">Се подготвува</option>
-                          <option value="delivering">Се доставува</option>
-                          <option value="completed">Доставена</option>
-                          <option value="cancelled">Откажана</option>
-                        </select>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { id: 'pending', label: 'Чека потврда', color: 'yellow' },
+                            { id: 'accepted', label: 'Се подготвува', color: 'blue' },
+                            { id: 'delivering', label: 'Се доставува', color: 'purple' },
+                            { id: 'completed', label: 'Доставена', color: 'green' }
+                          ].map((s, idx, arr) => {
+                            const isCurrent = order.status === s.id;
+                            const isPast = arr.findIndex(x => x.id === order.status) > idx;
+                            const isNext = arr.findIndex(x => x.id === order.status) === idx - 1;
+                            const isDisabled = !isNext && !isCurrent && !isPast;
+                            
+                            const colorClasses: Record<string, string> = {
+                              yellow: isCurrent ? 'bg-yellow-500 text-white border-yellow-600' : isPast ? 'bg-yellow-50 text-yellow-400 border-yellow-100' : isNext ? 'bg-white text-yellow-600 border-yellow-200 hover:bg-yellow-50' : 'bg-slate-50 text-slate-300 border-slate-100',
+                              blue: isCurrent ? 'bg-blue-500 text-white border-blue-600' : isPast ? 'bg-blue-50 text-blue-400 border-blue-100' : isNext ? 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50' : 'bg-slate-50 text-slate-300 border-slate-100',
+                              purple: isCurrent ? 'bg-purple-500 text-white border-purple-600' : isPast ? 'bg-purple-50 text-purple-400 border-purple-100' : isNext ? 'bg-white text-purple-600 border-purple-200 hover:bg-purple-50' : 'bg-slate-50 text-slate-300 border-slate-100',
+                              green: isCurrent ? 'bg-green-500 text-white border-green-600' : isPast ? 'bg-green-50 text-green-400 border-green-100' : isNext ? 'bg-white text-green-600 border-green-200 hover:bg-green-50' : 'bg-slate-50 text-slate-300 border-slate-100',
+                            };
+                            
+                            return (
+                              <button
+                                key={s.id}
+                                disabled={isDisabled || isPast || order.status === 'cancelled'}
+                                onClick={() => updateOrderStatus(order.id, s.id)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${colorClasses[s.color]}`}
+                              >
+                                {s.label}
+                              </button>
+                            );
+                          })}
+                          <button
+                            disabled={order.status === 'completed' || order.status === 'cancelled'}
+                            onClick={() => updateOrderStatus(order.id, 'cancelled')}
+                            className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                              order.status === 'cancelled' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
+                            }`}
+                          >
+                            Откажи
+                          </button>
+                        </div>
                       </div>
+                      
+                      {order.delivery_code && (
+                        <div className="mb-6 p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs overflow-x-auto border-l-4 border-orange-500">
+                          <p className="text-orange-400 font-bold mb-2 uppercase tracking-wider">Генериран код за достава:</p>
+                          <pre>{JSON.stringify(JSON.parse(order.delivery_code), null, 2)}</pre>
+                        </div>
+                      )}
                       
                       <div className="grid md:grid-cols-2 gap-8">
                         <div>
@@ -503,6 +542,22 @@ export default function Restaurant() {
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Лого URL</label>
                     <input type="text" value={settingsForm.logo_url} onChange={e => setSettingsForm({...settingsForm, logo_url: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 1</label>
+                    <input type="text" value={settingsForm.spare_1} onChange={e => setSettingsForm({...settingsForm, spare_1: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 2</label>
+                    <input type="text" value={settingsForm.spare_2} onChange={e => setSettingsForm({...settingsForm, spare_2: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 3</label>
+                    <input type="text" value={settingsForm.spare_3} onChange={e => setSettingsForm({...settingsForm, spare_3: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 4</label>
+                    <input type="text" value={settingsForm.spare_4} onChange={e => setSettingsForm({...settingsForm, spare_4: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
                   </div>
                 </div>
                 <div className="flex justify-end pt-4">
