@@ -37,12 +37,16 @@ db.exec(`
     total_price REAL,
     status TEXT DEFAULT 'pending',
     delivery_code TEXT,
+    delivery_partner_id INTEGER,
+    delivery_partner_name TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
 
 // Migration for delivery_code
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_code TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_id INTEGER'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_name TEXT'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS restaurants (
@@ -88,6 +92,52 @@ db.exec(`
     username TEXT,
     password TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS marketing_associates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password TEXT,
+    company_name TEXT,
+    contact_person TEXT,
+    phone TEXT,
+    bank_account TEXT,
+    address TEXT,
+    city TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    associate_id INTEGER,
+    name TEXT,
+    description TEXT,
+    budget REAL,
+    start_date TEXT,
+    end_date TEXT,
+    location_type TEXT,
+    selected_cities TEXT DEFAULT '[]',
+    map_zones TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'pending',
+    quantity INTEGER DEFAULT 0,
+    code_format TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS campaign_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id INTEGER,
+    code TEXT UNIQUE,
+    is_used INTEGER DEFAULT 0,
+    used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
   )
 `);
 
@@ -453,8 +503,33 @@ if (restCount.count === 0) {
   });
 
   app.put("/api/delivery/orders/:orderId/status", (req, res) => {
-    const { status } = req.body;
-    db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, req.params.orderId);
+    const { status, partnerId, partnerName } = req.body;
+    const { orderId } = req.params;
+
+    if (status === 'delivering' && partnerId && partnerName) {
+      // Update order with partner info and update delivery code to include partner name in spare_1
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+      if (order && order.delivery_code) {
+        try {
+          const codeData = JSON.parse(order.delivery_code);
+          // Use spare_1 for delivery partner name as requested
+          codeData.spare_1 = partnerName;
+          codeData.delivery_partner = partnerName; // Also keep this for clarity
+          
+          const updatedCode = JSON.stringify(codeData);
+          db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ?, delivery_code = ? WHERE id = ?")
+            .run(status, partnerId, partnerName, updatedCode, orderId);
+        } catch (e) {
+          db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ? WHERE id = ?")
+            .run(status, partnerId, partnerName, orderId);
+        }
+      } else {
+        db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ? WHERE id = ?")
+          .run(status, partnerId, partnerName, orderId);
+      }
+    } else {
+      db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+    }
     res.json({ success: true });
   });
 
@@ -493,6 +568,162 @@ if (restCount.count === 0) {
   app.delete("/api/menu/:id", (req, res) => {
     db.prepare('DELETE FROM menu_items WHERE id = ?').run(req.params.id);
     res.json({ success: true });
+  });
+
+  app.put("/api/delivery/:id/profile", (req, res) => {
+    const { preferred_restaurants, working_hours } = req.body;
+    const { id } = req.params;
+    
+    try {
+      db.prepare("UPDATE delivery_partners SET preferred_restaurants = ?, working_hours = ? WHERE id = ?")
+        .run(JSON.stringify(preferred_restaurants), JSON.stringify(working_hours), id);
+      
+      const updatedPartner = db.prepare("SELECT * FROM delivery_partners WHERE id = ?").get(id);
+      res.json({ success: true, partner: updatedPartner });
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при ажурирање на профилот" });
+    }
+  });
+
+  // Marketing Associate Endpoints
+  app.get("/api/admin/marketing-associates", (req, res) => {
+    const associates = db.prepare("SELECT * FROM marketing_associates ORDER BY created_at DESC").all();
+    res.json(associates);
+  });
+
+  app.post("/api/admin/marketing-associates", (req, res) => {
+    const { username, password, company_name, contact_person, phone, bank_account, address, city } = req.body;
+    try {
+      db.prepare(`
+        INSERT INTO marketing_associates (username, password, company_name, contact_person, phone, bank_account, address, city)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(username, password, company_name, contact_person, phone, bank_account, address, city);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: "Корисничкото име веќе постои" });
+    }
+  });
+
+  app.post("/api/marketing/login", (req, res) => {
+    const { username, password } = req.body;
+    const associate = db.prepare("SELECT * FROM marketing_associates WHERE username = ? AND password = ?").get(username, password) as any;
+    if (associate) {
+      res.json({ success: true, associate });
+    } else {
+      res.status(401).json({ error: "Невалидни податоци" });
+    }
+  });
+
+  // Campaign Endpoints
+  app.get("/api/marketing/campaigns", (req, res) => {
+    const { associateId } = req.query;
+    const campaigns = db.prepare("SELECT * FROM campaigns WHERE associate_id = ? ORDER BY created_at DESC").all(associateId);
+    res.json(campaigns);
+  });
+
+  app.post("/api/marketing/campaigns", (req, res) => {
+    const { associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity } = req.body;
+    try {
+      db.prepare(`
+        INSERT INTO campaigns (associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(associate_id, name, description, budget, start_date, end_date, location_type, JSON.stringify(selected_cities || []), JSON.stringify(map_zones || []), quantity);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при креирање на кампања" });
+    }
+  });
+
+  app.post("/api/admin/campaigns/:id/approve", (req, res) => {
+    const { id } = req.params;
+    const { code_format } = req.body;
+    
+    try {
+      const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(id) as any;
+      if (!campaign) return res.status(404).json({ error: "Кампањата не е пронајдена" });
+
+      // Generate codes
+      const generateCode = (format: string) => {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < format.length; i++) {
+          if (format[i] === '-') {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+          } else if (format[i] === ' ') {
+            result += ' ';
+          } else {
+            result += format[i];
+          }
+        }
+        return result;
+      };
+
+      const codes = [];
+      const stmt = db.prepare("INSERT OR IGNORE INTO campaign_codes (campaign_id, code) VALUES (?, ?)");
+      
+      let generatedCount = 0;
+      let attempts = 0;
+      const maxAttempts = campaign.quantity * 2;
+
+      while (generatedCount < campaign.quantity && attempts < maxAttempts) {
+        const code = generateCode(code_format);
+        const info = stmt.run(id, code);
+        if (info.changes > 0) {
+          generatedCount++;
+        }
+        attempts++;
+      }
+
+      db.prepare("UPDATE campaigns SET status = 'active', code_format = ? WHERE id = ?").run(code_format, id);
+      
+      res.json({ success: true, generated: generatedCount });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Грешка при одобрување" });
+    }
+  });
+
+  app.post("/api/admin/campaigns/:id/reject", (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("UPDATE campaigns SET status = 'rejected' WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при одбивање" });
+    }
+  });
+
+  app.get("/api/campaigns/:id/export", (req, res) => {
+    const { id } = req.params;
+    try {
+      const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(id) as any;
+      const codes = db.prepare("SELECT code FROM campaign_codes WHERE campaign_id = ?").all(id) as any[];
+      
+      if (!campaign || codes.length === 0) {
+        return res.status(404).send("Нема кодови за оваа кампања");
+      }
+
+      let csv = "Код\n";
+      codes.forEach(c => {
+        csv += `${c.code}\n`;
+      });
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=campaign_codes_${id}.csv`);
+      res.send(csv);
+    } catch (e) {
+      res.status(500).send("Грешка при експорт");
+    }
+  });
+
+  app.get("/api/admin/campaigns", (req, res) => {
+    const campaigns = db.prepare(`
+      SELECT c.*, ma.company_name as associate_name 
+      FROM campaigns c 
+      JOIN marketing_associates ma ON c.associate_id = ma.id 
+      ORDER BY c.created_at DESC
+    `).all();
+    res.json(campaigns);
   });
 
   // Vite middleware for development

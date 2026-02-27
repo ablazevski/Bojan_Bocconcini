@@ -469,7 +469,15 @@ export default function Restaurant() {
                       
                       {order.delivery_code && (
                         <div className="mb-6 p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs overflow-x-auto border-l-4 border-orange-500">
-                          <p className="text-orange-400 font-bold mb-2 uppercase tracking-wider">Генериран код за достава:</p>
+                          <div className="flex justify-between items-start mb-2">
+                            <p className="text-orange-400 font-bold uppercase tracking-wider">Генериран код за достава:</p>
+                            {order.delivery_partner_name && (
+                              <div className="text-right">
+                                <p className="text-emerald-400 font-bold uppercase tracking-wider">Доставувач:</p>
+                                <p className="text-white">{order.delivery_partner_name}</p>
+                              </div>
+                            )}
+                          </div>
                           <pre>{JSON.stringify(JSON.parse(order.delivery_code), null, 2)}</pre>
                         </div>
                       )}

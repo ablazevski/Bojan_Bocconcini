@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike } from 'lucide-react';
+import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2 } from 'lucide-react';
 
 interface Order {
   id: number;
@@ -18,21 +18,69 @@ export default function Delivery() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<'orders' | 'settings'>('orders');
+  const [availableRestaurants, setAvailableRestaurants] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const [editHours, setEditHours] = useState<any>({});
+  const [editRestaurants, setEditRestaurants] = useState<number[]>([]);
 
   useEffect(() => {
     const saved = localStorage.getItem('delivery_auth');
     if (saved) {
-      setPartner(JSON.parse(saved));
+      const p = JSON.parse(saved);
+      setPartner(p);
+      setEditHours(JSON.parse(p.working_hours || '{}'));
+      setEditRestaurants(JSON.parse(p.preferred_restaurants || '[]'));
     }
   }, []);
 
   useEffect(() => {
     if (partner) {
       fetchOrders();
+      fetchAvailableRestaurants();
       const interval = setInterval(fetchOrders, 10000);
       return () => clearInterval(interval);
     }
   }, [partner]);
+
+  const fetchAvailableRestaurants = async () => {
+    if (!partner) return;
+    try {
+      const res = await fetch(`/api/restaurants/by-city/${partner.city}`);
+      const data = await res.json();
+      setAvailableRestaurants(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/delivery/${partner.id}/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          preferred_restaurants: editRestaurants,
+          working_hours: editHours
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPartner(data.partner);
+        localStorage.setItem('delivery_auth', JSON.stringify(data.partner));
+        alert('Профилот е успешно ажуриран!');
+        setActiveTab('orders');
+      } else {
+        alert(data.error || 'Грешка при зачувување');
+      }
+    } catch (e) {
+      alert('Грешка при поврзување со серверот');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,7 +126,11 @@ export default function Delivery() {
     await fetch(`/api/delivery/orders/${orderId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ 
+        status,
+        partnerId: partner.id,
+        partnerName: partner.name
+      })
     });
     fetchOrders();
   };
@@ -155,6 +207,13 @@ export default function Delivery() {
         </div>
         <div className="flex items-center gap-3">
           <button 
+            onClick={() => setActiveTab(activeTab === 'orders' ? 'settings' : 'orders')}
+            className={`p-2 rounded-full transition-colors ${activeTab === 'settings' ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-emerald-50 text-slate-400'}`}
+            title="Поставки"
+          >
+            <Settings size={20} />
+          </button>
+          <button 
             onClick={handleLogout}
             className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors uppercase tracking-wider"
           >
@@ -168,7 +227,95 @@ export default function Delivery() {
       </header>
       
       <main className="max-w-md mx-auto p-6 space-y-8">
-        {/* Active Delivery Section */}
+        {activeTab === 'settings' ? (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+            <div className="bg-white rounded-3xl shadow-xl border border-emerald-100 overflow-hidden">
+              <div className="bg-emerald-600 p-6 text-white">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Settings size={24} />
+                  Поставки на профил
+                </h2>
+                <p className="text-emerald-100 text-sm mt-1">Ажурирајте ги вашите ресторани и работно време</p>
+              </div>
+
+              <div className="p-6 space-y-8">
+                {/* Restaurants Selection */}
+                <section>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Package size={18} className="text-emerald-500" />
+                    Ресторани за соработка
+                  </h3>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                    {availableRestaurants.map(rest => (
+                      <label key={rest.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-emerald-50 transition-colors cursor-pointer group">
+                        <input 
+                          type="checkbox"
+                          checked={editRestaurants.includes(rest.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setEditRestaurants([...editRestaurants, rest.id]);
+                            else setEditRestaurants(editRestaurants.filter(id => id !== rest.id));
+                          }}
+                          className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div className="flex-1">
+                          <p className="font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">{rest.name}</p>
+                          <p className="text-xs text-slate-500">{rest.address}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Working Hours */}
+                <section>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Clock size={18} className="text-emerald-500" />
+                    Работно време
+                  </h3>
+                  <div className="space-y-3">
+                    {['Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота', 'Недела'].map(day => (
+                      <div key={day} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span className="text-sm font-medium text-slate-700">{day}</span>
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="time" 
+                            value={editHours[day]?.start || '08:00'}
+                            onChange={e => setEditHours({...editHours, [day]: {...(editHours[day] || {}), start: e.target.value}})}
+                            className="text-xs p-1 rounded border border-slate-200 outline-none focus:ring-1 focus:ring-emerald-500"
+                          />
+                          <span className="text-slate-400">-</span>
+                          <input 
+                            type="time" 
+                            value={editHours[day]?.end || '22:00'}
+                            onChange={e => setEditHours({...editHours, [day]: {...(editHours[day] || {}), end: e.target.value}})}
+                            className="text-xs p-1 rounded border border-slate-200 outline-none focus:ring-1 focus:ring-emerald-500"
+                          />
+                          <input 
+                            type="checkbox"
+                            checked={editHours[day]?.active ?? true}
+                            onChange={e => setEditHours({...editHours, [day]: {...(editHours[day] || {}), active: e.target.checked}})}
+                            className="ml-2 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <button 
+                  onClick={handleSaveProfile}
+                  disabled={saving}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+                  Зачувај промени
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Active Delivery Section */}
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Тековна достава</h3>
           {activeDelivery ? (
@@ -261,6 +408,8 @@ export default function Delivery() {
             </div>
           )}
         </div>
+          </>
+        )}
       </main>
     </div>
   );
