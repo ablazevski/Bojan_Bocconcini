@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface ModifierOption {
@@ -686,61 +686,127 @@ export default function Restaurant() {
                   </div>
                   
                   {/* Modifiers Section */}
-                  <div className="col-span-1 md:col-span-2 border-t border-slate-200 pt-6 mt-2">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                        <Settings2 className="text-red-500" size={20} />
-                        Опции и Додатоци (Подгрупи)
-                      </h3>
-                      <button type="button" onClick={addModifierGroup} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-medium transition-colors">
-                        + Додади група
+                  <div className="col-span-1 md:col-span-2 border-t border-slate-100 pt-8 mt-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                          <Settings2 className="text-red-500" size={24} />
+                          Опции и Додатоци
+                        </h3>
+                        <p className="text-sm text-slate-500 mt-1">Додадете варијации (пр. Големина) или екстра додатоци (пр. Кашкавал)</p>
+                      </div>
+                      <button type="button" onClick={addModifierGroup} className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 whitespace-nowrap">
+                        <Plus size={18} /> Нова Група
                       </button>
                     </div>
                     
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       {newItem.modifiers.map((group, gIndex) => (
-                        <div key={gIndex} className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                          <div className="flex gap-4 mb-4">
-                            <div className="flex-1">
-                              <input type="text" value={group.name} onChange={e => updateModifierGroup(gIndex, 'name', e.target.value)} placeholder="Име на група (пр. Големина, Додатоци)" className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" />
+                        <div key={gIndex} className="bg-white p-5 rounded-2xl border-2 border-slate-100 shadow-sm relative group/group">
+                          <button 
+                            type="button" 
+                            onClick={() => removeModifierGroup(gIndex)} 
+                            className="absolute -top-3 -right-3 bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 p-1.5 rounded-full transition-all shadow-sm opacity-0 group-hover/group:opacity-100"
+                            title="Избриши група"
+                          >
+                            <X size={16} />
+                          </button>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            <div>
+                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Име на група</label>
+                              <input 
+                                type="text" 
+                                value={group.name} 
+                                onChange={e => updateModifierGroup(gIndex, 'name', e.target.value)} 
+                                placeholder="пр. Избор на големина" 
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-red-500 outline-none font-medium text-slate-800" 
+                              />
                             </div>
-                            <select value={group.type} onChange={e => updateModifierGroup(gIndex, 'type', e.target.value)} className="p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none">
-                              <option value="single">Еден избор (Радио)</option>
-                              <option value="multiple">Повеќе избори (Чекирање)</option>
-                            </select>
-                            <button type="button" onClick={() => removeModifierGroup(gIndex)} className="text-red-500 hover:bg-red-100 p-2 rounded-lg transition-colors">
-                              <Trash2 size={20} />
-                            </button>
+                            <div>
+                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Тип на избор</label>
+                              <select 
+                                value={group.type} 
+                                onChange={e => updateModifierGroup(gIndex, 'type', e.target.value)} 
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-red-500 outline-none font-medium text-slate-800 cursor-pointer"
+                              >
+                                <option value="single">Еден избор (Задолжително)</option>
+                                <option value="multiple">Повеќе избори (Опционално)</option>
+                              </select>
+                            </div>
                           </div>
                           
-                          <div className="space-y-2 pl-4 border-l-2 border-slate-200">
-                            {group.options.map((opt, oIndex) => (
-                              <div key={oIndex} className="flex gap-3 items-center">
-                                <input type="text" value={opt.name} onChange={e => updateModifierOption(gIndex, oIndex, 'name', e.target.value)} placeholder="Опција (пр. Мала, Сусам)" className="flex-1 p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" />
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm text-slate-500">+</span>
-                                  <input type="number" value={opt.price} onChange={e => updateModifierOption(gIndex, oIndex, 'price', parseFloat(e.target.value) || 0)} placeholder="Цена" className="w-24 p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" />
-                                  <span className="text-sm text-slate-500">ден.</span>
+                          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                            <div className="flex items-center justify-between mb-3">
+                              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Опции во оваа група</label>
+                              <span className="text-xs font-medium text-slate-400">{group.options.length} опции</span>
+                            </div>
+                            
+                            <div className="space-y-3">
+                              {group.options.map((opt, oIndex) => (
+                                <div key={oIndex} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-white p-2 rounded-lg border border-slate-200 group/option">
+                                  <div className="flex-1 w-full">
+                                    <input 
+                                      type="text" 
+                                      value={opt.name} 
+                                      onChange={e => updateModifierOption(gIndex, oIndex, 'name', e.target.value)} 
+                                      placeholder="Име на опција (пр. Мала)" 
+                                      className="w-full p-2 bg-transparent border-none focus:ring-0 outline-none text-sm font-medium text-slate-700 placeholder:font-normal" 
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-2 w-full sm:w-auto pl-2 sm:pl-0 border-t sm:border-t-0 sm:border-l border-slate-100 pt-2 sm:pt-0">
+                                    <span className="text-sm font-bold text-slate-400 pl-2">+</span>
+                                    <input 
+                                      type="number" 
+                                      value={opt.price} 
+                                      onChange={e => updateModifierOption(gIndex, oIndex, 'price', parseFloat(e.target.value) || 0)} 
+                                      placeholder="0" 
+                                      className="w-20 p-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-red-500 outline-none text-sm font-bold text-slate-700 text-right" 
+                                    />
+                                    <span className="text-sm font-bold text-slate-400 pr-2">ден.</span>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => removeModifierOption(gIndex, oIndex)} 
+                                      className="text-slate-300 hover:text-red-500 p-2 rounded-lg transition-colors sm:opacity-0 group-hover/option:opacity-100"
+                                      title="Избриши опција"
+                                    >
+                                      <Trash2 size={18} />
+                                    </button>
+                                  </div>
                                 </div>
-                                <button type="button" onClick={() => removeModifierOption(gIndex, oIndex)} className="text-slate-400 hover:text-red-500 p-1">
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
-                            ))}
-                            <button type="button" onClick={() => addModifierOption(gIndex)} className="text-sm text-red-600 hover:text-red-700 font-medium mt-2">
-                              + Додади опција
-                            </button>
+                              ))}
+                              
+                              <button 
+                                type="button" 
+                                onClick={() => addModifierOption(gIndex)} 
+                                className="w-full py-3 border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50 rounded-lg text-sm font-bold text-slate-500 hover:text-red-600 transition-all flex items-center justify-center gap-2"
+                              >
+                                <Plus size={16} /> Додади нова опција
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
+                      
                       {newItem.modifiers.length === 0 && (
-                        <p className="text-sm text-slate-500 italic">Нема додадено опции. Продуктот ќе се продава само по основната цена.</p>
+                        <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                          <Settings2 className="mx-auto text-slate-300 mb-3" size={32} />
+                          <p className="text-slate-500 font-medium">Немате додадено опции за овој продукт.</p>
+                          <p className="text-sm text-slate-400 mt-1">Продуктот ќе се продава само по основната цена.</p>
+                          <button 
+                            type="button" 
+                            onClick={addModifierGroup} 
+                            className="mt-4 text-red-600 hover:text-red-700 font-bold text-sm flex items-center justify-center gap-1 mx-auto"
+                          >
+                            <Plus size={16} /> Додади прва група на опции
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="col-span-1 md:col-span-2 pt-2">
-                    <button type="submit" disabled={isAddingItem} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-70">
+                  <div className="col-span-1 md:col-span-2 pt-6 mt-4 border-t border-slate-100">
+                    <button type="submit" disabled={isAddingItem} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-slate-800/20 disabled:opacity-70 text-lg">
                       {isAddingItem ? 'Се зачувува...' : (editingId ? 'Зачувај промени' : 'Зачувај продукт')}
                     </button>
                   </div>

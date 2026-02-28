@@ -26,6 +26,8 @@ export default function Marketing() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
+  const [selectedCampaignForDetails, setSelectedCampaignForDetails] = useState<any>(null);
+  const [usedCodes, setUsedCodes] = useState<any[]>([]);
   
   const [newCampaign, setNewCampaign] = useState({
     name: '',
@@ -60,6 +62,16 @@ export default function Marketing() {
       setCampaigns(data);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const fetchUsedCodes = async (campaignId: number) => {
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/used-codes`);
+      const data = await res.json();
+      setUsedCodes(data);
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -327,12 +339,9 @@ export default function Marketing() {
                     <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                       camp.status === 'pending' ? 'bg-orange-100 text-orange-600' :
                       camp.status === 'active' ? 'bg-emerald-100 text-emerald-600' :
-                      camp.status === 'rejected' ? 'bg-red-100 text-red-600' :
                       'bg-slate-100 text-slate-600'
                     }`}>
-                      {camp.status === 'pending' ? 'Во чекање' : 
-                       camp.status === 'active' ? 'Активна' : 
-                       camp.status === 'rejected' ? 'Одбиена' : 'Завршена'}
+                      {camp.status === 'pending' ? 'Во чекање' : camp.status === 'active' ? 'Активна' : 'Завршена'}
                     </span>
                   </div>
 
@@ -363,7 +372,13 @@ export default function Marketing() {
                           <Download size={14} /> Превземи кодови
                         </a>
                       )}
-                      <button className="text-indigo-600 hover:text-indigo-700 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                      <button 
+                        onClick={() => {
+                          setSelectedCampaignForDetails(camp);
+                          fetchUsedCodes(camp.id);
+                        }}
+                        className="text-indigo-600 hover:text-indigo-700 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform"
+                      >
                         Детали <ChevronRight size={14} />
                       </button>
                     </div>
@@ -586,6 +601,62 @@ export default function Marketing() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Used Codes Modal */}
+      {selectedCampaignForDetails && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Детали за кампања: {selectedCampaignForDetails.name}</h2>
+                <div className="flex gap-4 mt-2 text-sm text-slate-500">
+                  <span>Вкупно кодови: <strong className="text-slate-800">{selectedCampaignForDetails.total_codes || 0}</strong></span>
+                  <span>Искористени: <strong className="text-emerald-600">{selectedCampaignForDetails.used_codes || 0}</strong></span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedCampaignForDetails(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X size={24} className="text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="p-6 md:p-8 overflow-y-auto flex-1">
+              <h3 className="text-lg font-bold text-slate-800 mb-4">Искористени кодови</h3>
+              {usedCodes.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <p>Сеуште нема искористени кодови за оваа кампања.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b-2 border-slate-100 text-slate-500 text-sm">
+                        <th className="pb-3 font-medium">Код</th>
+                        <th className="pb-3 font-medium">Време на користење</th>
+                        <th className="pb-3 font-medium">Локација</th>
+                        <th className="pb-3 font-medium">Ресторан</th>
+                        <th className="pb-3 font-medium">Нарачка #</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm">
+                      {usedCodes.map((code, idx) => (
+                        <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                          <td className="py-4 font-mono font-bold text-indigo-600">{code.code}</td>
+                          <td className="py-4 text-slate-600">{new Date(code.used_at).toLocaleString()}</td>
+                          <td className="py-4 text-slate-600">{code.delivery_address}</td>
+                          <td className="py-4 text-slate-800 font-medium">{code.restaurant_name}</td>
+                          <td className="py-4 text-slate-500">#{code.order_id}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -39,12 +39,18 @@ db.exec(`
     delivery_code TEXT,
     delivery_partner_id INTEGER,
     delivery_partner_name TEXT,
+    spare_1 TEXT,
+    spare_2 TEXT,
+    spare_3 TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
 
-// Migration for delivery_code
+// Migrations
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_code TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN spare_1 TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN spare_2 TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN spare_3 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_id INTEGER'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_name TEXT'); } catch (e) {}
 
@@ -199,13 +205,34 @@ if (restCount.count === 0) {
       const restaurants = db.prepare("SELECT * FROM restaurants").all();
       const menu_items = db.prepare("SELECT * FROM menu_items").all();
       const orders = db.prepare("SELECT * FROM orders").all();
+      const delivery_partners = db.prepare("SELECT * FROM delivery_partners").all();
+      const marketing_associates = db.prepare("SELECT * FROM marketing_associates").all();
+      const campaigns = db.prepare("SELECT * FROM campaigns").all();
+      const campaign_codes = db.prepare("SELECT * FROM campaign_codes").all();
+      
       res.setHeader('Content-disposition', 'attachment; filename=pizzatime-backup.json');
       res.setHeader('Content-type', 'application/json');
-      res.send(JSON.stringify({ restaurants, menu_items, orders }, null, 2));
+      res.send(JSON.stringify({ 
+        restaurants, 
+        menu_items, 
+        orders,
+        delivery_partners,
+        marketing_associates,
+        campaigns,
+        campaign_codes
+      }, null, 2));
     });
   
     app.post("/api/admin/import", (req, res) => {
-      const { restaurants, menu_items, orders } = req.body;
+      const { 
+        restaurants, 
+        menu_items, 
+        orders,
+        delivery_partners,
+        marketing_associates,
+        campaigns,
+        campaign_codes
+      } = req.body;
       
       try {
         const transaction = db.transaction(() => {
@@ -213,6 +240,10 @@ if (restCount.count === 0) {
           db.prepare("DELETE FROM restaurants").run();
           db.prepare("DELETE FROM menu_items").run();
           db.prepare("DELETE FROM orders").run();
+          db.prepare("DELETE FROM delivery_partners").run();
+          db.prepare("DELETE FROM marketing_associates").run();
+          db.prepare("DELETE FROM campaigns").run();
+          db.prepare("DELETE FROM campaign_codes").run();
           
           // Insert restaurants
           if (restaurants && restaurants.length > 0) {
@@ -235,6 +266,38 @@ if (restCount.count === 0) {
             const insertOrder = db.prepare(`INSERT INTO orders (id, restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const o of orders) {
               insertOrder.run(o.id, o.restaurant_id, o.customer_name, o.customer_email, o.customer_phone, o.delivery_address, o.delivery_lat, o.delivery_lng, o.items, o.total_price, o.status, o.created_at);
+            }
+          }
+
+          // Insert delivery partners
+          if (delivery_partners && delivery_partners.length > 0) {
+            const insertDel = db.prepare(`INSERT INTO delivery_partners (id, name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, status, username, password, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const d of delivery_partners) {
+              insertDel.run(d.id, d.name, d.city, d.address, d.email, d.phone, d.bank_account, d.working_hours, d.preferred_restaurants, d.status, d.username, d.password, d.created_at);
+            }
+          }
+
+          // Insert marketing associates
+          if (marketing_associates && marketing_associates.length > 0) {
+            const insertMark = db.prepare(`INSERT INTO marketing_associates (id, username, password, company_name, contact_person, phone, bank_account, address, city, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const m of marketing_associates) {
+              insertMark.run(m.id, m.username, m.password, m.company_name, m.contact_person, m.phone, m.bank_account, m.address, m.city, m.created_at);
+            }
+          }
+
+          // Insert campaigns
+          if (campaigns && campaigns.length > 0) {
+            const insertCamp = db.prepare(`INSERT INTO campaigns (id, associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, status, quantity, code_format, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const c of campaigns) {
+              insertCamp.run(c.id, c.associate_id, c.name, c.description, c.budget, c.start_date, c.end_date, c.location_type, c.selected_cities, c.map_zones, c.status, c.quantity, c.code_format, c.created_at);
+            }
+          }
+
+          // Insert campaign codes
+          if (campaign_codes && campaign_codes.length > 0) {
+            const insertCode = db.prepare(`INSERT INTO campaign_codes (id, campaign_id, code, is_used, used_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`);
+            for (const c of campaign_codes) {
+              insertCode.run(c.id, c.campaign_id, c.code, c.is_used, c.used_at, c.created_at);
             }
           }
         });
@@ -416,7 +479,7 @@ if (restCount.count === 0) {
   });
 
   app.post("/api/orders", (req, res) => {
-    const { customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items } = req.body;
+    const { customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, campaign_id } = req.body;
     
     // Group items by restaurant
     const itemsByRestaurant = items.reduce((acc: any, item: any) => {
@@ -426,15 +489,32 @@ if (restCount.count === 0) {
     }, {});
 
     const insert = db.prepare(`
-      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const orderIds = [];
+    let campaignApplied = false;
+
     for (const [restaurantId, restItems] of Object.entries(itemsByRestaurant)) {
-      const totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
+      let totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
+      let campaignCode = null;
+
+      if (campaign_id && !campaignApplied) {
+        const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ? AND status = 'active'").get(campaign_id) as any;
+        if (campaign) {
+          totalPrice += campaign.budget; // Add campaign price to total
+          const codeRow = db.prepare("SELECT code FROM campaign_codes WHERE campaign_id = ? AND is_used = 0 LIMIT 1").get(campaign_id) as any;
+          if (codeRow) {
+            campaignCode = codeRow.code;
+            db.prepare("UPDATE campaign_codes SET is_used = 1, used_at = CURRENT_TIMESTAMP WHERE code = ?").run(campaignCode);
+            campaignApplied = true;
+          }
+        }
+      }
+
       const info = insert.run(
-        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice
+        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode
       );
       orderIds.push(info.lastInsertRowid);
     }
@@ -464,7 +544,8 @@ if (restCount.count === 0) {
         spare_1: restaurant.spare_1 || '',
         spare_2: restaurant.spare_2 || '',
         spare_3: restaurant.spare_3 || '',
-        spare_4: restaurant.spare_4 || ''
+        spare_4: restaurant.spare_4 || '',
+        campaign_code: order.spare_1 || ''
       };
       delivery_code = JSON.stringify(codeData);
       
@@ -615,9 +696,27 @@ if (restCount.count === 0) {
   });
 
   // Campaign Endpoints
+  app.get("/api/customer/campaigns/active", (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+    const campaigns = db.prepare(`
+      SELECT * FROM campaigns 
+      WHERE status = 'active' 
+      AND start_date <= ? 
+      AND end_date >= ?
+    `).all(today, today);
+    res.json(campaigns);
+  });
+
   app.get("/api/marketing/campaigns", (req, res) => {
     const { associateId } = req.query;
-    const campaigns = db.prepare("SELECT * FROM campaigns WHERE associate_id = ? ORDER BY created_at DESC").all(associateId);
+    const campaigns = db.prepare(`
+      SELECT c.*, 
+             (SELECT COUNT(*) FROM campaign_codes WHERE campaign_id = c.id) as total_codes,
+             (SELECT COUNT(*) FROM campaign_codes WHERE campaign_id = c.id AND is_used = 1) as used_codes
+      FROM campaigns c 
+      WHERE c.associate_id = ? 
+      ORDER BY c.created_at DESC
+    `).all(associateId);
     res.json(campaigns);
   });
 
@@ -713,6 +812,29 @@ if (restCount.count === 0) {
       res.send(csv);
     } catch (e) {
       res.status(500).send("Грешка при експорт");
+    }
+  });
+
+  app.get("/api/campaigns/:id/used-codes", (req, res) => {
+    const { id } = req.params;
+    try {
+      const usedCodes = db.prepare(`
+        SELECT 
+          cc.code,
+          cc.used_at,
+          o.id as order_id,
+          o.delivery_address,
+          r.name as restaurant_name
+        FROM campaign_codes cc
+        JOIN orders o ON cc.code = o.spare_1
+        JOIN restaurants r ON o.restaurant_id = r.id
+        WHERE cc.campaign_id = ? AND cc.is_used = 1
+        ORDER BY cc.used_at DESC
+      `).all(id);
+      res.json(usedCodes);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Грешка при вчитување на кодови" });
     }
   });
 

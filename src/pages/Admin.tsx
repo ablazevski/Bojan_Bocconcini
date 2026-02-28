@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface PendingRestaurant {
@@ -70,6 +70,8 @@ export default function Admin() {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [isImporting, setIsImporting] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
+  const [selectedCampaignForDetails, setSelectedCampaignForDetails] = useState<any>(null);
+  const [usedCodes, setUsedCodes] = useState<any[]>([]);
   const [newAssociate, setNewAssociate] = useState({
     username: '',
     password: '',
@@ -106,6 +108,16 @@ export default function Admin() {
 
     const resCampaigns = await fetch('/api/admin/campaigns');
     setCampaigns(await resCampaigns.json());
+  };
+
+  const fetchUsedCodes = async (campaignId: number) => {
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/used-codes`);
+      const data = await res.json();
+      setUsedCodes(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const openApprovalModal = (rest: PendingRestaurant) => {
@@ -235,7 +247,6 @@ export default function Admin() {
   };
 
   const handleRejectCampaign = async (id: number) => {
-    if (!confirm('Дали сте сигурни дека сакате да ја одбиете кампањата?')) return;
     const res = await fetch(`/api/admin/campaigns/${id}/reject`, { method: 'POST' });
     if (res.ok) {
       alert('Кампањата е одбиена.');
@@ -583,16 +594,41 @@ export default function Admin() {
                           }`}>
                             {camp.status === 'pending' ? 'Pending' : camp.status}
                           </span>
-                          {camp.status === 'active' && (
-                            <a 
-                              href={`/api/campaigns/${camp.id}/export`}
-                              download
-                              onClick={e => e.stopPropagation()}
-                              className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
-                              title="Превземи кодови"
+                          {camp.status === 'pending' && (
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRejectCampaign(camp.id);
+                              }}
+                              className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                              title="Одбиј кампања"
                             >
-                              <Download size={14} />
-                            </a>
+                              <X size={14} />
+                            </button>
+                          )}
+                          {camp.status === 'active' && (
+                            <>
+                              <a 
+                                href={`/api/campaigns/${camp.id}/export`}
+                                download
+                                onClick={e => e.stopPropagation()}
+                                className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                                title="Превземи кодови"
+                              >
+                                <Download size={14} />
+                              </a>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedCampaignForDetails(camp);
+                                  fetchUsedCodes(camp.id);
+                                }}
+                                className="p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors"
+                                title="Детали за искористени кодови"
+                              >
+                                <ChevronRight size={14} />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -1161,6 +1197,118 @@ export default function Admin() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Used Codes Modal */}
+      {selectedCampaignForDetails && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Детали за кампања: {selectedCampaignForDetails.name}</h2>
+                <div className="flex gap-4 mt-2 text-sm text-slate-500">
+                  <span>Вкупно кодови: <strong className="text-slate-800">{selectedCampaignForDetails.quantity || 0}</strong></span>
+                  <span>Искористени: <strong className="text-emerald-600">{usedCodes.length}</strong></span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedCampaignForDetails(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X size={24} className="text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="p-6 md:p-8 overflow-y-auto flex-1">
+              <h3 className="text-lg font-bold text-slate-800 mb-4">Искористени кодови</h3>
+              {usedCodes.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <p>Сеуште нема искористени кодови за оваа кампања.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b-2 border-slate-100 text-slate-500 text-sm">
+                        <th className="pb-3 font-medium">Код</th>
+                        <th className="pb-3 font-medium">Време на користење</th>
+                        <th className="pb-3 font-medium">Локација</th>
+                        <th className="pb-3 font-medium">Ресторан</th>
+                        <th className="pb-3 font-medium">Нарачка #</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm">
+                      {usedCodes.map((code, idx) => (
+                        <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                          <td className="py-4 font-mono font-bold text-indigo-600">{code.code}</td>
+                          <td className="py-4 text-slate-600">{new Date(code.used_at).toLocaleString()}</td>
+                          <td className="py-4 text-slate-600">{code.delivery_address}</td>
+                          <td className="py-4 text-slate-800 font-medium">{code.restaurant_name}</td>
+                          <td className="py-4 text-slate-500">#{code.order_id}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Used Codes Modal */}
+      {selectedCampaignForDetails && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Детали за кампања: {selectedCampaignForDetails.name}</h2>
+                <div className="flex gap-4 mt-2 text-sm text-slate-500">
+                  <span>Вкупно кодови: <strong className="text-slate-800">{selectedCampaignForDetails.quantity || 0}</strong></span>
+                  <span>Искористени: <strong className="text-emerald-600">{usedCodes.length}</strong></span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedCampaignForDetails(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X size={24} className="text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="p-6 md:p-8 overflow-y-auto flex-1">
+              <h3 className="text-lg font-bold text-slate-800 mb-4">Искористени кодови</h3>
+              {usedCodes.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <p>Сеуште нема искористени кодови за оваа кампања.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b-2 border-slate-100 text-slate-500 text-sm">
+                        <th className="pb-3 font-medium">Код</th>
+                        <th className="pb-3 font-medium">Време на користење</th>
+                        <th className="pb-3 font-medium">Локација</th>
+                        <th className="pb-3 font-medium">Ресторан</th>
+                        <th className="pb-3 font-medium">Нарачка #</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm">
+                      {usedCodes.map((code, idx) => (
+                        <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                          <td className="py-4 font-mono font-bold text-indigo-600">{code.code}</td>
+                          <td className="py-4 text-slate-600">{new Date(code.used_at).toLocaleString()}</td>
+                          <td className="py-4 text-slate-600">{code.delivery_address}</td>
+                          <td className="py-4 text-slate-800 font-medium">{code.restaurant_name}</td>
+                          <td className="py-4 text-slate-500">#{code.order_id}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

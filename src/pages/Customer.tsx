@@ -42,6 +42,8 @@ export default function Customer() {
   
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
   
@@ -57,6 +59,15 @@ export default function Customer() {
     fetch('/api/customer/cities')
       .then(res => res.json())
       .then(data => setCities(data));
+      
+    fetch('/api/customer/campaigns/active')
+      .then(res => res.json())
+      .then(data => {
+        setActiveCampaigns(data);
+        if (data.length > 0) {
+          setSelectedCampaignId(data[0].id);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -177,6 +188,9 @@ export default function Customer() {
   };
 
   const cartTotal = cart.reduce((sum, item) => sum + item.finalPrice, 0);
+  
+  const selectedCampaign = activeCampaigns.find(c => c.id === selectedCampaignId);
+  const finalTotal = cartTotal + (selectedCampaign ? selectedCampaign.budget : 0);
 
   const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
     let x = point[0], y = point[1];
@@ -226,7 +240,8 @@ export default function Customer() {
         delivery_address: checkoutForm.address,
         delivery_lat: location![0],
         delivery_lng: location![1],
-        items: cart
+        items: cart,
+        campaign_id: selectedCampaignId
       })
     });
     
@@ -503,10 +518,50 @@ export default function Customer() {
                   ))}
                 </div>
                 
+                {activeCampaigns.length > 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-slate-800 mb-3">Активни кампањи</h3>
+                    <div className="space-y-3">
+                      {activeCampaigns.map(camp => (
+                        <label key={camp.id} className={`flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedCampaignId === camp.id ? 'border-orange-500 bg-orange-50' : 'border-slate-100 bg-white hover:border-orange-200'}`}>
+                          <div className="pt-1">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedCampaignId === camp.id}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedCampaignId(camp.id);
+                                else setSelectedCampaignId(null);
+                              }}
+                              className="w-5 h-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex justify-between items-start">
+                              <span className="font-bold text-slate-800">{camp.name}</span>
+                              <span className="font-bold text-orange-600">+{camp.budget} ден.</span>
+                            </div>
+                            <p className="text-sm text-slate-500 mt-1">{camp.description}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="border-t border-slate-200 pt-6">
-                  <div className="flex justify-between items-center mb-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-slate-500">Вкупно продукти:</span>
+                    <span className="font-bold text-slate-700">{cartTotal} ден.</span>
+                  </div>
+                  {selectedCampaign && (
+                    <div className="flex justify-between items-center mb-4 text-orange-600">
+                      <span>{selectedCampaign.name}:</span>
+                      <span className="font-bold">+{selectedCampaign.budget} ден.</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100">
                     <span className="text-lg text-slate-600">Вкупно за наплата:</span>
-                    <span className="text-3xl font-extrabold text-slate-800">{cartTotal} ден.</span>
+                    <span className="text-3xl font-extrabold text-slate-800">{finalTotal} ден.</span>
                   </div>
                   <button 
                     onClick={() => setStep('checkout')}
@@ -558,9 +613,19 @@ export default function Customer() {
                 </div>
 
                 <div className="pt-4 border-t border-slate-100">
-                  <div className="flex justify-between items-center mb-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-slate-500">Вкупно продукти:</span>
+                    <span className="font-bold text-slate-700">{cartTotal} ден.</span>
+                  </div>
+                  {selectedCampaign && (
+                    <div className="flex justify-between items-center mb-4 text-orange-600">
+                      <span>{selectedCampaign.name}:</span>
+                      <span className="font-bold">+{selectedCampaign.budget} ден.</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100">
                     <span className="text-lg text-slate-600">Вкупно за наплата:</span>
-                    <span className="text-2xl font-extrabold text-slate-800">{cartTotal} ден.</span>
+                    <span className="text-2xl font-extrabold text-slate-800">{finalTotal} ден.</span>
                   </div>
                   
                   {!isLocationValid() && (
