@@ -252,6 +252,12 @@ export default function Customer() {
   };
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   
   // Group items by category and subcategory
   const restaurantItems = selectedRestaurantId 
@@ -282,8 +288,20 @@ export default function Customer() {
           </Link>
           <h1 className="text-xl font-extrabold text-orange-600 tracking-tight">PizzaTime</h1>
         </div>
-        {step === 'menu' && (
-          <div className="flex items-center gap-4">
+        
+        {step !== 'city' && step !== 'success' && (
+          <div className="hidden md:flex flex-col items-center justify-center text-slate-500 text-sm font-medium">
+            <span className="text-orange-600 font-bold capitalize">
+              {currentTime.toLocaleDateString('mk-MK', { weekday: 'long' })}
+            </span>
+            <span>
+              {currentTime.toLocaleDateString('mk-MK', { day: '2-digit', month: '2-digit', year: 'numeric' })} • {currentTime.toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-4">
+          {step === 'menu' && (
             <button onClick={() => setStep('cart')} className="p-2 text-slate-600 hover:bg-slate-100 rounded-full relative">
               <ShoppingBag size={24} />
               {cart.length > 0 && (
@@ -292,8 +310,8 @@ export default function Customer() {
                 </span>
               )}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </header>
       
       <main className="max-w-5xl mx-auto p-6">

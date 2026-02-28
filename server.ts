@@ -562,14 +562,35 @@ if (restCount.count === 0) {
     if (!partnerId) {
       return res.json([]);
     }
-    const partner = db.prepare("SELECT preferred_restaurants FROM delivery_partners WHERE id = ?").get(partnerId) as any;
+    const partner = db.prepare("SELECT preferred_restaurants, working_hours FROM delivery_partners WHERE id = ?").get(partnerId) as any;
     if (!partner) return res.json([]);
     
     const preferred = JSON.parse(partner.preferred_restaurants || '[]');
     if (preferred.length === 0) return res.json([]);
     
     const placeholders = preferred.map(() => '?').join(',');
-    const orders = db.prepare(`SELECT * FROM orders WHERE restaurant_id IN (${placeholders}) AND status IN ('accepted', 'delivering') ORDER BY created_at DESC`).all(...preferred);
+
+    const workingHours = JSON.parse(partner.working_hours || '{}');
+    const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
+    const now = new Date();
+    const currentDay = days[now.getDay()];
+    const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+    
+    // Try both exact match and lowercase match since the keys might be saved differently
+    const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
+    
+    // Default to true if not set, otherwise check active status and time bounds
+    const isWorking = todayHours 
+      ? (todayHours.active !== false && currentTime >= (todayHours.start || '08:00') && currentTime <= (todayHours.end || '22:00'))
+      : (currentTime >= '08:00' && currentTime <= '22:00'); // Default working hours if not configured
+
+    let query = `SELECT * FROM orders WHERE restaurant_id IN (${placeholders}) AND (`;
+    if (isWorking) {
+      query += `status = 'accepted' OR `;
+    }
+    query += `(status = 'delivering' AND delivery_partner_id = ?)) ORDER BY created_at DESC`;
+    
+    const orders = db.prepare(query).all(...preferred, partnerId);
     res.json(orders);
   });
 

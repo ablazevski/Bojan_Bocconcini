@@ -26,12 +26,17 @@ export default function Delivery() {
   const [editRestaurants, setEditRestaurants] = useState<number[]>([]);
 
   useEffect(() => {
+    if (partner) {
+      setEditHours(JSON.parse(partner.working_hours || '{}'));
+      setEditRestaurants(JSON.parse(partner.preferred_restaurants || '[]'));
+    }
+  }, [partner]);
+
+  useEffect(() => {
     const saved = localStorage.getItem('delivery_auth');
     if (saved) {
       const p = JSON.parse(saved);
       setPartner(p);
-      setEditHours(JSON.parse(p.working_hours || '{}'));
-      setEditRestaurants(JSON.parse(p.preferred_restaurants || '[]'));
     }
   }, []);
 
@@ -193,6 +198,20 @@ export default function Delivery() {
   const newOrders = orders.filter(o => o.status === 'accepted');
   const activeDelivery = orders.find(o => o.status === 'delivering');
 
+  const workingHours = JSON.parse(partner.working_hours || '{}');
+  const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
+  const now = new Date();
+  const currentDay = days[now.getDay()];
+  const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+  
+  // Try both exact match and lowercase match since the keys might be saved differently
+  const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
+  
+  // Default to true if not set, otherwise check active status and time bounds
+  const isWorking = todayHours 
+    ? (todayHours.active !== false && currentTime >= (todayHours.start || '08:00') && currentTime <= (todayHours.end || '22:00'))
+    : (currentTime >= '08:00' && currentTime <= '22:00'); // Default working hours if not configured
+
   return (
     <div className="min-h-screen bg-emerald-50/30">
       <header className="bg-white border-b border-emerald-100 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
@@ -219,9 +238,9 @@ export default function Delivery() {
           >
             Одјава
           </button>
-          <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            Активен
+          <div className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 ${isWorking ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+            <span className={`w-2 h-2 rounded-full ${isWorking ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+            {isWorking ? 'Активен' : 'Неактивен'}
           </div>
         </div>
       </header>
