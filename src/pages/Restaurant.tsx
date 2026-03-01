@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
@@ -84,6 +84,42 @@ export default function Restaurant() {
   const [deliveryZones, setDeliveryZones] = useState<[number, number][][]>([]);
   const [isSavingZones, setIsSavingZones] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [orderView, setOrderView] = useState<'active' | 'completed'>('active');
+  const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
+  const maxOrderIdRef = useRef<number>(0);
+
+  const toggleOrderExpansion = (orderId: number) => {
+    setExpandedOrders(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
+  const playNotificationSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      
+      oscillator.start();
+      gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5);
+      oscillator.stop(audioCtx.currentTime + 0.5);
+    } catch (e) {
+      console.error("Audio playback failed", e);
+    }
+  };
   const [settingsForm, setSettingsForm] = useState({
     password: '',
     phone: '',
@@ -153,6 +189,12 @@ export default function Restaurant() {
     if (loggedInRestaurant) {
       fetchMenu();
       fetchOrders();
+      
+      const interval = setInterval(() => {
+        fetchOrders(true);
+      }, 10000);
+      
+      return () => clearInterval(interval);
     }
   }, [loggedInRestaurant]);
 
@@ -188,10 +230,18 @@ export default function Restaurant() {
     setMenuItems(data);
   };
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (isBackground = false) => {
     if (!loggedInRestaurant) return;
     const res = await fetch(`/api/orders/${loggedInRestaurant.id}`);
     const data = await res.json();
+    
+    if (data.length > 0) {
+      const currentMaxId = Math.max(...data.map((o: any) => o.id));
+      if (isBackground && maxOrderIdRef.current > 0 && currentMaxId > maxOrderIdRef.current) {
+        playNotificationSound();
+      }
+      maxOrderIdRef.current = currentMaxId;
+    }
     setOrders(data);
   };
 
@@ -451,30 +501,62 @@ export default function Restaurant() {
       <main className="max-w-6xl mx-auto p-6">
         {activeTab === 'orders' ? (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-              <Clock className="text-orange-500" />
-              Нарачки
-            </h2>
-            {orders.length === 0 ? (
-              <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-8 text-center">
-                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Pizza size={32} />
-                </div>
-                <h2 className="text-2xl font-bold text-slate-800 mb-2">Нема нарачки</h2>
-                <p className="text-slate-500">Моментално немате активни нарачки.</p>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <Clock className="text-orange-500" />
+                Нарачки
+              </h2>
+              <div className="flex bg-slate-100 p-1 rounded-lg">
+                <button
+                  onClick={() => setOrderView('active')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Во тек
+                </button>
+                <button
+                  onClick={() => setOrderView('completed')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'completed' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Завршени
+                </button>
               </div>
-            ) : (
-              <div className="grid gap-6">
-                {orders.map(order => {
-                  const items = JSON.parse(order.items);
-                  return (
-                    <div key={order.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-100">
+            </div>
+            
+            {(() => {
+              const filteredOrders = orders.filter(o => 
+                orderView === 'active' 
+                  ? ['pending', 'accepted', 'delivering'].includes(o.status)
+                  : ['completed', 'rejected', 'cancelled'].includes(o.status)
+              );
+              
+              if (filteredOrders.length === 0) {
+                return (
+                  <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-8 text-center">
+                    <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Pizza size={32} />
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Нема нарачки</h2>
+                    <p className="text-slate-500">Моментално немате {orderView === 'active' ? 'активни' : 'завршени'} нарачки.</p>
+                  </div>
+                );
+              }
+              
+              return (
+                <div className="grid gap-6">
+                  {filteredOrders.map(order => {
+                    const items = JSON.parse(order.items);
+                    const isExpanded = expandedOrders.has(order.id);
+                    return (
+                      <div key={order.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <div 
+                          className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 cursor-pointer ${isExpanded ? 'mb-6 pb-4 border-b border-slate-100' : ''}`}
+                          onClick={() => toggleOrderExpansion(order.id)}
+                        >
                         <div>
                           <h3 className="font-bold text-lg text-slate-800">Нарачка #{order.id}</h3>
                           <p className="text-sm text-slate-500">{new Date(order.created_at).toLocaleString()}</p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 items-center" onClick={e => e.stopPropagation()}>
                           {[
                             { id: 'pending', label: 'Чека потврда', color: 'yellow' },
                             { id: 'accepted', label: 'Се подготвува', color: 'blue' },
@@ -513,67 +595,75 @@ export default function Restaurant() {
                           >
                             Откажи
                           </button>
+                          <div className="ml-2 text-slate-400">
+                            {isExpanded ? '▲' : '▼'}
+                          </div>
                         </div>
                       </div>
                       
-                      {order.delivery_code && (
-                        <div className="mb-6 p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs overflow-x-auto border-l-4 border-orange-500">
-                          <div className="flex justify-between items-start mb-2">
-                            <p className="text-orange-400 font-bold uppercase tracking-wider">Генериран код за достава:</p>
-                            {order.delivery_partner_name && (
-                              <div className="text-right">
-                                <p className="text-emerald-400 font-bold uppercase tracking-wider">Доставувач:</p>
-                                <p className="text-white">{order.delivery_partner_name}</p>
+                      {isExpanded && (
+                        <>
+                          {order.delivery_code && (
+                            <div className="mb-6 p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs overflow-x-auto border-l-4 border-orange-500">
+                              <div className="flex justify-between items-start mb-2">
+                                <p className="text-orange-400 font-bold uppercase tracking-wider">Генериран код за достава:</p>
+                                {order.delivery_partner_name && (
+                                  <div className="text-right">
+                                    <p className="text-emerald-400 font-bold uppercase tracking-wider">Доставувач:</p>
+                                    <p className="text-white">{order.delivery_partner_name}</p>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                              <pre>{JSON.stringify(JSON.parse(order.delivery_code), null, 2)}</pre>
+                            </div>
+                          )}
+                          
+                          <div className="grid md:grid-cols-2 gap-8">
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">Информации за клиент</h4>
+                              <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                <p className="font-bold text-slate-800">{order.customer_name}</p>
+                                <p className="text-slate-600 flex items-center gap-2">
+                                  <span className="w-5 h-5 bg-white rounded flex items-center justify-center border border-slate-200 text-xs">📞</span>
+                                  {order.customer_phone}
+                                </p>
+                                <p className="text-slate-600 flex items-center gap-2">
+                                  <span className="w-5 h-5 bg-white rounded flex items-center justify-center border border-slate-200 text-xs">📍</span>
+                                  {order.delivery_address}
+                                </p>
+                              </div>
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">Содржина на нарачка</h4>
+                              <ul className="space-y-3 mb-4">
+                                {items.map((item: any, idx: number) => (
+                                  <li key={idx} className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                    <div className="flex justify-between font-bold text-slate-800 mb-1">
+                                      <span>1x {item.name}</span>
+                                      <span className="text-orange-600">{item.finalPrice} ден.</span>
+                                    </div>
+                                    {Object.entries(item.selectedModifiers || {}).map(([group, sel]: [string, any]) => {
+                                      if (Array.isArray(sel) && sel.length > 0) return <div key={group} className="text-xs text-slate-500 flex gap-1"><span className="font-medium">{group}:</span> {sel.join(', ')}</div>;
+                                      if (typeof sel === 'string' && sel) return <div key={group} className="text-xs text-slate-500 flex gap-1"><span className="font-medium">{group}:</span> {sel}</div>;
+                                      return null;
+                                    })}
+                                  </li>
+                                ))}
+                              </ul>
+                              <div className="flex justify-between items-center pt-4 border-t border-slate-100 mt-auto">
+                                <span className="font-bold text-slate-600">Вкупно за наплата:</span>
+                                <span className="text-2xl font-extrabold text-slate-800">{order.total_price} ден.</span>
+                              </div>
+                            </div>
                           </div>
-                          <pre>{JSON.stringify(JSON.parse(order.delivery_code), null, 2)}</pre>
-                        </div>
+                        </>
                       )}
-                      
-                      <div className="grid md:grid-cols-2 gap-8">
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">Информации за клиент</h4>
-                          <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <p className="font-bold text-slate-800">{order.customer_name}</p>
-                            <p className="text-slate-600 flex items-center gap-2">
-                              <span className="w-5 h-5 bg-white rounded flex items-center justify-center border border-slate-200 text-xs">📞</span>
-                              {order.customer_phone}
-                            </p>
-                            <p className="text-slate-600 flex items-center gap-2">
-                              <span className="w-5 h-5 bg-white rounded flex items-center justify-center border border-slate-200 text-xs">📍</span>
-                              {order.delivery_address}
-                            </p>
-                          </div>
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">Содржина на нарачка</h4>
-                          <ul className="space-y-3 mb-4">
-                            {items.map((item: any, idx: number) => (
-                              <li key={idx} className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                <div className="flex justify-between font-bold text-slate-800 mb-1">
-                                  <span>1x {item.name}</span>
-                                  <span className="text-orange-600">{item.finalPrice} ден.</span>
-                                </div>
-                                {Object.entries(item.selectedModifiers || {}).map(([group, sel]: [string, any]) => {
-                                  if (Array.isArray(sel) && sel.length > 0) return <div key={group} className="text-xs text-slate-500 flex gap-1"><span className="font-medium">{group}:</span> {sel.join(', ')}</div>;
-                                  if (typeof sel === 'string' && sel) return <div key={group} className="text-xs text-slate-500 flex gap-1"><span className="font-medium">{group}:</span> {sel}</div>;
-                                  return null;
-                                })}
-                              </li>
-                            ))}
-                          </ul>
-                          <div className="flex justify-between items-center pt-4 border-t border-slate-100 mt-auto">
-                            <span className="font-bold text-slate-600">Вкупно за наплата:</span>
-                            <span className="text-2xl font-extrabold text-slate-800">{order.total_price} ден.</span>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   );
                 })}
               </div>
-            )}
+            );
+            })()}
           </div>
         ) : activeTab === 'settings' ? (
           <div className="space-y-6 max-w-4xl mx-auto">
