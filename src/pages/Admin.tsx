@@ -65,6 +65,7 @@ export default function Admin() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [orderFilterRestaurant, setOrderFilterRestaurant] = useState('');
+  const [orderFilterDelivery, setOrderFilterDelivery] = useState('');
   const [orderFilterStartDate, setOrderFilterStartDate] = useState('');
   const [orderFilterEndDate, setOrderFilterEndDate] = useState('');
   const [selectedRestaurant, setSelectedRestaurant] = useState<PendingRestaurant | null>(null);
@@ -94,11 +95,12 @@ export default function Admin() {
 
   useEffect(() => {
     fetchOrders();
-  }, [orderFilterRestaurant, orderFilterStartDate, orderFilterEndDate]);
+  }, [orderFilterRestaurant, orderFilterDelivery, orderFilterStartDate, orderFilterEndDate]);
 
   const fetchOrders = async () => {
     const params = new URLSearchParams();
     if (orderFilterRestaurant) params.append('restaurantId', orderFilterRestaurant);
+    if (orderFilterDelivery) params.append('deliveryPartnerId', orderFilterDelivery);
     if (orderFilterStartDate) params.append('startDate', orderFilterStartDate);
     if (orderFilterEndDate) params.append('endDate', orderFilterEndDate);
     
@@ -469,6 +471,19 @@ export default function Admin() {
                   <option value="">Сите ресторани</option>
                   {approvedRestaurants.map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Доставувач</label>
+                <select 
+                  value={orderFilterDelivery}
+                  onChange={(e) => setOrderFilterDelivery(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Сите доставувачи</option>
+                  {approvedDelivery.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                 </select>
               </div>

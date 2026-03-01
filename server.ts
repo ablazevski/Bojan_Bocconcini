@@ -674,13 +674,18 @@ if (restCount.count === 0) {
   });
 
   app.get("/api/admin/orders", (req, res) => {
-    const { restaurantId, startDate, endDate } = req.query;
+    const { restaurantId, deliveryPartnerId, startDate, endDate } = req.query;
     let query = "SELECT * FROM orders WHERE 1=1";
     const params: any[] = [];
 
     if (restaurantId) {
       query += " AND restaurant_id = ?";
       params.push(restaurantId);
+    }
+    
+    if (deliveryPartnerId) {
+      query += " AND delivery_partner_id = ?";
+      params.push(deliveryPartnerId);
     }
     
     if (startDate) {
