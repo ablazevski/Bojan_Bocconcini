@@ -11,6 +11,7 @@ interface PendingRestaurant {
   email: string;
   phone: string;
   bank_account: string;
+  logo_url?: string;
   has_own_delivery: number;
   status: string;
   working_hours: string;
@@ -18,6 +19,7 @@ interface PendingRestaurant {
   spare_1: string;
   spare_2: string;
   spare_3: string;
+  spare_4: string;
   username?: string;
 }
 
@@ -838,6 +840,7 @@ export default function Admin() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
                   <div><span className="text-slate-500 text-sm block">Назив</span><span className="font-medium">{selectedRestaurant.name}</span></div>
                   <div><span className="text-slate-500 text-sm block">Град</span><span className="font-medium">{selectedRestaurant.city}</span></div>
+                  <div><span className="text-slate-500 text-sm block">Поштенски број</span><span className="font-medium">{selectedRestaurant.spare_3 || 'Нема'}</span></div>
                   <div className="md:col-span-2"><span className="text-slate-500 text-sm block">Адреса</span><span className="font-medium">{selectedRestaurant.address}</span></div>
                   <div><span className="text-slate-500 text-sm block">Е-маил</span><span className="font-medium">{selectedRestaurant.email}</span></div>
                   <div><span className="text-slate-500 text-sm block">Телефон</span><span className="font-medium">{selectedRestaurant.phone}</span></div>

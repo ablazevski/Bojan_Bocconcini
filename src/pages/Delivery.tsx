@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink } from 'lucide-react';
+import DeliveryRouteMap from '../components/DeliveryRouteMap';
 
 interface Order {
   id: number;
@@ -368,6 +369,47 @@ export default function Delivery() {
                 <div className="mb-6 p-3 bg-slate-900 text-slate-100 rounded-xl font-mono text-[10px] border-l-4 border-orange-500">
                   <p className="text-orange-400 font-bold mb-1 uppercase">Код за достава:</p>
                   <pre className="whitespace-pre-wrap">{JSON.stringify(JSON.parse(activeDelivery.delivery_code), null, 2)}</pre>
+                </div>
+              )}
+
+              {activeDelivery.delivery_lat && activeDelivery.delivery_lng && (
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-bold text-slate-700">Маршрута за достава</p>
+                    <a 
+                      href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+                        (availableRestaurants.find(r => r.id === activeDelivery.restaurant_id)?.address || '') + ', ' + 
+                        (availableRestaurants.find(r => r.id === activeDelivery.restaurant_id)?.spare_3 ? availableRestaurants.find(r => r.id === activeDelivery.restaurant_id)?.spare_3 + ' ' : '') + 
+                        (availableRestaurants.find(r => r.id === activeDelivery.restaurant_id)?.city || '')
+                      )}&destination=${activeDelivery.delivery_lat},${activeDelivery.delivery_lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-md transition-colors"
+                    >
+                      <ExternalLink size={12} />
+                      Отвори во Google Maps
+                    </a>
+                  </div>
+                  <DeliveryRouteMap 
+                    restaurantCoords={(() => {
+                      const rest = availableRestaurants.find(r => r.id === activeDelivery.restaurant_id);
+                      if (rest && rest.spare_1 && rest.spare_2) {
+                        const lat = parseFloat(rest.spare_1);
+                        const lng = parseFloat(rest.spare_2);
+                        if (!isNaN(lat) && !isNaN(lng)) return [lat, lng];
+                      }
+                      if (rest && rest.delivery_zones) {
+                        try {
+                          const zones = JSON.parse(rest.delivery_zones);
+                          if (zones.length > 0 && zones[0].length > 0) return zones[0][0];
+                        } catch (e) {}
+                      }
+                      return [41.9981, 21.4254]; // Default Skopje
+                    })()}
+                    customerCoords={[activeDelivery.delivery_lat, activeDelivery.delivery_lng]}
+                    restaurantName={availableRestaurants.find(r => r.id === activeDelivery.restaurant_id)?.name || 'Ресторан'}
+                    customerAddress={activeDelivery.delivery_address}
+                  />
                 </div>
               )}
 

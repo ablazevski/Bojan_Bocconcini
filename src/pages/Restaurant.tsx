@@ -37,6 +37,39 @@ interface Order {
   created_at: string;
 }
 
+const MACEDONIAN_CITIES = [
+  { name: 'Скопје', zip: '1000' },
+  { name: 'Битола', zip: '7000' },
+  { name: 'Куманово', zip: '1300' },
+  { name: 'Прилеп', zip: '7500' },
+  { name: 'Тетово', zip: '1200' },
+  { name: 'Велес', zip: '1400' },
+  { name: 'Штип', zip: '2000' },
+  { name: 'Охрид', zip: '6000' },
+  { name: 'Гостивар', zip: '1230' },
+  { name: 'Струмица', zip: '2400' },
+  { name: 'Кавадарци', zip: '1430' },
+  { name: 'Кочани', zip: '2300' },
+  { name: 'Кичево', zip: '6250' },
+  { name: 'Струга', zip: '6330' },
+  { name: 'Радовиш', zip: '2420' },
+  { name: 'Гевгелија', zip: '1480' },
+  { name: 'Дебар', zip: '1250' },
+  { name: 'Крива Паланка', zip: '1330' },
+  { name: 'Свети Николе', zip: '2080' },
+  { name: 'Неготино', zip: '1440' },
+  { name: 'Делчево', zip: '2320' },
+  { name: 'Виница', zip: '2310' },
+  { name: 'Ресен', zip: '7310' },
+  { name: 'Пробиштип', zip: '2210' },
+  { name: 'Берово', zip: '2330' },
+  { name: 'Кратово', zip: '1360' },
+  { name: 'Крушево', zip: '7430' },
+  { name: 'Македонски Брод', zip: '6530' },
+  { name: 'Валандово', zip: '2460' },
+  { name: 'Демир Хисар', zip: '7240' }
+].sort((a, b) => a.name.localeCompare(b.name));
+
 export default function Restaurant() {
   const [loggedInRestaurant, setLoggedInRestaurant] = useState<any>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
@@ -55,6 +88,8 @@ export default function Restaurant() {
     phone: '',
     bank_account: '',
     logo_url: '',
+    city: '',
+    address: '',
     spare_1: '',
     spare_2: '',
     spare_3: '',
@@ -68,6 +103,8 @@ export default function Restaurant() {
         phone: loggedInRestaurant.phone || '',
         bank_account: loggedInRestaurant.bank_account || '',
         logo_url: loggedInRestaurant.logo_url || '',
+        city: loggedInRestaurant.city || '',
+        address: loggedInRestaurant.address || '',
         spare_1: loggedInRestaurant.spare_1 || '',
         spare_2: loggedInRestaurant.spare_2 || '',
         spare_3: loggedInRestaurant.spare_3 || '',
@@ -536,6 +573,31 @@ export default function Restaurant() {
               <form onSubmit={handleSaveSettings} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Град *</label>
+                    <select 
+                      required 
+                      value={settingsForm.city} 
+                      onChange={e => {
+                        const selectedCity = MACEDONIAN_CITIES.find(c => c.name === e.target.value);
+                        setSettingsForm({
+                          ...settingsForm, 
+                          city: e.target.value,
+                          spare_3: selectedCity ? selectedCity.zip : settingsForm.spare_3
+                        });
+                      }} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white"
+                    >
+                      <option value="" disabled>Изберете град</option>
+                      {MACEDONIAN_CITIES.map(city => (
+                        <option key={city.name} value={city.name}>{city.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Адреса *</label>
+                    <input type="text" required value={settingsForm.address} onChange={e => setSettingsForm({...settingsForm, address: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. Ул. Партизанска бр. 10" />
+                  </div>
+                  <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Телефонски број</label>
                     <input type="text" value={settingsForm.phone} onChange={e => setSettingsForm({...settingsForm, phone: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" required />
                   </div>
@@ -552,16 +614,16 @@ export default function Restaurant() {
                     <input type="text" value={settingsForm.logo_url} onChange={e => setSettingsForm({...settingsForm, logo_url: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 1</label>
-                    <input type="text" value={settingsForm.spare_1} onChange={e => setSettingsForm({...settingsForm, spare_1: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Географска ширина (Latitude)</label>
+                    <input type="text" value={settingsForm.spare_1} onChange={e => setSettingsForm({...settingsForm, spare_1: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. 41.9981" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 2</label>
-                    <input type="text" value={settingsForm.spare_2} onChange={e => setSettingsForm({...settingsForm, spare_2: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Географска должина (Longitude)</label>
+                    <input type="text" value={settingsForm.spare_2} onChange={e => setSettingsForm({...settingsForm, spare_2: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. 21.4254" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 3</label>
-                    <input type="text" value={settingsForm.spare_3} onChange={e => setSettingsForm({...settingsForm, spare_3: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Поштенски број</label>
+                    <input type="text" value={settingsForm.spare_3} onChange={e => setSettingsForm({...settingsForm, spare_3: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. 1000" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 4</label>

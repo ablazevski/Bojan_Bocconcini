@@ -13,6 +13,39 @@ const DAYS_OF_WEEK = [
   { id: 'sunday', label: 'Недела' },
 ];
 
+const MACEDONIAN_CITIES = [
+  { name: 'Скопје', zip: '1000' },
+  { name: 'Битола', zip: '7000' },
+  { name: 'Куманово', zip: '1300' },
+  { name: 'Прилеп', zip: '7500' },
+  { name: 'Тетово', zip: '1200' },
+  { name: 'Велес', zip: '1400' },
+  { name: 'Штип', zip: '2000' },
+  { name: 'Охрид', zip: '6000' },
+  { name: 'Гостивар', zip: '1230' },
+  { name: 'Струмица', zip: '2400' },
+  { name: 'Кавадарци', zip: '1430' },
+  { name: 'Кочани', zip: '2300' },
+  { name: 'Кичево', zip: '6250' },
+  { name: 'Струга', zip: '6330' },
+  { name: 'Радовиш', zip: '2420' },
+  { name: 'Гевгелија', zip: '1480' },
+  { name: 'Дебар', zip: '1250' },
+  { name: 'Крива Паланка', zip: '1330' },
+  { name: 'Свети Николе', zip: '2080' },
+  { name: 'Неготино', zip: '1440' },
+  { name: 'Делчево', zip: '2320' },
+  { name: 'Виница', zip: '2310' },
+  { name: 'Ресен', zip: '7310' },
+  { name: 'Пробиштип', zip: '2210' },
+  { name: 'Берово', zip: '2330' },
+  { name: 'Кратово', zip: '1360' },
+  { name: 'Крушево', zip: '7430' },
+  { name: 'Македонски Брод', zip: '6530' },
+  { name: 'Валандово', zip: '2460' },
+  { name: 'Демир Хисар', zip: '7240' }
+].sort((a, b) => a.name.localeCompare(b.name));
+
 export default function RegisterRestaurant() {
   const navigate = useNavigate();
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -101,11 +134,32 @@ export default function RegisterRestaurant() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Град *</label>
-                <input required type="text" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Пр. Скопје" />
+                <select 
+                  required 
+                  value={formData.city} 
+                  onChange={e => {
+                    const selectedCity = MACEDONIAN_CITIES.find(c => c.name === e.target.value);
+                    setFormData({
+                      ...formData, 
+                      city: e.target.value,
+                      spare_3: selectedCity ? selectedCity.zip : formData.spare_3
+                    });
+                  }} 
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                >
+                  <option value="" disabled>Изберете град</option>
+                  {MACEDONIAN_CITIES.map(city => (
+                    <option key={city.name} value={city.name}>{city.name}</option>
+                  ))}
+                </select>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-2">Адреса *</label>
                 <input required type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Пр. Ул. Партизанска бр. 10" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Поштенски број *</label>
+                <input required type="text" value={formData.spare_3} onChange={e => setFormData({...formData, spare_3: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Пр. 1000" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Е-маил адреса *</label>

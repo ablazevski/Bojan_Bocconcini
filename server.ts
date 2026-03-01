@@ -247,9 +247,9 @@ if (restCount.count === 0) {
           
           // Insert restaurants
           if (restaurants && restaurants.length > 0) {
-            const insertRest = db.prepare(`INSERT INTO restaurants (id, name, city, address, email, phone, bank_account, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, status, username, password, contract_percentage, working_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertRest = db.prepare(`INSERT INTO restaurants (id, name, city, address, email, phone, bank_account, logo_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, status, username, password, contract_percentage, working_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const r of restaurants) {
-              insertRest.run(r.id, r.name, r.city, r.address, r.email, r.phone, r.bank_account, r.has_own_delivery, r.delivery_zones, r.spare_1, r.spare_2, r.spare_3, r.status, r.username, r.password, r.contract_percentage, r.working_hours);
+              insertRest.run(r.id, r.name, r.city, r.address, r.email, r.phone, r.bank_account, r.logo_url, r.has_own_delivery, r.delivery_zones, r.spare_1, r.spare_2, r.spare_3, r.spare_4, r.status, r.username, r.password, r.contract_percentage, r.working_hours);
             }
           }
           
@@ -411,9 +411,9 @@ if (restCount.count === 0) {
   });
 
   app.put("/api/restaurants/:id/settings", (req, res) => {
-    const { password, phone, bank_account, logo_url, spare_1, spare_2, spare_3, spare_4 } = req.body;
-    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ? WHERE id = ?")
-      .run(password, phone, bank_account, logo_url, spare_1, spare_2, spare_3, spare_4, req.params.id);
+    const { password, phone, bank_account, logo_url, city, address, spare_1, spare_2, spare_3, spare_4 } = req.body;
+    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ? WHERE id = ?")
+      .run(password, phone, bank_account, logo_url, city, address, spare_1, spare_2, spare_3, spare_4, req.params.id);
     res.json({ success: true });
   });
 
