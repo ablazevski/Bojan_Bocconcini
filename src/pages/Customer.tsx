@@ -248,6 +248,9 @@ export default function Customer() {
     if (res.ok) {
       setCart([]);
       setStep('success');
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Настана грешка при процесирање на нарачката.');
     }
   };
 

@@ -64,6 +64,9 @@ export default function Admin() {
   const [marketingAssociates, setMarketingAssociates] = useState<MarketingAssociate[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [orderFilterRestaurant, setOrderFilterRestaurant] = useState('');
+  const [orderFilterStartDate, setOrderFilterStartDate] = useState('');
+  const [orderFilterEndDate, setOrderFilterEndDate] = useState('');
   const [selectedRestaurant, setSelectedRestaurant] = useState<PendingRestaurant | null>(null);
   const [selectedDelivery, setSelectedDelivery] = useState<DeliveryPartner | null>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
@@ -89,6 +92,20 @@ export default function Admin() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    fetchOrders();
+  }, [orderFilterRestaurant, orderFilterStartDate, orderFilterEndDate]);
+
+  const fetchOrders = async () => {
+    const params = new URLSearchParams();
+    if (orderFilterRestaurant) params.append('restaurantId', orderFilterRestaurant);
+    if (orderFilterStartDate) params.append('startDate', orderFilterStartDate);
+    if (orderFilterEndDate) params.append('endDate', orderFilterEndDate);
+    
+    const resOrders = await fetch(`/api/admin/orders?${params.toString()}`);
+    setOrders(await resOrders.json());
+  };
+
   const fetchData = async () => {
     const resPending = await fetch('/api/admin/restaurants/pending');
     setPendingRestaurants(await resPending.json());
@@ -96,8 +113,7 @@ export default function Admin() {
     const resApproved = await fetch('/api/admin/restaurants/approved');
     setApprovedRestaurants(await resApproved.json());
 
-    const resOrders = await fetch('/api/admin/orders');
-    setOrders(await resOrders.json());
+    fetchOrders();
 
     const resPendingDel = await fetch('/api/admin/delivery/pending');
     setPendingDelivery(await resPendingDel.json());
@@ -441,6 +457,41 @@ export default function Admin() {
               <FileText className="text-blue-500" />
               Сите нарачки
             </h2>
+            
+            <div className="flex flex-wrap gap-4 mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ресторан</label>
+                <select 
+                  value={orderFilterRestaurant}
+                  onChange={(e) => setOrderFilterRestaurant(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Сите ресторани</option>
+                  {approvedRestaurants.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Од датум</label>
+                <input 
+                  type="date"
+                  value={orderFilterStartDate}
+                  onChange={(e) => setOrderFilterStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">До датум</label>
+                <input 
+                  type="date"
+                  value={orderFilterEndDate}
+                  onChange={(e) => setOrderFilterEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead>

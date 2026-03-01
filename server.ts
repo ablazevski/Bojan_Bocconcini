@@ -495,22 +495,31 @@ if (restCount.count === 0) {
 
     const orderIds = [];
     let campaignApplied = false;
+    let campaignCodeToUse = null;
+    let campaignBudget = 0;
+
+    if (campaign_id) {
+      const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ? AND status = 'active'").get(campaign_id) as any;
+      if (campaign) {
+        const codeRow = db.prepare("SELECT code FROM campaign_codes WHERE campaign_id = ? AND is_used = 0 LIMIT 1").get(campaign_id) as any;
+        if (codeRow) {
+          campaignCodeToUse = codeRow.code;
+          campaignBudget = campaign.budget;
+        } else {
+          return res.status(400).json({ error: "Избраната кампања нема повеќе слободни кодови. Ве молиме освежете ја страницата и обидете се повторно." });
+        }
+      }
+    }
 
     for (const [restaurantId, restItems] of Object.entries(itemsByRestaurant)) {
       let totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
       let campaignCode = null;
 
-      if (campaign_id && !campaignApplied) {
-        const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ? AND status = 'active'").get(campaign_id) as any;
-        if (campaign) {
-          totalPrice += campaign.budget; // Add campaign price to total
-          const codeRow = db.prepare("SELECT code FROM campaign_codes WHERE campaign_id = ? AND is_used = 0 LIMIT 1").get(campaign_id) as any;
-          if (codeRow) {
-            campaignCode = codeRow.code;
-            db.prepare("UPDATE campaign_codes SET is_used = 1, used_at = CURRENT_TIMESTAMP WHERE code = ?").run(campaignCode);
-            campaignApplied = true;
-          }
-        }
+      if (campaignCodeToUse && !campaignApplied) {
+        totalPrice += campaignBudget; // Add campaign price to total
+        campaignCode = campaignCodeToUse;
+        db.prepare("UPDATE campaign_codes SET is_used = 1, used_at = CURRENT_TIMESTAMP WHERE code = ?").run(campaignCode);
+        campaignApplied = true;
       }
 
       const info = insert.run(
@@ -532,6 +541,8 @@ if (restCount.count === 0) {
     const { orderId } = req.params;
     
     let delivery_code = null;
+    let delivery_partner_name = null;
+    
     if (status === 'accepted') {
       // Generate delivery code: Name, Address, and 4 spare fields from restaurant
       const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
@@ -550,11 +561,38 @@ if (restCount.count === 0) {
       delivery_code = JSON.stringify(codeData);
       
       db.prepare("UPDATE orders SET status = ?, delivery_code = ? WHERE id = ?").run(status, delivery_code, orderId);
+    } else if (status === 'delivering' || status === 'completed') {
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+      // If no delivery partner is assigned yet, the restaurant is delivering it themselves
+      if (order && !order.delivery_partner_id) {
+        const restaurant = db.prepare("SELECT * FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
+        delivery_partner_name = restaurant.name;
+        
+        if (order.delivery_code) {
+          try {
+            const codeData = JSON.parse(order.delivery_code);
+            codeData.spare_1 = restaurant.name;
+            codeData.delivery_partner = restaurant.name;
+            
+            delivery_code = JSON.stringify(codeData);
+            db.prepare("UPDATE orders SET status = ?, delivery_partner_name = ?, delivery_code = ? WHERE id = ?")
+              .run(status, restaurant.name, delivery_code, orderId);
+          } catch (e) {
+            db.prepare("UPDATE orders SET status = ?, delivery_partner_name = ? WHERE id = ?")
+              .run(status, restaurant.name, orderId);
+          }
+        } else {
+          db.prepare("UPDATE orders SET status = ?, delivery_partner_name = ? WHERE id = ?")
+            .run(status, restaurant.name, orderId);
+        }
+      } else {
+        db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+      }
     } else {
       db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
     }
     
-    res.json({ success: true, delivery_code });
+    res.json({ success: true, delivery_code, delivery_partner_name });
   });
 
   app.get("/api/delivery/orders", (req, res) => {
@@ -636,7 +674,28 @@ if (restCount.count === 0) {
   });
 
   app.get("/api/admin/orders", (req, res) => {
-    const orders = db.prepare("SELECT * FROM orders ORDER BY created_at DESC").all();
+    const { restaurantId, startDate, endDate } = req.query;
+    let query = "SELECT * FROM orders WHERE 1=1";
+    const params: any[] = [];
+
+    if (restaurantId) {
+      query += " AND restaurant_id = ?";
+      params.push(restaurantId);
+    }
+    
+    if (startDate) {
+      query += " AND date(created_at) >= ?";
+      params.push(startDate);
+    }
+    
+    if (endDate) {
+      query += " AND date(created_at) <= ?";
+      params.push(endDate);
+    }
+    
+    query += " ORDER BY created_at DESC";
+    
+    const orders = db.prepare(query).all(...params);
     res.json(orders);
   });
 
@@ -724,6 +783,10 @@ if (restCount.count === 0) {
       WHERE status = 'active' 
       AND start_date <= ? 
       AND end_date >= ?
+      AND EXISTS (
+        SELECT 1 FROM campaign_codes cc 
+        WHERE cc.campaign_id = campaigns.id AND cc.is_used = 0
+      )
     `).all(today, today);
     res.json(campaigns);
   });

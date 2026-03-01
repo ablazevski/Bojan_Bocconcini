@@ -34,6 +34,7 @@ interface Order {
   total_price: number;
   status: string;
   delivery_code: string;
+  delivery_partner_name?: string;
   created_at: string;
 }
 
@@ -195,12 +196,23 @@ export default function Restaurant() {
   };
 
   const updateOrderStatus = async (orderId: number, status: string) => {
-    await fetch(`/api/orders/${orderId}/status`, {
+    const res = await fetch(`/api/orders/${orderId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status })
     });
-    setOrders(orders.map(o => o.id === orderId ? { ...o, status } : o));
+    const data = await res.json();
+    setOrders(orders.map(o => {
+      if (o.id === orderId) {
+        return { 
+          ...o, 
+          status, 
+          delivery_code: data.delivery_code || o.delivery_code,
+          delivery_partner_name: data.delivery_partner_name || o.delivery_partner_name
+        };
+      }
+      return o;
+    }));
   };
 
   const handleSaveZones = async () => {
