@@ -366,6 +366,23 @@ if (restCount.count === 0) {
     res.json(items);
   });
 
+  app.get("/api/admin/delivery/inactive", (req, res) => {
+    const items = db.prepare("SELECT * FROM delivery_partners WHERE status = 'inactive'").all();
+    res.json(items);
+  });
+
+  app.post("/api/admin/delivery/:id/toggle-status", (req, res) => {
+    const id = req.params.id;
+    const partner = db.prepare("SELECT status FROM delivery_partners WHERE id = ?").get(id) as any;
+    if (partner) {
+      const newStatus = partner.status === 'approved' ? 'inactive' : 'approved';
+      db.prepare("UPDATE delivery_partners SET status = ? WHERE id = ?").run(newStatus, id);
+      res.json({ success: true, newStatus });
+    } else {
+      res.status(404).json({ success: false, message: "Не е пронајден доставувач" });
+    }
+  });
+
   app.post("/api/admin/delivery/:id/approve", (req, res) => {
     const id = req.params.id;
     const { username, password } = req.body;
@@ -391,6 +408,40 @@ if (restCount.count === 0) {
   app.get("/api/restaurants/by-city/:city", (req, res) => {
     const restaurants = db.prepare("SELECT id, name, address FROM restaurants WHERE city = ? AND status = 'approved'").all(req.params.city);
     res.json(restaurants);
+  });
+
+  app.get("/api/restaurants/:id/active-delivery-partners", (req, res) => {
+    const restaurantId = Number(req.params.id);
+    const partners = db.prepare("SELECT preferred_restaurants, working_hours FROM delivery_partners WHERE status = 'approved'").all() as any[];
+    
+    let count = 0;
+    const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
+    const now = new Date();
+    const currentDay = days[now.getDay()];
+    const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+    for (const p of partners) {
+      try {
+        const preferred = JSON.parse(p.preferred_restaurants || '[]');
+        if (preferred.includes(restaurantId) || preferred.includes(restaurantId.toString())) {
+          const workingHours = JSON.parse(p.working_hours || '{}');
+          const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
+          
+          let isWorking = false;
+          if (todayHours && todayHours.active !== undefined) {
+            isWorking = todayHours.active && currentTime >= (todayHours.start || '08:00') && currentTime <= (todayHours.end || '22:00');
+          } else {
+            // Default if not explicitly set
+            isWorking = currentTime >= '08:00' && currentTime <= '22:00';
+          }
+            
+          if (isWorking) {
+            count++;
+          }
+        }
+      } catch (e) {}
+    }
+    res.json({ count });
   });
 
   // --- RESTAURANT LOGIN & SETTINGS ---

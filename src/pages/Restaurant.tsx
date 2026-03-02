@@ -79,6 +79,7 @@ export default function Restaurant() {
   const [activeTab, setActiveTab] = useState<'orders' | 'menu' | 'settings'>('orders');
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [activeDeliveryPartners, setActiveDeliveryPartners] = useState<number>(0);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deliveryZones, setDeliveryZones] = useState<[number, number][][]>([]);
@@ -230,6 +231,17 @@ export default function Restaurant() {
     setMenuItems(data);
   };
 
+  const fetchActiveDeliveryPartners = async () => {
+    if (!loggedInRestaurant) return;
+    try {
+      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/active-delivery-partners`);
+      const data = await res.json();
+      setActiveDeliveryPartners(data.count || 0);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const fetchOrders = async (isBackground = false) => {
     if (!loggedInRestaurant) return;
     const res = await fetch(`/api/orders/${loggedInRestaurant.id}`);
@@ -243,6 +255,8 @@ export default function Restaurant() {
       maxOrderIdRef.current = currentMaxId;
     }
     setOrders(data);
+    
+    fetchActiveDeliveryPartners();
   };
 
   const updateOrderStatus = async (orderId: number, status: string) => {
@@ -506,19 +520,28 @@ export default function Restaurant() {
                 <Clock className="text-orange-500" />
                 Нарачки
               </h2>
-              <div className="flex bg-slate-100 p-1 rounded-lg">
-                <button
-                  onClick={() => setOrderView('active')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  Во тек
-                </button>
-                <button
-                  onClick={() => setOrderView('completed')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'completed' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  Завршени
-                </button>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-sm font-bold">Активни доставувачи: {activeDeliveryPartners}</span>
+                </div>
+                <div className="flex bg-slate-100 p-1 rounded-lg">
+                  <button
+                    onClick={() => setOrderView('active')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    Во тек
+                  </button>
+                  <button
+                    onClick={() => setOrderView('completed')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'completed' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    Завршени
+                  </button>
+                </div>
               </div>
             </div>
             

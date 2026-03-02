@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface PendingRestaurant {
@@ -61,6 +61,8 @@ export default function Admin() {
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
   const [approvedDelivery, setApprovedDelivery] = useState<DeliveryPartner[]>([]);
+  const [inactiveDelivery, setInactiveDelivery] = useState<DeliveryPartner[]>([]);
+  const [deliveryView, setDeliveryView] = useState<'active' | 'inactive' | 'pending'>('active');
   const [marketingAssociates, setMarketingAssociates] = useState<MarketingAssociate[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
@@ -122,6 +124,9 @@ export default function Admin() {
 
     const resApprovedDel = await fetch('/api/admin/delivery/approved');
     setApprovedDelivery(await resApprovedDel.json());
+
+    const resInactiveDel = await fetch('/api/admin/delivery/inactive');
+    setInactiveDelivery(await resInactiveDel.json());
 
     const resMarketing = await fetch('/api/admin/marketing-associates');
     setMarketingAssociates(await resMarketing.json());
@@ -200,6 +205,13 @@ export default function Admin() {
     if (res.ok) {
       alert('Доставувачот е успешно одобрен!');
       setSelectedDelivery(null);
+      fetchData();
+    }
+  };
+
+  const toggleDeliveryStatus = async (id: number) => {
+    const res = await fetch(`/api/admin/delivery/${id}/toggle-status`, { method: 'POST' });
+    if (res.ok) {
       fetchData();
     }
   };
@@ -347,9 +359,14 @@ export default function Admin() {
           <div className="flex bg-slate-100 p-1 rounded-lg ml-8">
             <button 
               onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               Дашборд
+              {pendingRestaurants.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-50">
+                  {pendingRestaurants.length}
+                </span>
+              )}
             </button>
             <button 
               onClick={() => setActiveTab('database')}
@@ -367,10 +384,15 @@ export default function Admin() {
             </button>
             <button 
               onClick={() => setActiveTab('delivery')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'delivery' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'delivery' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               <Bike size={16} />
               Доставувачи
+              {pendingDelivery.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-50">
+                  {pendingDelivery.length}
+                </span>
+              )}
             </button>
             <button 
               onClick={() => setActiveTab('marketing')}
@@ -710,74 +732,146 @@ export default function Admin() {
             </div>
           </div>
         ) : activeTab === 'delivery' ? (
-          <div className="space-y-8">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-              <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-                <Bike className="text-emerald-500" />
-                Барања за нови доставувачи
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <div className="flex bg-slate-100 p-1 rounded-lg">
+                <button
+                  onClick={() => setDeliveryView('active')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${deliveryView === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Активни
+                </button>
+                <button
+                  onClick={() => setDeliveryView('inactive')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${deliveryView === 'inactive' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Неактивни
+                </button>
+              </div>
+              <button
+                onClick={() => setDeliveryView('pending')}
+                className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${deliveryView === 'pending' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+              >
+                <Bell size={18} className={pendingDelivery.length > 0 ? 'text-emerald-500' : 'text-slate-400'} />
+                Барања
                 {pendingDelivery.length > 0 && (
-                  <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-bold ml-2">
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border-2 border-white">
                     {pendingDelivery.length}
                   </span>
                 )}
-              </h2>
-              
-              {pendingDelivery.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  <p>Нема нови барања за доставувачи.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingDelivery.map(partner => (
-                    <div key={partner.id} className="border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center hover:border-emerald-300 transition-colors cursor-pointer" onClick={() => openDeliveryApprovalModal(partner)}>
-                      <div>
-                        <h3 className="font-bold text-lg text-slate-800 mb-1">{partner.name}</h3>
-                        <div className="flex flex-wrap gap-4 text-sm text-slate-500">
-                          <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
-                          <span>📧 {partner.email}</span>
-                          <span>📞 {partner.phone}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 w-full md:w-auto">
-                        <button onClick={() => openDeliveryApprovalModal(partner)} className="flex-1 md:flex-none bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors">
-                          <FileText size={18} /> Прегледај
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              </button>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-              <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-                <CheckCircle className="text-emerald-500" />
-                Активни доставувачи
-                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-bold ml-2">
-                  {approvedDelivery.length}
-                </span>
-              </h2>
-              
-              {approvedDelivery.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  <p>Нема активни доставувачи.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {approvedDelivery.map(partner => (
-                    <div key={partner.id} className="border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center hover:border-emerald-300 transition-colors">
-                      <div>
-                        <h3 className="font-bold text-lg text-slate-800 mb-1">{partner.name}</h3>
-                        <div className="flex flex-wrap gap-4 text-sm text-slate-500">
-                          <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
-                          <span>👤 {partner.username}</span>
+            {deliveryView === 'pending' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-in fade-in duration-200">
+                <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <Bike className="text-emerald-500" />
+                  Барања за нови доставувачи
+                </h2>
+                
+                {pendingDelivery.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <p>Нема нови барања за доставувачи.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {pendingDelivery.map(partner => (
+                      <div key={partner.id} className="border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center hover:border-emerald-300 transition-colors cursor-pointer" onClick={() => openDeliveryApprovalModal(partner)}>
+                        <div>
+                          <h3 className="font-bold text-lg text-slate-800 mb-1">{partner.name}</h3>
+                          <div className="flex flex-wrap gap-4 text-sm text-slate-500">
+                            <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
+                            <span>📧 {partner.email}</span>
+                            <span>📞 {partner.phone}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                          <button onClick={() => openDeliveryApprovalModal(partner)} className="flex-1 md:flex-none bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors">
+                            <FileText size={18} /> Прегледај
+                          </button>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {deliveryView === 'active' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-in fade-in duration-200">
+                <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <CheckCircle className="text-emerald-500" />
+                  Активни доставувачи
+                  <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-bold ml-2">
+                    {approvedDelivery.length}
+                  </span>
+                </h2>
+                
+                {approvedDelivery.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <p>Нема активни доставувачи.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {approvedDelivery.map(partner => (
+                      <div key={partner.id} className="border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center hover:border-emerald-300 transition-colors">
+                        <div>
+                          <h3 className="font-bold text-lg text-slate-800 mb-1">{partner.name}</h3>
+                          <div className="flex flex-wrap gap-4 text-sm text-slate-500">
+                            <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
+                            <span>👤 {partner.username}</span>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => toggleDeliveryStatus(partner.id)}
+                          className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                        >
+                          Деактивирај
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {deliveryView === 'inactive' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-in fade-in duration-200">
+                <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <X className="text-red-500" />
+                  Неактивни доставувачи
+                  <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-bold ml-2">
+                    {inactiveDelivery.length}
+                  </span>
+                </h2>
+                
+                {inactiveDelivery.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <p>Нема неактивни доставувачи.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {inactiveDelivery.map(partner => (
+                      <div key={partner.id} className="border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center hover:border-red-300 transition-colors">
+                        <div>
+                          <h3 className="font-bold text-lg text-slate-800 mb-1">{partner.name}</h3>
+                          <div className="flex flex-wrap gap-4 text-sm text-slate-500">
+                            <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
+                            <span>👤 {partner.username}</span>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => toggleDeliveryStatus(partner.id)}
+                          className="px-4 py-2 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+                        >
+                          Активирај
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <>
