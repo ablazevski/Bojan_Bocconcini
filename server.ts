@@ -8,6 +8,7 @@ const db = new Database('pizza.db');
 // Migration for subcategory and modifiers
 try { db.exec('ALTER TABLE menu_items ADD COLUMN subcategory TEXT DEFAULT "Општо"'); } catch (e) {}
 try { db.exec('ALTER TABLE menu_items ADD COLUMN modifiers TEXT DEFAULT "[]"'); } catch (e) {}
+try { db.exec('ALTER TABLE menu_items ADD COLUMN is_available INTEGER DEFAULT 1'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS menu_items (
@@ -19,7 +20,8 @@ db.exec(`
     image_url TEXT,
     category TEXT,
     subcategory TEXT,
-    modifiers TEXT
+    modifiers TEXT,
+    is_available INTEGER DEFAULT 1
   )
 `);
 
@@ -53,6 +55,7 @@ try { db.exec('ALTER TABLE orders ADD COLUMN spare_2 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN spare_3 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_id INTEGER'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_name TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE campaigns ADD COLUMN is_visible INTEGER DEFAULT 1'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS restaurants (
@@ -237,35 +240,35 @@ if (restCount.count === 0) {
       try {
         const transaction = db.transaction(() => {
           // Clear existing
-          db.prepare("DELETE FROM restaurants").run();
-          db.prepare("DELETE FROM menu_items").run();
-          db.prepare("DELETE FROM orders").run();
-          db.prepare("DELETE FROM delivery_partners").run();
-          db.prepare("DELETE FROM marketing_associates").run();
-          db.prepare("DELETE FROM campaigns").run();
           db.prepare("DELETE FROM campaign_codes").run();
+          db.prepare("DELETE FROM campaigns").run();
+          db.prepare("DELETE FROM marketing_associates").run();
+          db.prepare("DELETE FROM delivery_partners").run();
+          db.prepare("DELETE FROM orders").run();
+          db.prepare("DELETE FROM menu_items").run();
+          db.prepare("DELETE FROM restaurants").run();
           
           // Insert restaurants
           if (restaurants && restaurants.length > 0) {
             const insertRest = db.prepare(`INSERT INTO restaurants (id, name, city, address, email, phone, bank_account, logo_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, status, username, password, contract_percentage, working_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const r of restaurants) {
-              insertRest.run(r.id, r.name, r.city, r.address, r.email, r.phone, r.bank_account, r.logo_url, r.has_own_delivery, r.delivery_zones, r.spare_1, r.spare_2, r.spare_3, r.spare_4, r.status, r.username, r.password, r.contract_percentage, r.working_hours);
+              insertRest.run(r.id, r.name, r.city, r.address, r.email, r.phone, r.bank_account, r.logo_url, r.has_own_delivery, r.delivery_zones, r.spare_1, r.spare_2, r.spare_3, r.spare_4 || null, r.status, r.username, r.password, r.contract_percentage || 0, r.working_hours || '{}');
             }
           }
           
           // Insert menu items
           if (menu_items && menu_items.length > 0) {
-            const insertMenu = db.prepare(`INSERT INTO menu_items (id, restaurant_id, name, description, price, image_url, category, subcategory, modifiers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertMenu = db.prepare(`INSERT INTO menu_items (id, restaurant_id, name, description, price, image_url, category, subcategory, modifiers, is_available) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const m of menu_items) {
-              insertMenu.run(m.id, m.restaurant_id, m.name, m.description, m.price, m.image_url, m.category, m.subcategory, m.modifiers);
+              insertMenu.run(m.id, m.restaurant_id, m.name, m.description, m.price, m.image_url, m.category, m.subcategory, m.modifiers, m.is_available !== undefined ? m.is_available : 1);
             }
           }
           
           // Insert orders
           if (orders && orders.length > 0) {
-            const insertOrder = db.prepare(`INSERT INTO orders (id, restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertOrder = db.prepare(`INSERT INTO orders (id, restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, status, delivery_code, delivery_partner_id, delivery_partner_name, spare_1, spare_2, spare_3, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const o of orders) {
-              insertOrder.run(o.id, o.restaurant_id, o.customer_name, o.customer_email, o.customer_phone, o.delivery_address, o.delivery_lat, o.delivery_lng, o.items, o.total_price, o.status, o.created_at);
+              insertOrder.run(o.id, o.restaurant_id, o.customer_name, o.customer_email, o.customer_phone, o.delivery_address, o.delivery_lat, o.delivery_lng, o.items, o.total_price, o.status, o.delivery_code || null, o.delivery_partner_id || null, o.delivery_partner_name || null, o.spare_1 || null, o.spare_2 || null, o.spare_3 || null, o.created_at);
             }
           }
 
@@ -287,9 +290,9 @@ if (restCount.count === 0) {
 
           // Insert campaigns
           if (campaigns && campaigns.length > 0) {
-            const insertCamp = db.prepare(`INSERT INTO campaigns (id, associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, status, quantity, code_format, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertCamp = db.prepare(`INSERT INTO campaigns (id, associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, status, quantity, code_format, created_at, is_visible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const c of campaigns) {
-              insertCamp.run(c.id, c.associate_id, c.name, c.description, c.budget, c.start_date, c.end_date, c.location_type, c.selected_cities, c.map_zones, c.status, c.quantity, c.code_format, c.created_at);
+              insertCamp.run(c.id, c.associate_id, c.name, c.description, c.budget, c.start_date, c.end_date, c.location_type, c.selected_cities, c.map_zones, c.status, c.quantity, c.code_format, c.created_at, c.is_visible !== undefined ? c.is_visible : 1);
             }
           }
 
@@ -319,6 +322,64 @@ if (restCount.count === 0) {
     `);
     const result = insert.run(name, city, address, email, phone, bank_account, logo_url, has_own_delivery ? 1 : 0, JSON.stringify(delivery_zones || []), spare_1, spare_2, spare_3, spare_4, JSON.stringify(working_hours || {}));
     res.json({ success: true, id: result.lastInsertRowid });
+  });
+
+  app.get("/api/admin/billing", (req, res) => {
+    const { startDate, endDate } = req.query;
+    
+    let dateFilter = "";
+    const params: any[] = [];
+    
+    if (startDate) {
+      dateFilter += " AND date(created_at) >= ?";
+      params.push(startDate);
+    }
+    if (endDate) {
+      dateFilter += " AND date(created_at) <= ?";
+      params.push(endDate);
+    }
+
+    // Calculate Restaurant Billing
+    const restaurants = db.prepare("SELECT id, name, contract_percentage FROM restaurants WHERE status = 'approved'").all() as any[];
+    const restaurantBilling = restaurants.map(r => {
+      const orders = db.prepare(`SELECT total_price FROM orders WHERE restaurant_id = ? AND status = 'completed' ${dateFilter}`).all(r.id, ...params) as any[];
+      const totalRevenue = orders.reduce((sum, o) => sum + o.total_price, 0);
+      const totalOrders = orders.length;
+      const platformFee = totalRevenue * (r.contract_percentage / 100);
+      const netPayout = totalRevenue - platformFee;
+      
+      return {
+        id: r.id,
+        name: r.name,
+        contract_percentage: r.contract_percentage,
+        totalOrders,
+        totalRevenue,
+        platformFee,
+        netPayout
+      };
+    });
+
+    // Calculate Delivery Partner Billing
+    const deliveryPartners = db.prepare("SELECT id, name FROM delivery_partners WHERE status = 'approved'").all() as any[];
+    const deliveryBilling = deliveryPartners.map(dp => {
+      const orders = db.prepare(`SELECT id FROM orders WHERE delivery_partner_id = ? AND status = 'completed' ${dateFilter}`).all(dp.id, ...params) as any[];
+      const totalDeliveries = orders.length;
+      const feePerDelivery = 100; // Fixed fee per delivery
+      const netPayout = totalDeliveries * feePerDelivery;
+      
+      return {
+        id: dp.id,
+        name: dp.name,
+        totalDeliveries,
+        feePerDelivery,
+        netPayout
+      };
+    });
+
+    res.json({
+      restaurants: restaurantBilling,
+      deliveryPartners: deliveryBilling
+    });
   });
 
   app.get("/api/admin/restaurants/pending", (req, res) => {
@@ -515,7 +576,7 @@ if (restCount.count === 0) {
 
     const restaurantIds = availableRestaurants.map(r => r.id);
     const placeholders = restaurantIds.map(() => '?').join(',');
-    const items = db.prepare(`SELECT * FROM menu_items WHERE restaurant_id IN (${placeholders})`).all(...restaurantIds) as any[];
+    const items = db.prepare(`SELECT * FROM menu_items WHERE restaurant_id IN (${placeholders}) AND is_available = 1`).all(...restaurantIds) as any[];
     
     res.json({ 
       restaurants: availableRestaurants.map(r => ({ 
@@ -585,6 +646,16 @@ if (restCount.count === 0) {
   app.get("/api/orders/:restaurantId", (req, res) => {
     const orders = db.prepare("SELECT * FROM orders WHERE restaurant_id = ? ORDER BY created_at DESC").all(req.params.restaurantId);
     res.json(orders);
+  });
+
+  app.put("/api/orders/:orderId/delay", (req, res) => {
+    const { delayMinutes } = req.body;
+    const { orderId } = req.params;
+    
+    const targetTime = new Date(Date.now() + delayMinutes * 60000).toISOString();
+    db.prepare("UPDATE orders SET spare_2 = ?, status = 'accepted' WHERE id = ?").run(targetTime, orderId);
+    
+    res.json({ success: true, targetTime, status: 'accepted' });
   });
 
   app.put("/api/orders/:orderId/status", (req, res) => {
@@ -767,19 +838,33 @@ if (restCount.count === 0) {
   });
 
   app.post("/api/menu/:restaurantId", (req, res) => {
-    const { name, description, price, image_url, category, subcategory, modifiers } = req.body;
+    const { name, description, price, image_url, category, subcategory, modifiers, is_available } = req.body;
     const modifiersJson = JSON.stringify(modifiers || []);
-    const insert = db.prepare('INSERT INTO menu_items (restaurant_id, name, description, price, image_url, category, subcategory, modifiers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    const result = insert.run(req.params.restaurantId, name, description, price, image_url, category, subcategory, modifiersJson);
-    res.json({ id: result.lastInsertRowid, restaurant_id: req.params.restaurantId, name, description, price, image_url, category, subcategory, modifiers });
+    const isAvail = is_available !== undefined ? (is_available ? 1 : 0) : 1;
+    const insert = db.prepare('INSERT INTO menu_items (restaurant_id, name, description, price, image_url, category, subcategory, modifiers, is_available) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const result = insert.run(req.params.restaurantId, name, description, price, image_url, category, subcategory, modifiersJson, isAvail);
+    res.json({ id: result.lastInsertRowid, restaurant_id: req.params.restaurantId, name, description, price, image_url, category, subcategory, modifiers, is_available: isAvail });
   });
 
   app.put("/api/menu/:id", (req, res) => {
-    const { name, description, price, image_url, category, subcategory, modifiers } = req.body;
+    const { name, description, price, image_url, category, subcategory, modifiers, is_available } = req.body;
     const modifiersJson = JSON.stringify(modifiers || []);
-    const update = db.prepare('UPDATE menu_items SET name = ?, description = ?, price = ?, image_url = ?, category = ?, subcategory = ?, modifiers = ? WHERE id = ?');
-    update.run(name, description, price, image_url, category, subcategory, modifiersJson, req.params.id);
+    const isAvail = is_available !== undefined ? (is_available ? 1 : 0) : 1;
+    const update = db.prepare('UPDATE menu_items SET name = ?, description = ?, price = ?, image_url = ?, category = ?, subcategory = ?, modifiers = ?, is_available = ? WHERE id = ?');
+    update.run(name, description, price, image_url, category, subcategory, modifiersJson, isAvail, req.params.id);
     res.json({ success: true });
+  });
+
+  app.put("/api/menu/:id/toggle-availability", (req, res) => {
+    const id = req.params.id;
+    const item = db.prepare("SELECT is_available FROM menu_items WHERE id = ?").get(id) as any;
+    if (item) {
+      const newStatus = item.is_available ? 0 : 1;
+      db.prepare("UPDATE menu_items SET is_available = ? WHERE id = ?").run(newStatus, id);
+      res.json({ success: true, is_available: newStatus });
+    } else {
+      res.status(404).json({ success: false, message: "Не е пронајден продуктот" });
+    }
   });
 
   app.delete("/api/menu/:id", (req, res) => {
@@ -861,12 +946,12 @@ if (restCount.count === 0) {
   });
 
   app.post("/api/marketing/campaigns", (req, res) => {
-    const { associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity } = req.body;
+    const { associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity, is_visible } = req.body;
     try {
       db.prepare(`
-        INSERT INTO campaigns (associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(associate_id, name, description, budget, start_date, end_date, location_type, JSON.stringify(selected_cities || []), JSON.stringify(map_zones || []), quantity);
+        INSERT INTO campaigns (associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity, is_visible)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(associate_id, name, description, budget, start_date, end_date, location_type, JSON.stringify(selected_cities || []), JSON.stringify(map_zones || []), quantity, is_visible === false ? 0 : 1);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: "Грешка при креирање на кампања" });

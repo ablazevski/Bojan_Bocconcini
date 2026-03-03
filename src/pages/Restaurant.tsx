@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 
 interface ModifierOption {
   name: string;
@@ -23,6 +24,7 @@ interface MenuItem {
   category: string;
   subcategory: string;
   modifiers: ModifierGroup[];
+  is_available?: number;
 }
 
 interface Order {
@@ -36,6 +38,7 @@ interface Order {
   delivery_code: string;
   delivery_partner_name?: string;
   created_at: string;
+  spare_2?: string;
 }
 
 const MACEDONIAN_CITIES = [
@@ -71,12 +74,42 @@ const MACEDONIAN_CITIES = [
   { name: 'Демир Хисар', zip: '7240' }
 ].sort((a, b) => a.name.localeCompare(b.name));
 
+function Countdown({ targetTime }: { targetTime: string }) {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    const target = new Date(targetTime).getTime();
+    
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const difference = target - now;
+      
+      if (difference <= 0) {
+        setTimeLeft('00:00');
+        return;
+      }
+      
+      const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((difference % (1000 * 60)) / 1000);
+      
+      setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [targetTime]);
+
+  return <span>{timeLeft}</span>;
+}
+
 export default function Restaurant() {
   const [loggedInRestaurant, setLoggedInRestaurant] = useState<any>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'menu' | 'settings'>('orders');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings'>('orders');
+  const [dashboardFilter, setDashboardFilter] = useState<'today' | 'week' | 'month' | 'all'>('today');
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeDeliveryPartners, setActiveDeliveryPartners] = useState<number>(0);
@@ -259,6 +292,23 @@ export default function Restaurant() {
     fetchActiveDeliveryPartners();
   };
 
+  const updateOrderDelay = async (orderId: number, delayMinutes: number) => {
+    const res = await fetch(`/api/orders/${orderId}/delay`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delayMinutes })
+    });
+    const data = await res.json();
+    if (data.success) {
+      setOrders(orders.map(o => {
+        if (o.id === orderId) {
+          return { ...o, spare_2: data.targetTime };
+        }
+        return o;
+      }));
+    }
+  };
+
   const updateOrderStatus = async (orderId: number, status: string) => {
     const res = await fetch(`/api/orders/${orderId}/status`, {
       method: 'PUT',
@@ -352,6 +402,11 @@ export default function Restaurant() {
 
   const handleDeleteItem = async (id: number) => {
     const res = await fetch(`/api/menu/${id}`, { method: 'DELETE' });
+    if (res.ok) fetchMenu();
+  };
+
+  const handleToggleAvailability = async (id: number) => {
+    const res = await fetch(`/api/menu/${id}/toggle-availability`, { method: 'PUT' });
     if (res.ok) fetchMenu();
   };
 
@@ -465,6 +520,12 @@ export default function Restaurant() {
         <div className="flex items-center gap-4">
           <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
             <button 
+              onClick={() => setActiveTab('dashboard')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Дашборд
+            </button>
+            <button 
               onClick={() => setActiveTab('orders')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'orders' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
@@ -493,6 +554,12 @@ export default function Restaurant() {
       {/* Mobile Tabs */}
       <div className="md:hidden bg-white border-b border-red-100 p-2 flex gap-2">
         <button 
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-50 text-red-600' : 'text-slate-500'}`}
+        >
+          Дашборд
+        </button>
+        <button 
           onClick={() => setActiveTab('orders')}
           className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'orders' ? 'bg-red-50 text-red-600' : 'text-slate-500'}`}
         >
@@ -513,7 +580,177 @@ export default function Restaurant() {
       </div>
       
       <main className="max-w-6xl mx-auto p-6">
-        {activeTab === 'orders' ? (
+        {activeTab === 'dashboard' ? (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <TrendingUp className="text-blue-500" />
+                Дашборд
+              </h2>
+              <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto overflow-x-auto hide-scrollbar">
+                <button
+                  onClick={() => setDashboardFilter('today')}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'today' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Денес
+                </button>
+                <button
+                  onClick={() => setDashboardFilter('week')}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Оваа недела
+                </button>
+                <button
+                  onClick={() => setDashboardFilter('month')}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'month' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Овој месец
+                </button>
+                <button
+                  onClick={() => setDashboardFilter('all')}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Вкупно
+                </button>
+              </div>
+            </div>
+
+            {(() => {
+              const now = new Date();
+              const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              
+              const startOfWeek = new Date(today);
+              startOfWeek.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1)); // Monday
+              
+              const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+              const filteredOrders = orders.filter(o => {
+                if (dashboardFilter === 'all') return true;
+                
+                const orderDate = new Date(o.created_at);
+                if (dashboardFilter === 'today') return orderDate >= today;
+                if (dashboardFilter === 'week') return orderDate >= startOfWeek;
+                if (dashboardFilter === 'month') return orderDate >= startOfMonth;
+                return true;
+              });
+
+              return (
+                <>
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+                          <DollarSign size={24} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-500 font-medium">Вкупен Промет</p>
+                          <p className="text-2xl font-bold text-slate-800">
+                            {filteredOrders.filter(o => o.status === 'completed').reduce((sum, o) => sum + o.total_price, 0).toLocaleString()} ден.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                          <ShoppingBag size={24} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-500 font-medium">Вкупно Нарачки</p>
+                          <p className="text-2xl font-bold text-slate-800">
+                            {filteredOrders.length}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-orange-50 text-orange-600 rounded-xl">
+                          <TrendingUp size={24} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-500 font-medium">Просечна Нарачка</p>
+                          <p className="text-2xl font-bold text-slate-800">
+                            {filteredOrders.length > 0 ? Math.round(filteredOrders.reduce((sum, o) => sum + o.total_price, 0) / filteredOrders.length).toLocaleString() : 0} ден.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Charts Section */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <h3 className="text-lg font-bold text-slate-800 mb-6">Нарачки по статус</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={[
+                              { name: 'Нови', count: filteredOrders.filter(o => o.status === 'pending').length },
+                              { name: 'Се подготвува', count: filteredOrders.filter(o => o.status === 'accepted').length },
+                              { name: 'Се доставува', count: filteredOrders.filter(o => o.status === 'delivering').length },
+                              { name: 'Доставени', count: filteredOrders.filter(o => o.status === 'completed').length },
+                              { name: 'Одбиени', count: filteredOrders.filter(o => ['rejected', 'cancelled'].includes(o.status)).length }
+                            ]}
+                            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <Tooltip 
+                              cursor={{ fill: '#f8fafc' }}
+                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            />
+                            <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <h3 className="text-lg font-bold text-slate-800 mb-6">Најпродавани продукти</h3>
+                      <div className="space-y-4">
+                        {(() => {
+                          const itemCounts: Record<string, number> = {};
+                          filteredOrders.forEach(order => {
+                            try {
+                              const items = JSON.parse(order.items);
+                              items.forEach((item: any) => {
+                                itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+                              });
+                            } catch (e) {}
+                          });
+                          const topItems = Object.entries(itemCounts)
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 5);
+                          
+                          if (topItems.length === 0) {
+                            return <p className="text-slate-500 text-center py-8">Нема доволно податоци</p>;
+                          }
+
+                          return topItems.map(([name, count], index) => (
+                            <div key={name} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-sm font-bold text-slate-600 shadow-sm">
+                                  #{index + 1}
+                                </div>
+                                <span className="font-medium text-slate-800">{name}</span>
+                              </div>
+                              <span className="font-bold text-blue-600">{count} порции</span>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ) : activeTab === 'orders' ? (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -580,6 +817,19 @@ export default function Restaurant() {
                           <p className="text-sm text-slate-500">{new Date(order.created_at).toLocaleString()}</p>
                         </div>
                         <div className="flex flex-wrap gap-2 items-center" onClick={e => e.stopPropagation()}>
+                          {order.status === 'pending' && !order.spare_2 && (
+                            <div className="flex gap-1 mr-2">
+                              <button onClick={() => updateOrderDelay(order.id, 5)} className="px-2 py-1.5 rounded-lg text-xs font-bold bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 transition-colors">+5 мин</button>
+                              <button onClick={() => updateOrderDelay(order.id, 10)} className="px-2 py-1.5 rounded-lg text-xs font-bold bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 transition-colors">+10 мин</button>
+                              <button onClick={() => updateOrderDelay(order.id, 20)} className="px-2 py-1.5 rounded-lg text-xs font-bold bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 transition-colors">+20 мин</button>
+                            </div>
+                          )}
+                          {order.spare_2 && (order.status === 'pending' || order.status === 'accepted') && (
+                            <div className="px-3 py-1.5 mr-2 rounded-lg text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
+                              <Clock size={14} />
+                              <Countdown targetTime={order.spare_2} />
+                            </div>
+                          )}
                           {[
                             { id: 'pending', label: 'Чека потврда', color: 'yellow' },
                             { id: 'accepted', label: 'Се подготвува', color: 'blue' },
@@ -1027,13 +1277,21 @@ export default function Restaurant() {
                       </div>
                     )}
 
-                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 mt-auto">
-                      <button onClick={() => handleEditItem(item)} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
-                        <Pencil size={16} /> Уреди
+                    <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-auto">
+                      <button 
+                        onClick={() => handleToggleAvailability(item.id)} 
+                        className={`p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium ${item.is_available === 0 ? 'text-red-500 hover:bg-red-50' : 'text-emerald-500 hover:bg-emerald-50'}`}
+                      >
+                        {item.is_available === 0 ? <><X size={16} /> Нема на залиха</> : <><Check size={16} /> Достапно</>}
                       </button>
-                      <button onClick={() => handleDeleteItem(item.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
-                        <Trash2 size={16} /> Избриши
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleEditItem(item)} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                          <Pencil size={16} /> Уреди
+                        </button>
+                        <button onClick={() => handleDeleteItem(item.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                          <Trash2 size={16} /> Избриши
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -65,7 +65,13 @@ export default function Customer() {
       .then(data => {
         setActiveCampaigns(data);
         if (data.length > 0) {
-          setSelectedCampaignId(data[0].id);
+          // Auto-select the first invisible campaign if it exists, otherwise the first visible one
+          const invisibleCampaign = data.find((c: any) => !c.is_visible);
+          if (invisibleCampaign) {
+            setSelectedCampaignId(invisibleCampaign.id);
+          } else {
+            setSelectedCampaignId(data[0].id);
+          }
         }
       });
   }, []);
@@ -190,7 +196,7 @@ export default function Customer() {
   const cartTotal = cart.reduce((sum, item) => sum + item.finalPrice, 0);
   
   const selectedCampaign = activeCampaigns.find(c => c.id === selectedCampaignId);
-  const finalTotal = cartTotal + (selectedCampaign ? selectedCampaign.budget : 0);
+  const finalTotal = Math.max(0, cartTotal + (selectedCampaign ? selectedCampaign.budget : 0));
 
   const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
     let x = point[0], y = point[1];
@@ -539,11 +545,11 @@ export default function Customer() {
                   ))}
                 </div>
                 
-                {activeCampaigns.length > 0 && (
+                {activeCampaigns.filter(c => c.is_visible !== 0 && c.is_visible !== false).length > 0 && (
                   <div className="mb-6">
                     <h3 className="text-lg font-bold text-slate-800 mb-3">Активни кампањи</h3>
                     <div className="space-y-3">
-                      {activeCampaigns.map(camp => (
+                      {activeCampaigns.filter(c => c.is_visible !== 0 && c.is_visible !== false).map(camp => (
                         <label key={camp.id} className={`flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedCampaignId === camp.id ? 'border-orange-500 bg-orange-50' : 'border-slate-100 bg-white hover:border-orange-200'}`}>
                           <div className="pt-1">
                             <input 
@@ -559,7 +565,7 @@ export default function Customer() {
                           <div className="flex-1">
                             <div className="flex justify-between items-start">
                               <span className="font-bold text-slate-800">{camp.name}</span>
-                              <span className="font-bold text-orange-600">+{camp.budget} ден.</span>
+                              <span className="font-bold text-orange-600">{camp.budget > 0 ? '+' : ''}{camp.budget} ден.</span>
                             </div>
                             <p className="text-sm text-slate-500 mt-1">{camp.description}</p>
                           </div>
@@ -574,10 +580,10 @@ export default function Customer() {
                     <span className="text-slate-500">Вкупно продукти:</span>
                     <span className="font-bold text-slate-700">{cartTotal} ден.</span>
                   </div>
-                  {selectedCampaign && (
+                  {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600">
                       <span>{selectedCampaign.name}:</span>
-                      <span className="font-bold">+{selectedCampaign.budget} ден.</span>
+                      <span className="font-bold">{selectedCampaign.budget > 0 ? '+' : ''}{selectedCampaign.budget} ден.</span>
                     </div>
                   )}
                   <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100">
@@ -638,10 +644,10 @@ export default function Customer() {
                     <span className="text-slate-500">Вкупно продукти:</span>
                     <span className="font-bold text-slate-700">{cartTotal} ден.</span>
                   </div>
-                  {selectedCampaign && (
+                  {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600">
                       <span>{selectedCampaign.name}:</span>
-                      <span className="font-bold">+{selectedCampaign.budget} ден.</span>
+                      <span className="font-bold">{selectedCampaign.budget > 0 ? '+' : ''}{selectedCampaign.budget} ден.</span>
                     </div>
                   )}
                   <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100">

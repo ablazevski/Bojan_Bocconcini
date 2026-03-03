@@ -38,7 +38,8 @@ export default function Marketing() {
     end_date: '',
     location_type: 'all_mk' as 'all_mk' | 'cities' | 'map_zones',
     selected_cities: [] as string[],
-    map_zones: [] as [number, number][][]
+    map_zones: [] as [number, number][][],
+    is_visible: true
   });
 
   useEffect(() => {
@@ -451,7 +452,6 @@ export default function Marketing() {
                       <input 
                         type="number" 
                         required
-                        min="0"
                         value={newCampaign.budget}
                         onChange={e => setNewCampaign({...newCampaign, budget: Number(e.target.value)})}
                         className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -470,6 +470,18 @@ export default function Marketing() {
                         placeholder="Пр: 500"
                       />
                     </div>
+                  </div>
+                  
+                  <div className="mt-4">
+                    <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all bg-white border-slate-100 hover:bg-slate-50">
+                      <input 
+                        type="checkbox"
+                        checked={newCampaign.is_visible}
+                        onChange={e => setNewCampaign({...newCampaign, is_visible: e.target.checked})}
+                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm font-medium">Видлива во кошничката</span>
+                    </label>
                   </div>
                 </div>
 

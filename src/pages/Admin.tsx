@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface PendingRestaurant {
@@ -56,7 +56,7 @@ const DAYS_MAP: Record<string, string> = {
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
@@ -66,6 +66,9 @@ export default function Admin() {
   const [marketingAssociates, setMarketingAssociates] = useState<MarketingAssociate[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [billingData, setBillingData] = useState<{restaurants: any[], deliveryPartners: any[]}>({restaurants: [], deliveryPartners: []});
+  const [billingStartDate, setBillingStartDate] = useState('');
+  const [billingEndDate, setBillingEndDate] = useState('');
   const [orderFilterRestaurant, setOrderFilterRestaurant] = useState('');
   const [orderFilterDelivery, setOrderFilterDelivery] = useState('');
   const [orderFilterStartDate, setOrderFilterStartDate] = useState('');
@@ -99,6 +102,19 @@ export default function Admin() {
     fetchOrders();
   }, [orderFilterRestaurant, orderFilterDelivery, orderFilterStartDate, orderFilterEndDate]);
 
+  useEffect(() => {
+    fetchBilling();
+  }, [billingStartDate, billingEndDate]);
+
+  const fetchBilling = async () => {
+    const params = new URLSearchParams();
+    if (billingStartDate) params.append('startDate', billingStartDate);
+    if (billingEndDate) params.append('endDate', billingEndDate);
+    
+    const res = await fetch(`/api/admin/billing?${params.toString()}`);
+    setBillingData(await res.json());
+  };
+
   const fetchOrders = async () => {
     const params = new URLSearchParams();
     if (orderFilterRestaurant) params.append('restaurantId', orderFilterRestaurant);
@@ -118,6 +134,7 @@ export default function Admin() {
     setApprovedRestaurants(await resApproved.json());
 
     fetchOrders();
+    fetchBilling();
 
     const resPendingDel = await fetch('/api/admin/delivery/pending');
     setPendingDelivery(await resPendingDel.json());
@@ -407,6 +424,13 @@ export default function Admin() {
             >
               <Target size={16} />
               Кампањи
+            </button>
+            <button 
+              onClick={() => setActiveTab('billing')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'billing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <DollarSign size={16} />
+              Исплати
             </button>
             <Link 
               to="/marketing"
@@ -729,6 +753,112 @@ export default function Admin() {
               {campaigns.length === 0 && (
                 <div className="p-12 text-center text-slate-400">Нема активни кампањи.</div>
               )}
+            </div>
+          </div>
+        ) : activeTab === 'billing' ? (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <DollarSign className="text-emerald-500" />
+              Исплати и Пресметки
+            </h2>
+            
+            <div className="flex flex-wrap gap-4 mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Од датум</label>
+                <input 
+                  type="date" 
+                  value={billingStartDate}
+                  onChange={(e) => setBillingStartDate(e.target.value)}
+                  className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">До датум</label>
+                <input 
+                  type="date" 
+                  value={billingEndDate}
+                  onChange={(e) => setBillingEndDate(e.target.value)}
+                  className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Restaurants Billing */}
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-4 bg-slate-50 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <Store size={18} className="text-blue-500" />
+                    Ресторани
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Ресторан</th>
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Нарачки</th>
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Промет</th>
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Провизија</th>
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">За исплата</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {billingData.restaurants.map((r: any) => (
+                        <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-4 font-medium text-slate-800">{r.name}</td>
+                          <td className="p-4 text-slate-600">{r.totalOrders}</td>
+                          <td className="p-4 text-slate-600">{r.totalRevenue.toLocaleString()} ден.</td>
+                          <td className="p-4 text-red-600">{r.platformFee.toLocaleString()} ден. ({r.contract_percentage}%)</td>
+                          <td className="p-4 font-bold text-emerald-600">{r.netPayout.toLocaleString()} ден.</td>
+                        </tr>
+                      ))}
+                      {billingData.restaurants.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-slate-500">Нема податоци за избраниот период</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Delivery Partners Billing */}
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-4 bg-slate-50 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <Bike size={18} className="text-orange-500" />
+                    Доставувачи
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Доставувач</th>
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Достави</th>
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Цена по достава</th>
+                        <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">За исплата</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {billingData.deliveryPartners.map((dp: any) => (
+                        <tr key={dp.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-4 font-medium text-slate-800">{dp.name}</td>
+                          <td className="p-4 text-slate-600">{dp.totalDeliveries}</td>
+                          <td className="p-4 text-slate-600">{dp.feePerDelivery} ден.</td>
+                          <td className="p-4 font-bold text-emerald-600">{dp.netPayout.toLocaleString()} ден.</td>
+                        </tr>
+                      ))}
+                      {billingData.deliveryPartners.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="p-8 text-center text-slate-500">Нема податоци за избраниот период</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         ) : activeTab === 'delivery' ? (

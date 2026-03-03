@@ -11,6 +11,36 @@ interface Order {
   status: string;
   delivery_code: string;
   restaurant_id: number;
+  spare_2?: string;
+}
+
+function Countdown({ targetTime }: { targetTime: string }) {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    const target = new Date(targetTime).getTime();
+    
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const difference = target - now;
+      
+      if (difference <= 0) {
+        setTimeLeft('00:00');
+        return;
+      }
+      
+      const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((difference % (1000 * 60)) / 1000);
+      
+      setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [targetTime]);
+
+  return <span>{timeLeft}</span>;
 }
 
 export default function Delivery() {
@@ -451,7 +481,15 @@ export default function Delivery() {
                 <div key={order.id} className="p-4 border border-slate-100 rounded-xl bg-slate-50 hover:border-emerald-200 transition-colors">
                   <div className="flex justify-between items-start mb-3">
                     <h4 className="font-bold text-slate-800">Нарачка #{order.id}</h4>
-                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Подготвена</span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Подготвена</span>
+                      {order.spare_2 && (
+                        <div className="px-2 py-1 rounded-md text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
+                          <Clock size={10} />
+                          <Countdown targetTime={order.spare_2} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <p className="text-sm text-slate-600 mb-4 flex items-center gap-2">
                     <MapPin size={14} className="text-slate-400" />
