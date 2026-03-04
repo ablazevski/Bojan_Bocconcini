@@ -2,8 +2,29 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import crypto from "crypto";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 
 const db = new Database('pizza.db');
+
+// Ensure uploads directory exists
+const uploadDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage: storage });
 
 // Migration for subcategory and modifiers
 try { db.exec('ALTER TABLE menu_items ADD COLUMN subcategory TEXT DEFAULT "Општо"'); } catch (e) {}
@@ -85,6 +106,7 @@ try { db.exec('ALTER TABLE restaurants ADD COLUMN contract_percentage REAL DEFAU
 try { db.exec('ALTER TABLE restaurants ADD COLUMN working_hours TEXT DEFAULT "{}"'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN spare_4 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN logo_url TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN cover_url TEXT'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS delivery_partners (
@@ -197,8 +219,17 @@ if (restCount.count === 0) {
     const PORT = 3000;
   
     app.use(express.json({ limit: '50mb' }));
+    app.use('/uploads', express.static(uploadDir));
   
     // API routes
+    app.post('/api/upload', upload.single('image'), (req, res) => {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      const fileUrl = `/uploads/${req.file.filename}`;
+      res.json({ url: fileUrl });
+    });
+
     app.get("/api/health", (req, res) => {
       res.json({ status: "ok", message: "Backend is running successfully!" });
     });
@@ -250,9 +281,9 @@ if (restCount.count === 0) {
           
           // Insert restaurants
           if (restaurants && restaurants.length > 0) {
-            const insertRest = db.prepare(`INSERT INTO restaurants (id, name, city, address, email, phone, bank_account, logo_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, status, username, password, contract_percentage, working_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertRest = db.prepare(`INSERT INTO restaurants (id, name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, status, username, password, contract_percentage, working_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const r of restaurants) {
-              insertRest.run(r.id, r.name, r.city, r.address, r.email, r.phone, r.bank_account, r.logo_url, r.has_own_delivery, r.delivery_zones, r.spare_1, r.spare_2, r.spare_3, r.spare_4 || null, r.status, r.username, r.password, r.contract_percentage || 0, r.working_hours || '{}');
+              insertRest.run(r.id, r.name, r.city, r.address, r.email, r.phone, r.bank_account, r.logo_url, r.cover_url, r.has_own_delivery, r.delivery_zones, r.spare_1, r.spare_2, r.spare_3, r.spare_4 || null, r.status, r.username, r.password, r.contract_percentage || 0, r.working_hours || '{}');
             }
           }
           
@@ -315,12 +346,12 @@ if (restCount.count === 0) {
   
     // --- RESTAURANT REGISTRATION & ADMIN ---
   app.post("/api/restaurants/register", (req, res) => {
-    const { name, city, address, email, phone, bank_account, logo_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
+    const { name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
     const insert = db.prepare(`
-      INSERT INTO restaurants (name, city, address, email, phone, bank_account, logo_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+      INSERT INTO restaurants (name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
     `);
-    const result = insert.run(name, city, address, email, phone, bank_account, logo_url, has_own_delivery ? 1 : 0, JSON.stringify(delivery_zones || []), spare_1, spare_2, spare_3, spare_4, JSON.stringify(working_hours || {}));
+    const result = insert.run(name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery ? 1 : 0, JSON.stringify(delivery_zones || []), spare_1, spare_2, spare_3, spare_4, JSON.stringify(working_hours || {}));
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
@@ -523,9 +554,9 @@ if (restCount.count === 0) {
   });
 
   app.put("/api/restaurants/:id/settings", (req, res) => {
-    const { password, phone, bank_account, logo_url, city, address, spare_1, spare_2, spare_3, spare_4 } = req.body;
-    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ? WHERE id = ?")
-      .run(password, phone, bank_account, logo_url, city, address, spare_1, spare_2, spare_3, spare_4, req.params.id);
+    const { password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4 } = req.body;
+    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ? WHERE id = ?")
+      .run(password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4, req.params.id);
     res.json({ success: true });
   });
 
@@ -533,6 +564,15 @@ if (restCount.count === 0) {
   app.get("/api/customer/cities", (req, res) => {
     const cities = db.prepare("SELECT DISTINCT city FROM restaurants WHERE status = 'approved'").all() as any[];
     res.json(cities.map(c => c.city));
+  });
+
+  app.get("/api/customer/restaurant/:username", (req, res) => {
+    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, has_own_delivery, working_hours FROM restaurants WHERE username = ? AND status = 'approved'").get(req.params.username) as any;
+    if (!restaurant) {
+      return res.status(404).json({ error: "Ресторанот не е пронајден" });
+    }
+    const menu = db.prepare("SELECT * FROM menu_items WHERE restaurant_id = ? AND is_available = 1").all(restaurant.id);
+    res.json({ restaurant, menu });
   });
 
   app.post("/api/customer/available", (req, res) => {

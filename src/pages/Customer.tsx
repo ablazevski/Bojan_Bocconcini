@@ -74,6 +74,19 @@ export default function Customer() {
           }
         }
       });
+
+    const savedCart = localStorage.getItem('cart');
+    if (savedCart) {
+      try {
+        const parsedCart = JSON.parse(savedCart);
+        if (parsedCart && parsedCart.length > 0) {
+          setCart(parsedCart);
+          setSelectedRestaurantId(parsedCart[0].restaurant_id);
+        }
+      } catch (e) {
+        console.error('Failed to parse cart', e);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -93,6 +106,10 @@ export default function Customer() {
         .catch(err => console.error('Error fetching address:', err));
     }
   }, [location]);
+
+  useEffect(() => {
+    localStorage.setItem('cart', JSON.stringify(cart));
+  }, [cart]);
 
   const handleCitySelect = (city: string) => {
     setSelectedCity(city);
@@ -118,7 +135,20 @@ export default function Customer() {
     }));
     
     setMenuItems(parsedItems);
-    setStep('menu');
+
+    if (cart.length > 0) {
+      const isRestaurantAvailable = data.restaurants.some((r: any) => r.id === selectedRestaurantId);
+      if (isRestaurantAvailable) {
+        setStep('cart');
+      } else {
+        alert('Избраниот ресторан не доставува до вашата локација. Вашата кошничка ќе биде испразнета.');
+        setCart([]);
+        setSelectedRestaurantId(null);
+        setStep('menu');
+      }
+    } else {
+      setStep('menu');
+    }
   };
 
   const openItemModal = (item: MenuItem) => {

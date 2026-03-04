@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 
@@ -159,6 +159,7 @@ export default function Restaurant() {
     phone: '',
     bank_account: '',
     logo_url: '',
+    cover_url: '',
     city: '',
     address: '',
     spare_1: '',
@@ -174,6 +175,7 @@ export default function Restaurant() {
         phone: loggedInRestaurant.phone || '',
         bank_account: loggedInRestaurant.bank_account || '',
         logo_url: loggedInRestaurant.logo_url || '',
+        cover_url: loggedInRestaurant.cover_url || '',
         city: loggedInRestaurant.city || '',
         address: loggedInRestaurant.address || '',
         spare_1: loggedInRestaurant.spare_1 || '',
@@ -201,7 +203,47 @@ export default function Restaurant() {
     }
     setIsSavingSettings(false);
   };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logo_url' | 'cover_url') => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const data = await res.json();
+      setSettingsForm(prev => ({ ...prev, [field]: data.url }));
+    } catch (err) {
+      console.error(err);
+      alert('Грешка при прикачување на сликата.');
+    }
+  };
   
+  const handleItemImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const data = await res.json();
+      setNewItem(prev => ({ ...prev, image_url: data.url }));
+    } catch (err) {
+      console.error(err);
+      alert('Грешка при прикачување на сликата.');
+    }
+  };
+
   const initialNewItem = { 
     name: '', description: '', price: '', image_url: '', 
     category: 'Храна', subcategory: 'Пица', modifiers: [] as ModifierGroup[] 
@@ -544,6 +586,19 @@ export default function Restaurant() {
               Поставки
             </button>
           </div>
+          <button onClick={() => {
+            const url = `${window.location.origin}/r/${loggedInRestaurant.username}`;
+            if (navigator.clipboard && window.isSecureContext) {
+              navigator.clipboard.writeText(url)
+                .then(() => alert('Линкот е копиран: ' + url))
+                .catch(() => prompt('Вашиот прелистувач не дозволува автоматско копирање (поради iframe). Копирајте го линкот рачно:', url));
+            } else {
+              prompt('Копирајте го линкот рачно:', url);
+            }
+          }} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors" title="Сподели линк">
+            <Share2 size={18} />
+            <span className="hidden sm:inline">Сподели</span>
+          </button>
           <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors" title="Одјави се">
             <LogOut size={18} />
             <span className="hidden sm:inline">Одјави се</span>
@@ -985,8 +1040,24 @@ export default function Restaurant() {
                     <input type="text" value={settingsForm.password} onChange={e => setSettingsForm({...settingsForm, password: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" required />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Лого URL</label>
-                    <input type="text" value={settingsForm.logo_url} onChange={e => setSettingsForm({...settingsForm, logo_url: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Лого</label>
+                    <div className="flex gap-2">
+                      <input type="text" value={settingsForm.logo_url} onChange={e => setSettingsForm({...settingsForm, logo_url: e.target.value})} className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
+                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                        <Upload size={18} />
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'logo_url')} />
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Насловна фотографија (Cover)</label>
+                    <div className="flex gap-2">
+                      <input type="text" value={settingsForm.cover_url} onChange={e => setSettingsForm({...settingsForm, cover_url: e.target.value})} className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
+                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                        <Upload size={18} />
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'cover_url')} />
+                      </label>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Географска ширина (Latitude)</label>
@@ -1115,10 +1186,16 @@ export default function Restaurant() {
                     </datalist>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Слика (URL) - Опционално</label>
-                    <div className="relative">
-                      <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                      <input type="url" value={newItem.image_url} onChange={e => setNewItem({...newItem, image_url: e.target.value})} className="w-full pl-10 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="https://..." />
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Слика - Опционално</label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                        <input type="text" value={newItem.image_url} onChange={e => setNewItem({...newItem, image_url: e.target.value})} className="w-full pl-10 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="https://..." />
+                      </div>
+                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                        <Upload size={18} />
+                        <input type="file" accept="image/*" className="hidden" onChange={handleItemImageUpload} />
+                      </label>
                     </div>
                   </div>
                   
