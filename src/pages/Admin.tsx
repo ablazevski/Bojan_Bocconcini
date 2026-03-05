@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface PendingRestaurant {
@@ -56,7 +56,7 @@ const DAYS_MAP: Record<string, string> = {
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
@@ -65,6 +65,21 @@ export default function Admin() {
   const [deliveryView, setDeliveryView] = useState<'active' | 'inactive' | 'pending'>('active');
   const [marketingAssociates, setMarketingAssociates] = useState<MarketingAssociate[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [campaignFilterDate, setCampaignFilterDate] = useState('');
+  const [campaignFilterLocation, setCampaignFilterLocation] = useState('');
+  const [isCreateCampaignModalOpen, setIsCreateCampaignModalOpen] = useState(false);
+  const [newCampaign, setNewCampaign] = useState({
+    name: '',
+    description: '',
+    budget: '',
+    quantity: '',
+    start_date: '',
+    end_date: '',
+    location_type: 'all_mk',
+    selected_cities: [] as string[],
+    restaurant_id: ''
+  });
   const [orders, setOrders] = useState<any[]>([]);
   const [billingData, setBillingData] = useState<{restaurants: any[], deliveryPartners: any[]}>({restaurants: [], deliveryPartners: []});
   const [billingStartDate, setBillingStartDate] = useState('');
@@ -80,6 +95,8 @@ export default function Admin() {
   const [contractPercentage, setContractPercentage] = useState<number>(15);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [isImporting, setIsImporting] = useState(false);
+  const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
   const [selectedCampaignForDetails, setSelectedCampaignForDetails] = useState<any>(null);
   const [usedCodes, setUsedCodes] = useState<any[]>([]);
@@ -96,7 +113,59 @@ export default function Admin() {
 
   useEffect(() => {
     fetchData();
+    fetchSettings();
   }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        setGlobalSettings(await res.json());
+      }
+    } catch (e) {
+      console.error('Failed to fetch settings', e);
+    }
+  };
+
+  const saveGlobalSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(globalSettings)
+      });
+      if (res.ok) {
+        alert('Поставките се успешно зачувани!');
+      } else {
+        alert('Грешка при зачувување на поставките.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Грешка при зачувување на поставките.');
+    }
+    setIsSavingSettings(false);
+  };
+
+  const handleGlobalFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const data = await res.json();
+      setGlobalSettings(prev => ({ ...prev, [field]: data.url }));
+    } catch (err) {
+      console.error(err);
+      alert('Грешка при прикачување на сликата.');
+    }
+  };
 
   useEffect(() => {
     fetchOrders();
@@ -150,6 +219,9 @@ export default function Admin() {
 
     const resCampaigns = await fetch('/api/admin/campaigns');
     setCampaigns(await resCampaigns.json());
+
+    const resUsers = await fetch('/api/admin/users');
+    setUsers(await resUsers.json());
   };
 
   const fetchUsedCodes = async (campaignId: number) => {
@@ -278,6 +350,42 @@ export default function Admin() {
     }
   };
 
+  const handleCreateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCampaign.name || !newCampaign.budget || !newCampaign.quantity || !newCampaign.start_date || !newCampaign.end_date) {
+      alert("Ве молиме пополнете ги сите задолжителни полиња.");
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/admin/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCampaign)
+      });
+      if (res.ok) {
+        alert('Кампањата е успешно креирана!');
+        setIsCreateCampaignModalOpen(false);
+        setNewCampaign({
+          name: '',
+          description: '',
+          budget: '',
+          quantity: '',
+          start_date: '',
+          end_date: '',
+          location_type: 'all_mk',
+          selected_cities: [],
+          restaurant_id: ''
+        });
+        fetchData();
+      } else {
+        alert('Грешка при креирање на кампањата.');
+      }
+    } catch (e) {
+      alert('Грешка при комуникација со серверот.');
+    }
+  };
+
   const handleApproveCampaign = async () => {
     if (!selectedCampaign) return;
     const res = await fetch(`/api/admin/campaigns/${selectedCampaign.id}/approve`, {
@@ -365,6 +473,28 @@ export default function Admin() {
     }
   };
 
+  const filteredCampaigns = campaigns.map(camp => {
+    // Determine if campaign is ended
+    const isEnded = camp.used_codes_count >= camp.quantity;
+    return {
+      ...camp,
+      displayStatus: isEnded ? 'ended' : camp.status
+    };
+  }).filter(camp => {
+    let match = true;
+    if (campaignFilterDate) {
+      const campStart = new Date(camp.start_date).getTime();
+      const campEnd = new Date(camp.end_date).getTime();
+      const filterTime = new Date(campaignFilterDate).getTime();
+      if (filterTime < campStart || filterTime > campEnd) match = false;
+    }
+    if (campaignFilterLocation) {
+      if (camp.location_type === 'all_mk' && campaignFilterLocation !== 'all_mk') match = false;
+      if (camp.location_type === 'cities' && !camp.selected_cities.includes(campaignFilterLocation)) match = false;
+    }
+    return match;
+  });
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
@@ -431,6 +561,20 @@ export default function Admin() {
             >
               <DollarSign size={16} />
               Исплати
+            </button>
+            <button 
+              onClick={() => setActiveTab('users')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'users' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Users size={16} />
+              Корисници
+            </button>
+            <button 
+              onClick={() => setActiveTab('settings')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'settings' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Settings size={16} />
+              Поставки
             </button>
             <Link 
               to="/marketing"
@@ -564,6 +708,7 @@ export default function Admin() {
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Статус</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Вкупно</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Код</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Следење</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -597,6 +742,19 @@ export default function Admin() {
                           <div className="text-[10px] font-mono bg-slate-100 p-1 rounded max-w-[150px] truncate" title={order.delivery_code}>
                             {order.delivery_code}
                           </div>
+                        ) : (
+                          <span className="text-slate-300 text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        {order.tracking_token ? (
+                          <Link 
+                            to={`/track/${order.tracking_token}`} 
+                            target="_blank"
+                            className="text-indigo-600 hover:text-indigo-800"
+                          >
+                            <Target size={18} />
+                          </Link>
                         ) : (
                           <span className="text-slate-300 text-xs">-</span>
                         )}
@@ -662,10 +820,40 @@ export default function Admin() {
           </div>
         ) : activeTab === 'campaigns' ? (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <Target className="text-indigo-500" />
-              Маркетинг Кампањи
-            </h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <Target className="text-indigo-500" />
+                Маркетинг Кампањи
+              </h2>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setIsCreateCampaignModalOpen(true)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                >
+                  <Plus size={16} />
+                  Нова Кампања
+                </button>
+                <input 
+                  type="date" 
+                  value={campaignFilterDate}
+                  onChange={e => setCampaignFilterDate(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <select
+                  value={campaignFilterLocation}
+                  onChange={e => setCampaignFilterLocation(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Сите локации</option>
+                  <option value="all_mk">Цела МК</option>
+                  <option value="Скопје">Скопје</option>
+                  <option value="Битола">Битола</option>
+                  <option value="Охрид">Охрид</option>
+                  <option value="Тетово">Тетово</option>
+                  <option value="Куманово">Куманово</option>
+                </select>
+              </div>
+            </div>
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -679,13 +867,22 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {campaigns.map(camp => (
-                    <tr key={camp.id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => camp.status === 'pending' && setSelectedCampaign(camp)}>
+                  {filteredCampaigns.map(camp => (
+                    <tr key={camp.id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => camp.displayStatus === 'pending' && setSelectedCampaign(camp)}>
                       <td className="p-4">
                         <p className="text-sm font-bold text-slate-800">{camp.name}</p>
                         <p className="text-xs text-slate-500 line-clamp-1">{camp.description}</p>
                       </td>
-                      <td className="p-4 text-sm text-slate-600">{camp.associate_name}</td>
+                      <td className="p-4 text-sm text-slate-600">
+                        {camp.restaurant_name ? (
+                          <span className="flex items-center gap-1.5 text-emerald-600 font-bold">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            {camp.restaurant_name}
+                          </span>
+                        ) : (
+                          camp.associate_name || 'Админ'
+                        )}
+                      </td>
                       <td className="p-4">
                         <p className="text-sm font-bold text-slate-800">{camp.budget} ден.</p>
                         <p className="text-[10px] text-slate-400 font-bold uppercase">{camp.quantity} кодови</p>
@@ -701,14 +898,15 @@ export default function Admin() {
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
-                            camp.status === 'pending' ? 'bg-orange-100 text-orange-700' :
-                            camp.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
-                            camp.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                            camp.displayStatus === 'pending' ? 'bg-orange-100 text-orange-700' :
+                            camp.displayStatus === 'active' ? 'bg-emerald-100 text-emerald-700' :
+                            camp.displayStatus === 'rejected' ? 'bg-red-100 text-red-700' :
+                            camp.displayStatus === 'ended' ? 'bg-slate-200 text-slate-600' :
                             'bg-slate-100 text-slate-700'
                           }`}>
-                            {camp.status === 'pending' ? 'Pending' : camp.status}
+                            {camp.displayStatus === 'pending' ? 'Pending' : camp.displayStatus}
                           </span>
-                          {camp.status === 'pending' && (
+                          {camp.displayStatus === 'pending' && (
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1003,6 +1201,100 @@ export default function Admin() {
               </div>
             )}
           </div>
+        ) : activeTab === 'users' ? (
+          <div className="p-8">
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-slate-800">Регистрирани Корисници</h2>
+                <div className="text-sm text-slate-500">Вкупно: {users.length}</div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 text-left">
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Корисник</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Email</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Лојалност Поени</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Регистриран</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {users.map(user => (
+                      <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
+                              {user.name?.[0] || 'U'}
+                            </div>
+                            <span className="font-bold text-slate-800">{user.name}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 text-sm text-slate-600">{user.email}</td>
+                        <td className="p-4">
+                          <span className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full font-bold text-sm">
+                            {user.loyalty_points || 0} поени
+                          </span>
+                        </td>
+                        <td className="p-4 text-xs text-slate-400">
+                          {new Date(user.created_at).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'settings' ? (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <Settings className="text-slate-500" />
+              Глобални поставки
+            </h2>
+            
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-4">Изглед на апликацијата</h3>
+              <div className="space-y-4 max-w-2xl">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Позадинска слика (Background) за нарачатели</label>
+                  <p className="text-xs text-slate-500 mb-2">Оваа слика ќе се прикажува како позадина кога клиентите пребаруваат продукти.</p>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={globalSettings.customer_background_url || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, customer_background_url: e.target.value})} 
+                      className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://..." 
+                    />
+                    <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                      <Upload size={18} />
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => handleGlobalFileUpload(e, 'customer_background_url')} />
+                    </label>
+                  </div>
+                  {globalSettings.customer_background_url && (
+                    <div className="mt-4 rounded-xl overflow-hidden border border-slate-200 h-48 relative">
+                      <img src={globalSettings.customer_background_url} alt="Background preview" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                        <div className="bg-white p-4 rounded-xl shadow-sm text-center">
+                          <p className="font-bold text-slate-800">Приказ на содржината</p>
+                          <p className="text-sm text-slate-500">Вака ќе изгледа содржината врз позадината</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <button 
+                  onClick={saveGlobalSettings}
+                  disabled={isSavingSettings}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 px-6 rounded-xl transition-colors flex items-center gap-2"
+                >
+                  <Save size={18} />
+                  {isSavingSettings ? 'Се зачувува...' : 'Зачувај поставки'}
+                </button>
+              </div>
+            </div>
+          </div>
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -1282,6 +1574,121 @@ export default function Admin() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Campaign Modal */}
+      {isCreateCampaignModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="bg-indigo-600 p-6 text-white flex items-center justify-between shrink-0">
+              <h2 className="text-xl font-bold">Креирај Нова Кампања</h2>
+              <button onClick={() => setIsCreateCampaignModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateCampaign} className="p-8 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700">Име на кампања *</label>
+                  <input 
+                    type="text"
+                    required
+                    value={newCampaign.name}
+                    onChange={e => setNewCampaign({...newCampaign, name: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="пр. Летен Попуст 2024"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700">Ресторан (Опционално)</label>
+                  <select 
+                    value={newCampaign.restaurant_id}
+                    onChange={e => setNewCampaign({...newCampaign, restaurant_id: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="">Сите ресторани (Маркетинг кампања)</option>
+                    {approvedRestaurants.map(rest => (
+                      <option key={rest.id} value={rest.id}>{rest.name} ({rest.city})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-700">Опис</label>
+                <textarea 
+                  value={newCampaign.description}
+                  onChange={e => setNewCampaign({...newCampaign, description: e.target.value})}
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none"
+                  placeholder="Краток опис на кампањата..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700">Буџет (ден.) *</label>
+                  <input 
+                    type="number"
+                    required
+                    value={newCampaign.budget}
+                    onChange={e => setNewCampaign({...newCampaign, budget: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700">Број на кодови *</label>
+                  <input 
+                    type="number"
+                    required
+                    value={newCampaign.quantity}
+                    onChange={e => setNewCampaign({...newCampaign, quantity: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700">Почеток *</label>
+                  <input 
+                    type="date"
+                    required
+                    value={newCampaign.start_date}
+                    onChange={e => setNewCampaign({...newCampaign, start_date: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700">Крај *</label>
+                  <input 
+                    type="date"
+                    required
+                    value={newCampaign.end_date}
+                    onChange={e => setNewCampaign({...newCampaign, end_date: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4 shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setIsCreateCampaignModalOpen(false)}
+                  className="flex-1 bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl hover:bg-slate-200 transition-all"
+                >
+                  Откажи
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-600/20 transition-all"
+                >
+                  Креирај Кампања
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

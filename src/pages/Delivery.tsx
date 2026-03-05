@@ -11,6 +11,7 @@ interface Order {
   status: string;
   delivery_code: string;
   restaurant_id: number;
+  tracking_token?: string;
   spare_2?: string;
 }
 
@@ -394,6 +395,18 @@ export default function Delivery() {
                   </div>
                 </div>
               </div>
+
+              {activeDelivery.tracking_token && (
+                <div className="mb-6">
+                  <button 
+                    onClick={() => window.open(`/track/${activeDelivery.tracking_token}`, '_blank')}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all border border-indigo-100"
+                  >
+                    <ExternalLink size={16} />
+                    Следење & QR Код
+                  </button>
+                </div>
+              )}
 
               {activeDelivery.delivery_code && (
                 <div className="mb-6 p-3 bg-slate-900 text-slate-100 rounded-xl font-mono text-[10px] border-l-4 border-orange-500">

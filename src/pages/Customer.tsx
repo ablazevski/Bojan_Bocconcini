@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink } from 'lucide-react';
 import LocationPickerMap from '../components/LocationPickerMap';
 
 interface ModifierOption {
@@ -46,6 +46,9 @@ export default function Customer() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
+  const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
+  const [user, setUser] = useState<any>(null);
+  const [lastOrderTrackingTokens, setLastOrderTrackingTokens] = useState<Record<number, string>>({});
   
   const [checkoutForm, setCheckoutForm] = useState({
     firstName: '',
@@ -54,8 +57,25 @@ export default function Customer() {
     phone: '',
     address: ''
   });
+
+  const sliderRef = useRef<HTMLDivElement>(null);
+
+  const scrollSlider = (direction: 'left' | 'right') => {
+    if (sliderRef.current) {
+      const scrollAmount = 200;
+      sliderRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
   
   useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => setGlobalSettings(data))
+      .catch(err => console.error('Failed to fetch settings', err));
+
     fetch('/api/customer/cities')
       .then(res => res.json())
       .then(data => setCities(data));
@@ -87,7 +107,56 @@ export default function Customer() {
         console.error('Failed to parse cart', e);
       }
     }
+
+    fetchUser();
+
+    const handleMessage = (event: MessageEvent) => {
+      const origin = event.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+        return;
+      }
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        fetchUser();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  const fetchUser = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data);
+        setCheckoutForm(prev => ({
+          ...prev,
+          firstName: data.name?.split(' ')[0] || '',
+          lastName: data.name?.split(' ').slice(1).join(' ') || '',
+          email: data.email || ''
+        }));
+      } else {
+        setUser(null);
+      }
+    } catch (e) {
+      setUser(null);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const res = await fetch('/api/auth/google/url');
+      const { url } = await res.json();
+      window.open(url, 'google_oauth', 'width=600,height=700');
+    } catch (e) {
+      console.error('Failed to get Google Auth URL', e);
+    }
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+  };
 
   useEffect(() => {
     if (location) {
@@ -277,11 +346,14 @@ export default function Customer() {
         delivery_lat: location![0],
         delivery_lng: location![1],
         items: cart,
-        campaign_id: selectedCampaignId
+        campaign_id: selectedCampaignId,
+        user_id: user?.id
       })
     });
     
     if (res.ok) {
+      const data = await res.json();
+      setLastOrderTrackingTokens(data.trackingTokens || {});
       setCart([]);
       setStep('success');
     } else {
@@ -319,41 +391,49 @@ export default function Customer() {
   }, {} as Record<string, Record<string, MenuItem[]>>);
 
   return (
-    <div className="min-h-screen bg-orange-50/50 pb-20">
-      <header className="bg-white border-b border-orange-100 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-4">
-          <Link to="/" className="p-2 hover:bg-orange-50 rounded-full text-orange-500 transition-colors">
-            <ArrowLeft size={20} />
-          </Link>
-          <h1 className="text-xl font-extrabold text-orange-600 tracking-tight">PizzaTime</h1>
-        </div>
-        
-        {step !== 'city' && step !== 'success' && (
-          <div className="hidden md:flex flex-col items-center justify-center text-slate-500 text-sm font-medium">
-            <span className="text-orange-600 font-bold capitalize">
-              {currentTime.toLocaleDateString('mk-MK', { weekday: 'long' })}
-            </span>
-            <span>
-              {currentTime.toLocaleDateString('mk-MK', { day: '2-digit', month: '2-digit', year: 'numeric' })} • {currentTime.toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          </div>
-        )}
-
-        <div className="flex items-center gap-4">
-          {step === 'menu' && (
-            <button onClick={() => setStep('cart')} className="p-2 text-slate-600 hover:bg-slate-100 rounded-full relative">
-              <ShoppingBag size={24} />
-              {cart.length > 0 && (
-                <span className="absolute top-0 right-0 w-5 h-5 bg-orange-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white">
-                  {cart.length}
-                </span>
-              )}
-            </button>
-          )}
-        </div>
-      </header>
+    <div 
+      className="min-h-screen bg-orange-50/50 pb-20 bg-cover bg-center bg-fixed relative"
+      style={globalSettings.customer_background_url ? { backgroundImage: `url(${globalSettings.customer_background_url})` } : {}}
+    >
+      {globalSettings.customer_background_url && (
+        <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-0"></div>
+      )}
       
-      <main className="max-w-5xl mx-auto p-6">
+      <div className="relative z-10">
+        <header className="bg-white/90 backdrop-blur-md border-b border-orange-100 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
+          <div className="flex items-center gap-4">
+            <Link to="/" className="p-2 hover:bg-orange-50 rounded-full text-orange-500 transition-colors">
+              <ArrowLeft size={20} />
+            </Link>
+            <h1 className="text-xl font-extrabold text-orange-600 tracking-tight">PizzaTime</h1>
+          </div>
+          
+          {step !== 'city' && step !== 'success' && (
+            <div className="hidden md:flex flex-col items-center justify-center text-slate-500 text-sm font-medium">
+              <span className="text-orange-600 font-bold capitalize">
+                {currentTime.toLocaleDateString('mk-MK', { weekday: 'long' })}
+              </span>
+              <span>
+                {currentTime.toLocaleDateString('mk-MK', { day: '2-digit', month: '2-digit', year: 'numeric' })} • {currentTime.toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4">
+            {step === 'menu' && (
+              <button onClick={() => setStep('cart')} className="p-2 text-slate-600 hover:bg-slate-100 rounded-full relative">
+                <ShoppingBag size={24} />
+                {cart.length > 0 && (
+                  <span className="absolute top-0 right-0 w-5 h-5 bg-orange-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white">
+                    {cart.length}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        </header>
+        
+        <main className="max-w-5xl mx-auto p-6">
         {step === 'city' && (
           <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-3xl shadow-sm border border-orange-100 text-center">
             <div className="w-16 h-16 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -417,46 +497,66 @@ export default function Customer() {
         {step === 'menu' && (
           <>
             <div className="mb-8">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                <div className="flex items-center gap-2 text-slate-600 bg-white p-3 rounded-xl border border-orange-100 shadow-sm inline-flex cursor-pointer hover:bg-orange-50 transition-colors" onClick={() => setStep('location')}>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+                <div className="flex items-center justify-center gap-2 text-slate-600 bg-white p-3 rounded-xl border border-orange-100 shadow-sm cursor-pointer hover:bg-orange-50 transition-colors whitespace-nowrap" onClick={() => setStep('location')}>
                   <MapPin size={18} className="text-orange-500" />
                   <span className="text-sm font-medium">Локација: {selectedCity} (Промени)</span>
                 </div>
                 
-                <div className="text-sm text-slate-500 bg-slate-100 px-4 py-2 rounded-lg">
+                <div className="relative flex-1 max-w-2xl mx-auto w-full">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <input 
+                    type="text" 
+                    placeholder="Пребарај пица, паста, салата..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 bg-white border border-orange-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-slate-800 text-base"
+                  />
+                </div>
+
+                <div className="text-sm text-slate-500 bg-white border border-orange-100 shadow-sm px-4 py-3 rounded-xl whitespace-nowrap text-center">
                   Достапни ресторани: <span className="font-bold text-slate-800">{availableRestaurants.length}</span>
                 </div>
-              </div>
-              
-              <div className="relative max-w-2xl">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                <input 
-                  type="text" 
-                  placeholder="Пребарај пица, паста, салата..." 
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-white border border-orange-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-slate-800 text-lg"
-                />
               </div>
             </div>
 
             {availableRestaurants.length > 0 && (
-              <div className="mb-8 overflow-x-auto pb-2 flex gap-4 no-scrollbar">
+              <div className="mb-8 relative group">
                 <button 
-                  onClick={() => setSelectedRestaurantId(null)}
-                  className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${!selectedRestaurantId ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
+                  onClick={() => scrollSlider('left')}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 bg-white text-orange-500 p-2 rounded-full shadow-md border border-orange-100 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
                 >
-                  Сите ресторани
+                  <ChevronLeft size={20} />
                 </button>
-                {availableRestaurants.map(rest => (
+                
+                <div 
+                  ref={sliderRef}
+                  className="overflow-x-auto pb-2 flex gap-4 scrollbar-hide scroll-smooth"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
                   <button 
-                    key={rest.id}
-                    onClick={() => setSelectedRestaurantId(rest.id)}
-                    className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${selectedRestaurantId === rest.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
+                    onClick={() => setSelectedRestaurantId(null)}
+                    className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${!selectedRestaurantId ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
                   >
-                    {rest.name}
+                    Сите ресторани
                   </button>
-                ))}
+                  {availableRestaurants.map(rest => (
+                    <button 
+                      key={rest.id}
+                      onClick={() => setSelectedRestaurantId(rest.id)}
+                      className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${selectedRestaurantId === rest.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
+                    >
+                      {rest.name}
+                    </button>
+                  ))}
+                </div>
+
+                <button 
+                  onClick={() => scrollSlider('right')}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 bg-white text-orange-500 p-2 rounded-full shadow-md border border-orange-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <ChevronRight size={20} />
+                </button>
               </div>
             )}
 
@@ -575,11 +675,67 @@ export default function Customer() {
                   ))}
                 </div>
                 
-                {activeCampaigns.filter(c => c.is_visible !== 0 && c.is_visible !== false).length > 0 && (
+                {/* Loyalty & Login Section */}
+                <div className="mb-8 p-6 bg-indigo-50 rounded-3xl border border-indigo-100">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
+                        <Award size={24} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-800">Лојалност и Поени</h3>
+                        <p className="text-xs text-slate-500">Поврзете се за да собирате поени</p>
+                      </div>
+                    </div>
+                    {user ? (
+                      <button 
+                        onClick={handleLogout}
+                        className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                        title="Одјави се"
+                      >
+                        <LogOut size={20} />
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={handleGoogleLogin}
+                        className="flex items-center gap-2 bg-white text-slate-700 px-4 py-2 rounded-xl border border-slate-200 font-bold text-sm hover:bg-slate-50 transition-all shadow-sm"
+                      >
+                        <LogIn size={18} className="text-indigo-600" />
+                        Најави се со Google
+                      </button>
+                    )}
+                  </div>
+
+                  {user && (
+                    <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-100 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold">
+                          {user.name?.[0] || 'U'}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{user.name}</p>
+                          <p className="text-[10px] text-slate-500">{user.email}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">Ваши Поени</p>
+                        <p className="text-xl font-black text-indigo-600">{user.loyalty_points || 0}</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {!user && (
+                    <p className="text-xs text-indigo-600/70 italic mt-2">
+                      * Со секоја нарачка добивате поени кои ќе можете да ги користите за попусти во иднина.
+                    </p>
+                  )}
+                </div>
+
+                {activeCampaigns.filter(c => (c.is_visible !== 0 && c.is_visible !== false) && (!c.restaurant_id || (cart.length > 0 ? cart.some(item => item.restaurant_id === c.restaurant_id) : c.restaurant_id === selectedRestaurantId))).length > 0 && (
                   <div className="mb-6">
                     <h3 className="text-lg font-bold text-slate-800 mb-3">Активни кампањи</h3>
                     <div className="space-y-3">
-                      {activeCampaigns.filter(c => c.is_visible !== 0 && c.is_visible !== false).map(camp => (
+                      {activeCampaigns.filter(c => (c.is_visible !== 0 && c.is_visible !== false) && (!c.restaurant_id || (cart.length > 0 ? cart.some(item => item.restaurant_id === c.restaurant_id) : c.restaurant_id === selectedRestaurantId))).map(camp => (
                         <label key={camp.id} className={`flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedCampaignId === camp.id ? 'border-orange-500 bg-orange-50' : 'border-slate-100 bg-white hover:border-orange-200'}`}>
                           <div className="pt-1">
                             <input 
@@ -723,9 +879,26 @@ export default function Customer() {
               <CheckCircle size={40} />
             </div>
             <h2 className="text-3xl font-bold text-slate-800 mb-4">Успешно ја поставивте вашата нарачка!</h2>
-            <p className="text-slate-500 mb-8">
+            <p className="text-slate-500 mb-6">
               Вашата нарачка е успешно испратена до ресторанот. Наскоро ќе биде доставена на вашата адреса.
             </p>
+
+            {Object.entries(lastOrderTrackingTokens).length > 0 && (
+              <div className="mb-8 space-y-3">
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Следете ги вашите нарачки:</p>
+                {Object.entries(lastOrderTrackingTokens).map(([orderId, token]) => (
+                  <Link 
+                    key={orderId} 
+                    to={`/track/${token}`}
+                    className="flex items-center justify-between p-4 bg-orange-50 border border-orange-100 rounded-2xl text-orange-700 font-bold hover:bg-orange-100 transition-colors"
+                  >
+                    <span>Нарачка #{orderId}</span>
+                    <ExternalLink size={18} />
+                  </Link>
+                ))}
+              </div>
+            )}
+
             <button 
               onClick={() => {
                 setStep('city');
@@ -740,6 +913,7 @@ export default function Customer() {
           </div>
         )}
       </main>
+      </div>
 
       {/* Item Customization Modal */}
       {selectedItem && (

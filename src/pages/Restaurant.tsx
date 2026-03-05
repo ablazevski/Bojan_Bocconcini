@@ -36,6 +36,7 @@ interface Order {
   total_price: number;
   status: string;
   delivery_code: string;
+  tracking_token?: string;
   delivery_partner_name?: string;
   created_at: string;
   spare_2?: string;
@@ -930,11 +931,25 @@ export default function Restaurant() {
                       </div>
                       
                       {isExpanded && (
-                        <>
+                        <div className="space-y-6">
+                          {order.tracking_token && (
+                            <div className="flex justify-end">
+                              <button 
+                                onClick={() => window.open(`/track/${order.tracking_token}`, '_blank')}
+                                className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all border border-indigo-100"
+                              >
+                                <Share2 size={16} />
+                                Следење & QR Код
+                              </button>
+                            </div>
+                          )}
+
                           {order.delivery_code && (
                             <div className="mb-6 p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs overflow-x-auto border-l-4 border-orange-500">
                               <div className="flex justify-between items-start mb-2">
-                                <p className="text-orange-400 font-bold uppercase tracking-wider">Генериран код за достава:</p>
+                                <div className="flex flex-col gap-2">
+                                  <p className="text-orange-400 font-bold uppercase tracking-wider">Генериран код за достава:</p>
+                                </div>
                                 {order.delivery_partner_name && (
                                   <div className="text-right">
                                     <p className="text-emerald-400 font-bold uppercase tracking-wider">Доставувач:</p>
@@ -984,7 +999,7 @@ export default function Restaurant() {
                               </div>
                             </div>
                           </div>
-                        </>
+                        </div>
                       )}
                     </div>
                   );

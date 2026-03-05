@@ -5,6 +5,8 @@ import crypto from "crypto";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import session from "express-session";
+import axios from "axios";
 
 const db = new Database('pizza.db');
 
@@ -30,6 +32,17 @@ const upload = multer({ storage: storage });
 try { db.exec('ALTER TABLE menu_items ADD COLUMN subcategory TEXT DEFAULT "Општо"'); } catch (e) {}
 try { db.exec('ALTER TABLE menu_items ADD COLUMN modifiers TEXT DEFAULT "[]"'); } catch (e) {}
 try { db.exec('ALTER TABLE menu_items ADD COLUMN is_available INTEGER DEFAULT 1'); } catch (e) {}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    google_id TEXT UNIQUE,
+    email TEXT UNIQUE,
+    name TEXT,
+    loyalty_points INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS menu_items (
@@ -65,6 +78,7 @@ db.exec(`
     spare_1 TEXT,
     spare_2 TEXT,
     spare_3 TEXT,
+    tracking_token TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
@@ -76,7 +90,8 @@ try { db.exec('ALTER TABLE orders ADD COLUMN spare_2 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN spare_3 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_id INTEGER'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_name TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE campaigns ADD COLUMN is_visible INTEGER DEFAULT 1'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN tracking_token TEXT'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS restaurants (
@@ -156,9 +171,15 @@ db.exec(`
     status TEXT DEFAULT 'pending',
     quantity INTEGER DEFAULT 0,
     code_format TEXT,
+    is_visible INTEGER DEFAULT 1,
+    restaurant_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
+
+// Migration for campaigns
+try { db.exec('ALTER TABLE campaigns ADD COLUMN is_visible INTEGER DEFAULT 1'); } catch (e) {}
+try { db.exec('ALTER TABLE campaigns ADD COLUMN restaurant_id INTEGER'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS campaign_codes (
@@ -169,6 +190,13 @@ db.exec(`
     used_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS global_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
   )
 `);
 
@@ -219,9 +247,181 @@ if (restCount.count === 0) {
     const PORT = 3000;
   
     app.use(express.json({ limit: '50mb' }));
+    app.use(session({
+      secret: process.env.SESSION_SECRET || 'pizza-loyalty-secret',
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        secure: true,
+        sameSite: 'none',
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      }
+    }));
+
+    // Google OAuth Routes
+    app.get('/api/auth/google/url', (req, res) => {
+      if (!process.env.GOOGLE_CLIENT_ID) {
+        return res.status(500).json({ error: 'Google Client ID is not configured' });
+      }
+      const rootUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+      const options = {
+        redirect_uri: `${process.env.APP_URL}/api/auth/google/callback`,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        access_type: 'offline',
+        response_type: 'code',
+        prompt: 'consent',
+        scope: [
+          'https://www.googleapis.com/auth/userinfo.profile',
+          'https://www.googleapis.com/auth/userinfo.email',
+        ].join(' '),
+      };
+
+      const qs = new URLSearchParams(options);
+      res.json({ url: `${rootUrl}?${qs.toString()}` });
+    });
+
+    app.get('/api/auth/google/callback', async (req, res) => {
+      const code = req.query.code as string;
+      if (!process.env.GOOGLE_CLIENT_SECRET) {
+        return res.status(500).send('Google Client Secret is not configured');
+      }
+
+      try {
+        const { data } = await axios.post('https://oauth2.googleapis.com/token', {
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          redirect_uri: `${process.env.APP_URL}/api/auth/google/callback`,
+          grant_type: 'authorization_code',
+        });
+
+        const { access_token } = data;
+        const { data: googleUser } = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${access_token}` },
+        });
+
+        // Upsert user
+        let user = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleUser.id) as any;
+        if (!user) {
+          const result = db.prepare('INSERT INTO users (google_id, email, name) VALUES (?, ?, ?)').run(googleUser.id, googleUser.email, googleUser.name);
+          user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+        } else {
+          db.prepare('UPDATE users SET name = ?, email = ? WHERE id = ?').run(googleUser.name, googleUser.email, user.id);
+        }
+
+        (req.session as any).user = user;
+
+        res.send(`
+          <html>
+            <body>
+              <script>
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                  window.close();
+                } else {
+                  window.location.href = '/';
+                }
+              </script>
+              <p>Authentication successful. This window should close automatically.</p>
+            </body>
+          </html>
+        `);
+      } catch (error) {
+        console.error('Google OAuth error:', error);
+        res.status(500).send('Authentication failed');
+      }
+    });
+
+    app.get('/api/auth/me', (req, res) => {
+      const user = (req.session as any).user;
+      if (user) {
+        // Refresh user data from DB to get latest loyalty points
+        const freshUser = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+        res.json(freshUser);
+      } else {
+        res.status(401).json({ error: 'Not authenticated' });
+      }
+    });
+
+    app.post('/api/auth/logout', (req, res) => {
+      req.session.destroy(() => {
+        res.json({ success: true });
+      });
+    });
+
+    app.get("/api/admin/users", (req, res) => {
+      const users = db.prepare("SELECT * FROM users ORDER BY created_at DESC").all();
+      res.json(users);
+    });
+
+    // Tracking Endpoints
+    app.get("/api/orders/track/:token", (req, res) => {
+      const order = db.prepare(`
+        SELECT o.*, r.name as restaurant_name, r.phone as restaurant_phone, r.address as restaurant_address
+        FROM orders o
+        JOIN restaurants r ON o.restaurant_id = r.id
+        WHERE o.tracking_token = ?
+      `).get(req.params.token) as any;
+      
+      if (!order) {
+        return res.status(404).json({ error: "Нарачката не е пронајдена" });
+      }
+      
+      res.json(order);
+    });
+
+    app.post("/api/orders/track/:token/complete", (req, res) => {
+      const order = db.prepare("SELECT * FROM orders WHERE tracking_token = ?").get(req.params.token) as any;
+      if (!order) {
+        return res.status(404).json({ error: "Нарачката не е пронајдена" });
+      }
+      
+      if (order.status === 'completed') {
+        return res.json({ success: true, message: "Нарачката е веќе затворена" });
+      }
+
+      db.prepare("UPDATE orders SET status = 'completed' WHERE id = ?").run(order.id);
+      
+      // Award loyalty points
+      if (order.user_id) {
+        const points = Math.floor(order.total_price / 100);
+        db.prepare("UPDATE users SET loyalty_points = loyalty_points + ? WHERE id = ?").run(points, order.user_id);
+      }
+      
+      res.json({ success: true });
+    });
+
     app.use('/uploads', express.static(uploadDir));
   
     // API routes
+    app.get('/api/settings', (req, res) => {
+      const settings = db.prepare('SELECT * FROM global_settings').all();
+      const settingsObj = settings.reduce((acc: any, curr: any) => {
+        acc[curr.key] = curr.value;
+        return acc;
+      }, {});
+      res.json(settingsObj);
+    });
+
+    app.put('/api/settings', (req, res) => {
+      const settings = req.body;
+      const stmt = db.prepare('INSERT OR REPLACE INTO global_settings (key, value) VALUES (?, ?)');
+      
+      const transaction = db.transaction((settingsObj) => {
+        for (const [key, value] of Object.entries(settingsObj)) {
+          stmt.run(key, value as string);
+        }
+      });
+
+      try {
+        transaction(settings);
+        res.json({ success: true });
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to save settings' });
+      }
+    });
+
     app.post('/api/upload', upload.single('image'), (req, res) => {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -243,6 +443,7 @@ if (restCount.count === 0) {
       const marketing_associates = db.prepare("SELECT * FROM marketing_associates").all();
       const campaigns = db.prepare("SELECT * FROM campaigns").all();
       const campaign_codes = db.prepare("SELECT * FROM campaign_codes").all();
+      const global_settings = db.prepare("SELECT * FROM global_settings").all();
       
       res.setHeader('Content-disposition', 'attachment; filename=pizzatime-backup.json');
       res.setHeader('Content-type', 'application/json');
@@ -253,7 +454,8 @@ if (restCount.count === 0) {
         delivery_partners,
         marketing_associates,
         campaigns,
-        campaign_codes
+        campaign_codes,
+        global_settings
       }, null, 2));
     });
   
@@ -265,7 +467,8 @@ if (restCount.count === 0) {
         delivery_partners,
         marketing_associates,
         campaigns,
-        campaign_codes
+        campaign_codes,
+        global_settings
       } = req.body;
       
       try {
@@ -278,6 +481,7 @@ if (restCount.count === 0) {
           db.prepare("DELETE FROM orders").run();
           db.prepare("DELETE FROM menu_items").run();
           db.prepare("DELETE FROM restaurants").run();
+          db.prepare("DELETE FROM global_settings").run();
           
           // Insert restaurants
           if (restaurants && restaurants.length > 0) {
@@ -297,9 +501,9 @@ if (restCount.count === 0) {
           
           // Insert orders
           if (orders && orders.length > 0) {
-            const insertOrder = db.prepare(`INSERT INTO orders (id, restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, status, delivery_code, delivery_partner_id, delivery_partner_name, spare_1, spare_2, spare_3, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertOrder = db.prepare(`INSERT INTO orders (id, restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, status, delivery_code, delivery_partner_id, delivery_partner_name, spare_1, spare_2, spare_3, tracking_token, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const o of orders) {
-              insertOrder.run(o.id, o.restaurant_id, o.customer_name, o.customer_email, o.customer_phone, o.delivery_address, o.delivery_lat, o.delivery_lng, o.items, o.total_price, o.status, o.delivery_code || null, o.delivery_partner_id || null, o.delivery_partner_name || null, o.spare_1 || null, o.spare_2 || null, o.spare_3 || null, o.created_at);
+              insertOrder.run(o.id, o.restaurant_id, o.customer_name, o.customer_email, o.customer_phone, o.delivery_address, o.delivery_lat, o.delivery_lng, o.items, o.total_price, o.status, o.delivery_code || null, o.delivery_partner_id || null, o.delivery_partner_name || null, o.spare_1 || null, o.spare_2 || null, o.spare_3 || null, o.tracking_token || null, o.user_id || null, o.created_at);
             }
           }
 
@@ -332,6 +536,14 @@ if (restCount.count === 0) {
             const insertCode = db.prepare(`INSERT INTO campaign_codes (id, campaign_id, code, is_used, used_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`);
             for (const c of campaign_codes) {
               insertCode.run(c.id, c.campaign_id, c.code, c.is_used, c.used_at, c.created_at);
+            }
+          }
+
+          // Insert global settings
+          if (global_settings && global_settings.length > 0) {
+            const insertSetting = db.prepare(`INSERT INTO global_settings (key, value) VALUES (?, ?)`);
+            for (const s of global_settings) {
+              insertSetting.run(s.key, s.value);
             }
           }
         });
@@ -631,7 +843,7 @@ if (restCount.count === 0) {
   });
 
   app.post("/api/orders", (req, res) => {
-    const { customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, campaign_id } = req.body;
+    const { customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, campaign_id, user_id } = req.body;
     
     // Group items by restaurant
     const itemsByRestaurant = items.reduce((acc: any, item: any) => {
@@ -641,22 +853,28 @@ if (restCount.count === 0) {
     }, {});
 
     const insert = db.prepare(`
-      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const orderIds = [];
+    const trackingTokens: Record<number, string> = {};
     let campaignApplied = false;
     let campaignCodeToUse = null;
     let campaignBudget = 0;
+    let campaignRestId = null;
 
     if (campaign_id) {
       const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ? AND status = 'active'").get(campaign_id) as any;
       if (campaign) {
+        if (campaign.restaurant_id && !itemsByRestaurant[campaign.restaurant_id]) {
+          return res.status(400).json({ error: "Оваа кампања е валидна само за одреден ресторан кој не е во вашата кошничка." });
+        }
         const codeRow = db.prepare("SELECT code FROM campaign_codes WHERE campaign_id = ? AND is_used = 0 LIMIT 1").get(campaign_id) as any;
         if (codeRow) {
           campaignCodeToUse = codeRow.code;
           campaignBudget = campaign.budget;
+          campaignRestId = campaign.restaurant_id;
         } else {
           return res.status(400).json({ error: "Избраната кампања нема повеќе слободни кодови. Ве молиме освежете ја страницата и обидете се повторно." });
         }
@@ -667,20 +885,24 @@ if (restCount.count === 0) {
       let totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
       let campaignCode = null;
 
-      if (campaignCodeToUse && !campaignApplied) {
+      const shouldApplyCampaign = campaignCodeToUse && !campaignApplied && (!campaignRestId || Number(restaurantId) === Number(campaignRestId));
+
+      if (shouldApplyCampaign) {
         totalPrice += campaignBudget; // Add campaign price to total
         campaignCode = campaignCodeToUse;
         db.prepare("UPDATE campaign_codes SET is_used = 1, used_at = CURRENT_TIMESTAMP WHERE code = ?").run(campaignCode);
         campaignApplied = true;
       }
 
+      const trackingToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const info = insert.run(
-        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode
+        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken
       );
       orderIds.push(info.lastInsertRowid);
+      trackingTokens[Number(info.lastInsertRowid)] = trackingToken;
     }
 
-    res.json({ success: true, orderIds });
+    res.json({ success: true, orderIds, trackingTokens });
   });
 
   app.get("/api/orders/:restaurantId", (req, res) => {
@@ -752,6 +974,15 @@ if (restCount.count === 0) {
       }
     } else {
       db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+    }
+    
+    // Award loyalty points on completion
+    if (status === 'completed') {
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+      if (order && order.user_id) {
+        const points = Math.floor(order.total_price / 100); // 1 point per 100 MKD
+        db.prepare("UPDATE users SET loyalty_points = loyalty_points + ? WHERE id = ?").run(points, order.user_id);
+      }
     }
     
     res.json({ success: true, delivery_code, delivery_partner_name });
@@ -998,6 +1229,49 @@ if (restCount.count === 0) {
     }
   });
 
+  app.post("/api/admin/campaigns", (req, res) => {
+    const { name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity, is_visible, restaurant_id } = req.body;
+    try {
+      const result = db.prepare(`
+        INSERT INTO campaigns (associate_id, name, description, budget, start_date, end_date, location_type, selected_cities, map_zones, quantity, is_visible, restaurant_id, status)
+        VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+      `).run(name, description, budget, start_date, end_date, location_type, JSON.stringify(selected_cities || []), JSON.stringify(map_zones || []), quantity, is_visible === false ? 0 : 1, restaurant_id || null);
+      
+      const campaignId = result.lastInsertRowid;
+      
+      // Generate codes for admin created campaigns immediately
+      const code_format = name.substring(0, 4).toUpperCase() + '-[XXXX]';
+      db.prepare("UPDATE campaigns SET code_format = ? WHERE id = ?").run(code_format, campaignId);
+      
+      const insertCode = db.prepare("INSERT INTO campaign_codes (campaign_id, code) VALUES (?, ?)");
+      const prefix = code_format.split('[')[0];
+      
+      const generateRandomString = (length: number) => {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      };
+
+      for (let i = 0; i < quantity; i++) {
+        let code = '';
+        let isUnique = false;
+        while (!isUnique) {
+          code = prefix + generateRandomString(4);
+          const existing = db.prepare("SELECT id FROM campaign_codes WHERE code = ?").get(code);
+          if (!existing) isUnique = true;
+        }
+        insertCode.run(campaignId, code);
+      }
+
+      res.json({ success: true, id: campaignId, generated: quantity });
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при креирање на кампања" });
+    }
+  });
+
   app.post("/api/admin/campaigns/:id/approve", (req, res) => {
     const { id } = req.params;
     const { code_format } = req.body;
@@ -1105,9 +1379,13 @@ if (restCount.count === 0) {
 
   app.get("/api/admin/campaigns", (req, res) => {
     const campaigns = db.prepare(`
-      SELECT c.*, ma.company_name as associate_name 
+      SELECT c.*, 
+             ma.company_name as associate_name,
+             r.name as restaurant_name,
+             (SELECT COUNT(*) FROM campaign_codes cc WHERE cc.campaign_id = c.id AND cc.is_used = 1) as used_codes_count
       FROM campaigns c 
-      JOIN marketing_associates ma ON c.associate_id = ma.id 
+      LEFT JOIN marketing_associates ma ON c.associate_id = ma.id 
+      LEFT JOIN restaurants r ON c.restaurant_id = r.id
       ORDER BY c.created_at DESC
     `).all();
     res.json(campaigns);

@@ -8,6 +8,7 @@ import RegisterRestaurant from './pages/RegisterRestaurant';
 import RegisterDelivery from './pages/RegisterDelivery';
 import Marketing from './pages/Marketing';
 import RestaurantProfile from './pages/RestaurantProfile';
+import TrackOrder from './pages/TrackOrder';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/register-delivery" element={<RegisterDelivery />} />
         <Route path="/marketing/*" element={<Marketing />} />
         <Route path="/r/:username" element={<RestaurantProfile />} />
+        <Route path="/track/:token" element={<TrackOrder />} />
       </Routes>
     </BrowserRouter>
   );
