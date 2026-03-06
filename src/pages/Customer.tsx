@@ -44,11 +44,13 @@ export default function Customer() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
+  const [deliveryFee, setDeliveryFee] = useState<number>(0);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
   const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
   const [user, setUser] = useState<any>(null);
   const [lastOrderTrackingTokens, setLastOrderTrackingTokens] = useState<Record<number, string>>({});
+  const [error, setError] = useState<string | null>(null);
   
   const [checkoutForm, setCheckoutForm] = useState({
     firstName: '',
@@ -109,6 +111,14 @@ export default function Customer() {
     }
 
     fetchUser();
+
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.delivery_fee) setDeliveryFee(Number(data.delivery_fee));
+        setGlobalSettings(data);
+      })
+      .catch(err => console.error('Failed to fetch settings', err));
 
     const handleMessage = (event: MessageEvent) => {
       const origin = event.origin;
@@ -210,7 +220,7 @@ export default function Customer() {
       if (isRestaurantAvailable) {
         setStep('cart');
       } else {
-        alert('Избраниот ресторан не доставува до вашата локација. Вашата кошничка ќе биде испразнета.');
+        setError('Избраниот ресторан не доставува до вашата локација. Вашата кошничка ќе биде испразнета.');
         setCart([]);
         setSelectedRestaurantId(null);
         setStep('menu');
@@ -295,7 +305,7 @@ export default function Customer() {
   const cartTotal = cart.reduce((sum, item) => sum + item.finalPrice, 0);
   
   const selectedCampaign = activeCampaigns.find(c => c.id === selectedCampaignId);
-  const finalTotal = Math.max(0, cartTotal + (selectedCampaign ? selectedCampaign.budget : 0));
+  const finalTotal = Math.max(0, cartTotal + (selectedCampaign ? selectedCampaign.budget : 0) + deliveryFee);
 
   const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
     let x = point[0], y = point[1];
@@ -358,7 +368,7 @@ export default function Customer() {
       setStep('success');
     } else {
       const data = await res.json();
-      alert(data.error || 'Настана грешка при процесирање на нарачката.');
+      setError(data.error || 'Настана грешка при процесирање на нарачката.');
     }
   };
 
@@ -544,9 +554,35 @@ export default function Customer() {
                     <button 
                       key={rest.id}
                       onClick={() => setSelectedRestaurantId(rest.id)}
-                      className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${selectedRestaurantId === rest.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
+                      className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all flex items-center gap-3 ${selectedRestaurantId === rest.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
                     >
-                      {rest.name}
+                      <div className="flex flex-col items-start leading-tight">
+                        <div className="flex items-center gap-2">
+                          {rest.name}
+                          {!rest.is_open && (
+                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="Затворено"></span>
+                          )}
+                          {rest.is_open && (
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" title="Отворено"></span>
+                          )}
+                          {rest.is_open && rest.delivery_delay > 0 && (
+                            <span className={`text-[10px] font-bold ${selectedRestaurantId === rest.id ? 'text-white' : 'text-red-500'}`}>
+                              +{rest.delivery_delay} мин.
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          {rest.is_open ? (
+                            <span className={`text-[10px] font-medium ${selectedRestaurantId === rest.id ? 'text-white/80' : 'opacity-70'}`}>
+                              {rest.active_orders} нарачки
+                            </span>
+                          ) : (
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${selectedRestaurantId === rest.id ? 'text-white/90' : 'text-red-400'}`}>
+                              Затворено
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -589,12 +625,19 @@ export default function Customer() {
                           {items.map((item) => {
                             const restaurant = availableRestaurants.find(r => r.id === item.restaurant_id);
                             return (
-                              <div key={item.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border border-orange-100 hover:shadow-md transition-all group flex flex-col cursor-pointer" onClick={() => openItemModal(item)}>
+                              <div 
+                                key={item.id} 
+                                className={`bg-white rounded-3xl overflow-hidden shadow-sm border border-orange-100 hover:shadow-md transition-all group flex flex-col ${restaurant?.is_open ? 'cursor-pointer' : 'cursor-not-allowed grayscale-[0.5]'}`} 
+                                onClick={() => restaurant?.is_open && openItemModal(item)}
+                              >
                                 <div className="h-48 overflow-hidden relative">
                                   <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                                  <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-lg text-xs font-bold text-slate-700 shadow-sm">
-                                    {restaurant?.name || 'Ресторан'}
+                                  <div className="absolute top-3 left-3 flex flex-col gap-2">
+                                    <div className="bg-white/90 backdrop-blur-sm px-3 py-1 rounded-lg text-xs font-bold text-slate-700 shadow-sm flex items-center gap-1.5">
+                                      <div className={`w-1.5 h-1.5 rounded-full ${restaurant?.is_open ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+                                      {restaurant?.name || 'Ресторан'}
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="p-5 flex-1 flex flex-col">
@@ -605,10 +648,17 @@ export default function Customer() {
                                   <div className="flex items-center justify-between mt-auto pt-4 border-t border-orange-50">
                                     <span className="font-extrabold text-xl text-slate-800">{item.price} <span className="text-sm text-slate-500 font-medium">ден.</span></span>
                                     <button 
-                                      className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-xl text-sm font-bold hover:bg-orange-500 hover:text-white transition-colors"
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${restaurant?.is_open ? 'bg-orange-100 text-orange-700 hover:bg-orange-500 hover:text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                      disabled={!restaurant?.is_open}
                                     >
-                                      <Plus size={18} />
-                                      Додади
+                                      {restaurant?.is_open ? (
+                                        <>
+                                          <Plus size={18} />
+                                          Додади
+                                        </>
+                                      ) : (
+                                        'Затворено'
+                                      )}
                                     </button>
                                   </div>
                                 </div>
@@ -766,6 +816,12 @@ export default function Customer() {
                     <span className="text-slate-500">Вкупно продукти:</span>
                     <span className="font-bold text-slate-700">{cartTotal} ден.</span>
                   </div>
+                  {deliveryFee > 0 && (
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-slate-500">Достава:</span>
+                      <span className="font-bold text-slate-700">{deliveryFee} ден.</span>
+                    </div>
+                  )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600">
                       <span>{selectedCampaign.name}:</span>
@@ -830,6 +886,12 @@ export default function Customer() {
                     <span className="text-slate-500">Вкупно продукти:</span>
                     <span className="font-bold text-slate-700">{cartTotal} ден.</span>
                   </div>
+                  {deliveryFee > 0 && (
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-slate-500">Достава:</span>
+                      <span className="font-bold text-slate-700">{deliveryFee} ден.</span>
+                    </div>
+                  )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600">
                       <span>{selectedCampaign.name}:</span>
@@ -980,6 +1042,29 @@ export default function Customer() {
               <button onClick={addToCart} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-2xl flex items-center justify-between px-6 transition-colors shadow-lg shadow-orange-500/30">
                 <span>Додади во кошничка</span>
                 <span>{calculateFinalPrice()} ден.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {error && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <X size={40} strokeWidth={3} />
+              </div>
+              <h3 className="text-2xl font-bold text-slate-800 mb-4">Известување</h3>
+              <p className="text-slate-600 leading-relaxed mb-8">
+                {error}
+              </p>
+              <button 
+                onClick={() => setError(null)}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-slate-900/20"
+              >
+                Разбрав
               </button>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2 } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface PendingRestaurant {
@@ -56,7 +56,7 @@ const DAYS_MAP: Record<string, string> = {
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
@@ -66,6 +66,7 @@ export default function Admin() {
   const [marketingAssociates, setMarketingAssociates] = useState<MarketingAssociate[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
   const [campaignFilterDate, setCampaignFilterDate] = useState('');
   const [campaignFilterLocation, setCampaignFilterLocation] = useState('');
   const [isCreateCampaignModalOpen, setIsCreateCampaignModalOpen] = useState(false);
@@ -222,6 +223,9 @@ export default function Admin() {
 
     const resUsers = await fetch('/api/admin/users');
     setUsers(await resUsers.json());
+
+    const resReviews = await fetch('/api/admin/reviews');
+    setReviews(await resReviews.json());
   };
 
   const fetchUsedCodes = async (campaignId: number) => {
@@ -249,6 +253,21 @@ export default function Admin() {
       username: `del_${partner.id}_${Math.random().toString(36).substring(2, 6)}`,
       password: Math.random().toString(36).substring(2, 8)
     });
+  };
+
+  const toggleReviewVisibility = async (id: number) => {
+    const res = await fetch(`/api/admin/reviews/${id}/toggle`, { method: 'PUT' });
+    if (res.ok) {
+      fetchData();
+    }
+  };
+
+  const deleteReview = async (id: number) => {
+    if (!confirm('Дали сте сигурни дека сакате да ја избришете оваа рецензија?')) return;
+    const res = await fetch(`/api/admin/reviews/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      fetchData();
+    }
   };
 
   const handleApprove = async () => {
@@ -568,6 +587,13 @@ export default function Admin() {
             >
               <Users size={16} />
               Корисници
+            </button>
+            <button 
+              onClick={() => setActiveTab('reviews')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'reviews' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Star size={16} />
+              Рецензии
             </button>
             <button 
               onClick={() => setActiveTab('settings')}
@@ -1245,6 +1271,76 @@ export default function Admin() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'reviews' ? (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <Star className="text-amber-500" />
+              Управување со Рецензии
+            </h2>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Ресторан</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Клиент</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Оцена</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Коментар</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Датум</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Статус</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Акции</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {reviews.map(review => (
+                    <tr key={review.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="p-4 text-sm font-bold text-slate-800">{review.restaurant_name}</td>
+                      <td className="p-4 text-sm text-slate-600">{review.customer_name}</td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-1 text-amber-500">
+                          {[...Array(5)].map((_, i) => (
+                            <Star key={i} size={14} fill={i < review.rating ? "currentColor" : "none"} />
+                          ))}
+                        </div>
+                      </td>
+                      <td className="p-4 text-sm text-slate-500 max-w-xs truncate" title={review.comment}>
+                        {review.comment}
+                      </td>
+                      <td className="p-4 text-sm text-slate-400">
+                        {new Date(review.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${review.is_visible ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {review.is_visible ? 'Видливо' : 'Скриено'}
+                        </span>
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => toggleReviewVisibility(review.id)}
+                            className={`p-2 rounded-lg transition-colors ${review.is_visible ? 'text-slate-400 hover:bg-slate-100' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                            title={review.is_visible ? "Скриј" : "Прикажи"}
+                          >
+                            {review.is_visible ? <EyeOff size={18} /> : <Eye size={18} />}
+                          </button>
+                          <button 
+                            onClick={() => deleteReview(review.id)}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Избриши"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {reviews.length === 0 && (
+                <div className="p-12 text-center text-slate-400">Нема пронајдено рецензии.</div>
+              )}
+            </div>
+          </div>
         ) : activeTab === 'settings' ? (
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
@@ -1282,6 +1378,32 @@ export default function Admin() {
                       </div>
                     </div>
                   )}
+                </div>
+                
+                <button 
+                  onClick={saveGlobalSettings}
+                  disabled={isSavingSettings}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 px-6 rounded-xl transition-colors flex items-center gap-2"
+                >
+                  <Save size={18} />
+                  {isSavingSettings ? 'Се зачувува...' : 'Зачувај поставки'}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-4">Поставки за достава</h3>
+              <div className="space-y-4 max-w-2xl">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Глобална цена за достава (ден.)</label>
+                  <p className="text-xs text-slate-500 mb-2">Оваа цена ќе се додава на секоја нарачка која се врши преку платформата.</p>
+                  <input 
+                    type="number" 
+                    value={globalSettings.delivery_fee || '0'} 
+                    onChange={e => setGlobalSettings({...globalSettings, delivery_fee: e.target.value})} 
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                    placeholder="пр. 100" 
+                  />
                 </div>
                 
                 <button 

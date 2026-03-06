@@ -94,6 +94,19 @@ try { db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN tracking_token TEXT'); } catch (e) {}
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    restaurant_id INTEGER,
+    customer_name TEXT,
+    rating INTEGER,
+    comment TEXT,
+    is_visible INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS restaurants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
@@ -766,9 +779,9 @@ if (restCount.count === 0) {
   });
 
   app.put("/api/restaurants/:id/settings", (req, res) => {
-    const { password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4 } = req.body;
-    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ? WHERE id = ?")
-      .run(password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4, req.params.id);
+    const { password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
+    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ?, working_hours = ? WHERE id = ?")
+      .run(password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, req.params.id);
     res.json({ success: true });
   });
 
@@ -831,13 +844,59 @@ if (restCount.count === 0) {
     const items = db.prepare(`SELECT * FROM menu_items WHERE restaurant_id IN (${placeholders}) AND is_available = 1`).all(...restaurantIds) as any[];
     
     res.json({ 
-      restaurants: availableRestaurants.map(r => ({ 
-        id: r.id, 
-        name: r.name, 
-        address: r.address, 
-        working_hours: r.working_hours,
-        delivery_zones: r.delivery_zones 
-      })), 
+      restaurants: availableRestaurants.map(r => {
+        const activeOrders = db.prepare("SELECT COUNT(*) as count FROM orders WHERE restaurant_id = ? AND status IN ('pending', 'accepted')").get(r.id) as { count: number };
+        
+        let isOpen = true;
+        if (r.working_hours) {
+          try {
+            const workingHours = JSON.parse(r.working_hours);
+            const now = new Date();
+            const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const dayName = days[now.getDay()];
+            const dayHours = workingHours[dayName];
+
+            if (dayHours) {
+              const openTime = dayHours.open || dayHours.start;
+              const closeTime = dayHours.close || dayHours.end;
+              const isActive = dayHours.active !== undefined ? dayHours.active : true;
+
+              if (!isActive) {
+                isOpen = false;
+              } else if (openTime && closeTime) {
+                const [openH, openM] = openTime.split(':').map(Number);
+                const [closeH, closeM] = closeTime.split(':').map(Number);
+                const currentH = now.getHours();
+                const currentM = now.getMinutes();
+                
+                const openTotal = openH * 60 + openM;
+                const closeTotal = closeH * 60 + closeM;
+                const currentTotal = currentH * 60 + currentM;
+
+                if (currentTotal < openTotal || currentTotal > closeTotal) {
+                  isOpen = false;
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Error parsing working hours for restaurant", r.id, e);
+          }
+        }
+
+        // Add 5 minutes for every 4 active orders
+        const deliveryDelay = Math.floor(activeOrders.count / 4) * 5;
+
+        return { 
+          id: r.id, 
+          name: r.name, 
+          address: r.address, 
+          working_hours: r.working_hours,
+          delivery_zones: r.delivery_zones,
+          active_orders: activeOrders.count,
+          is_open: isOpen,
+          delivery_delay: deliveryDelay
+        };
+      }), 
       items: items 
     });
   });
@@ -882,6 +941,46 @@ if (restCount.count === 0) {
     }
 
     for (const [restaurantId, restItems] of Object.entries(itemsByRestaurant)) {
+      // Check if restaurant is open
+      const restaurant = db.prepare("SELECT working_hours, name FROM restaurants WHERE id = ?").get(restaurantId) as any;
+      if (restaurant && restaurant.working_hours) {
+        try {
+          const workingHours = JSON.parse(restaurant.working_hours);
+          const now = new Date();
+          const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+          const dayName = days[now.getDay()];
+          const dayHours = workingHours[dayName];
+
+          if (dayHours) {
+            const openTime = dayHours.open || dayHours.start;
+            const closeTime = dayHours.close || dayHours.end;
+            const isActive = dayHours.active !== undefined ? dayHours.active : true;
+
+            if (!isActive) {
+              return res.status(400).json({ error: `Ресторанот "${restaurant.name}" е затворен денес.` });
+            }
+
+            if (openTime && closeTime) {
+              const [openH, openM] = openTime.split(':').map(Number);
+              const [closeH, closeM] = closeTime.split(':').map(Number);
+              const now = new Date();
+              const currentH = now.getHours();
+              const currentM = now.getMinutes();
+              
+              const openTotal = openH * 60 + openM;
+              const closeTotal = closeH * 60 + closeM;
+              const currentTotal = currentH * 60 + currentM;
+
+              if (currentTotal < openTotal || currentTotal > closeTotal) {
+                return res.status(400).json({ error: `Ресторанот "${restaurant.name}" моментално е затворен. Работно време за денес: ${openTime} - ${closeTime}` });
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error checking working hours:", e);
+        }
+      }
+
       let totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
       let campaignCode = null;
 
@@ -915,9 +1014,9 @@ if (restCount.count === 0) {
     const { orderId } = req.params;
     
     const targetTime = new Date(Date.now() + delayMinutes * 60000).toISOString();
-    db.prepare("UPDATE orders SET spare_2 = ?, status = 'accepted' WHERE id = ?").run(targetTime, orderId);
+    db.prepare("UPDATE orders SET spare_2 = ? WHERE id = ?").run(targetTime, orderId);
     
-    res.json({ success: true, targetTime, status: 'accepted' });
+    res.json({ success: true, targetTime });
   });
 
   app.put("/api/orders/:orderId/status", (req, res) => {
@@ -1389,6 +1488,75 @@ if (restCount.count === 0) {
       ORDER BY c.created_at DESC
     `).all();
     res.json(campaigns);
+  });
+
+  // Review Endpoints
+  app.post("/api/reviews", (req, res) => {
+    const { order_id, restaurant_id, customer_name, rating, comment } = req.body;
+    try {
+      // Check if review already exists for this order
+      const existing = db.prepare("SELECT id FROM reviews WHERE order_id = ?").get(order_id);
+      if (existing) {
+        return res.status(400).json({ error: "Веќе оставивте рецензија за оваа нарачка." });
+      }
+
+      db.prepare(`
+        INSERT INTO reviews (order_id, restaurant_id, customer_name, rating, comment)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(order_id, restaurant_id, customer_name, rating, comment);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Грешка при зачувување на рецензијата" });
+    }
+  });
+
+  app.get("/api/restaurants/:id/reviews", (req, res) => {
+    const { id } = req.params;
+    try {
+      const reviews = db.prepare(`
+        SELECT * FROM reviews 
+        WHERE restaurant_id = ? AND is_visible = 1 
+        ORDER BY created_at DESC
+      `).all(id);
+      res.json(reviews);
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при вчитување на рецензиите" });
+    }
+  });
+
+  app.get("/api/admin/reviews", (req, res) => {
+    try {
+      const reviews = db.prepare(`
+        SELECT rev.*, r.name as restaurant_name 
+        FROM reviews rev
+        JOIN restaurants r ON rev.restaurant_id = r.id
+        ORDER BY rev.created_at DESC
+      `).all();
+      res.json(reviews);
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при вчитување на рецензиите" });
+    }
+  });
+
+  app.put("/api/admin/reviews/:id/toggle", (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("UPDATE reviews SET is_visible = 1 - is_visible WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при промена на видливоста" });
+    }
+  });
+
+  app.delete("/api/admin/reviews/:id", (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("DELETE FROM reviews WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при бришење на рецензијата" });
+    }
   });
 
   // Vite middleware for development

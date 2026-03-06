@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { MapPin, Phone, Clock, ShoppingBag, ArrowLeft, Plus, Minus, Info } from 'lucide-react';
+import { MapPin, Phone, Clock, ShoppingBag, ArrowLeft, Plus, Minus, Info, Star } from 'lucide-react';
 
 export default function RestaurantProfile() {
   const { username } = useParams();
   const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState<any>(null);
   const [menu, setMenu] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<any[]>([]);
 
@@ -20,6 +21,13 @@ export default function RestaurantProfile() {
       .then(data => {
         setRestaurant(data.restaurant);
         setMenu(data.menu);
+        
+        // Fetch reviews
+        fetch(`/api/restaurants/${data.restaurant.id}/reviews`)
+          .then(res => res.json())
+          .then(reviewsData => setReviews(reviewsData))
+          .catch(err => console.error('Failed to fetch reviews', err));
+
         setLoading(false);
       })
       .catch(err => {
@@ -76,6 +84,10 @@ export default function RestaurantProfile() {
 
   const cartTotal = cart.reduce((sum, item) => sum + item.price, 0);
 
+  const averageRating = reviews.length > 0 
+    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+    : null;
+
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
       {/* Cover Image */}
@@ -109,9 +121,106 @@ export default function RestaurantProfile() {
           <div className="flex-1 text-center md:text-left">
             <h1 className="text-3xl md:text-4xl font-extrabold text-slate-800 mb-2">{restaurant.name}</h1>
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-slate-600">
+              {averageRating && (
+                <div className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-bold border border-amber-100">
+                  <Star size={16} fill="currentColor" />
+                  {averageRating} ({reviews.length})
+                </div>
+              )}
               <span className="flex items-center gap-1"><MapPin size={18} className="text-orange-500" /> {restaurant.address}, {restaurant.city}</span>
               <span className="flex items-center gap-1"><Phone size={18} className="text-orange-500" /> {restaurant.phone}</span>
+              <div className="relative group">
+                <span className="flex items-center gap-1 cursor-help">
+                  <Clock size={18} className="text-orange-500" /> 
+                  Работно време
+                  <Info size={14} className="text-slate-400" />
+                </span>
+                <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                  <h4 className="font-bold text-slate-800 mb-3 text-sm border-b border-slate-50 pb-2">Работно време за достава</h4>
+                  <div className="space-y-2">
+                    {(() => {
+                      const days = [
+                        { id: 'monday', label: 'Понеделник' },
+                        { id: 'tuesday', label: 'Вторник' },
+                        { id: 'wednesday', label: 'Среда' },
+                        { id: 'thursday', label: 'Четврток' },
+                        { id: 'friday', label: 'Петок' },
+                        { id: 'saturday', label: 'Сабота' },
+                        { id: 'sunday', label: 'Недела' }
+                      ];
+                      const workingHours = typeof restaurant.working_hours === 'string' 
+                        ? JSON.parse(restaurant.working_hours) 
+                        : restaurant.working_hours || {};
+                      
+                      return days.map(day => {
+                        const hours = workingHours[day.id];
+                        const openTime = hours?.open || hours?.start;
+                        const closeTime = hours?.close || hours?.end;
+                        return (
+                          <div key={day.id} className="flex justify-between text-xs">
+                            <span className="text-slate-500">{day.label}</span>
+                            <span className="font-medium text-slate-700">
+                              {hours?.active && openTime && closeTime ? `${openTime} - ${closeTime}` : <span className="text-red-400">Затворено</span>}
+                            </span>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+
+          <div className="flex flex-col items-center md:items-end gap-2">
+            {(() => {
+              const workingHours = typeof restaurant.working_hours === 'string' 
+                ? JSON.parse(restaurant.working_hours) 
+                : restaurant.working_hours || {};
+              const now = new Date();
+              const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+              const dayName = days[now.getDay()];
+              const dayHours = workingHours[dayName];
+              
+              let isOpen = true;
+              if (dayHours) {
+                const openTime = dayHours.open || dayHours.start;
+                const closeTime = dayHours.close || dayHours.end;
+                const isActive = dayHours.active !== undefined ? dayHours.active : true;
+
+                if (!isActive) {
+                  isOpen = false;
+                } else if (openTime && closeTime) {
+                  const [openH, openM] = openTime.split(':').map(Number);
+                  const [closeH, closeM] = closeTime.split(':').map(Number);
+                  const currentH = now.getHours();
+                  const currentM = now.getMinutes();
+                  
+                  const openTotal = openH * 60 + openM;
+                  const closeTotal = closeH * 60 + closeM;
+                  const currentTotal = currentH * 60 + currentM;
+
+                  if (currentTotal < openTotal || currentTotal > closeTotal) {
+                    isOpen = false;
+                  }
+                }
+              }
+
+              return isOpen ? (
+                <span className="bg-emerald-100 text-emerald-700 px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                  Отворено
+                </span>
+              ) : (
+                <span className="bg-red-100 text-red-700 px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                  Затворено
+                </span>
+              );
+            })()}
+            <span className="text-xs text-slate-400 font-medium">
+              {restaurant.has_own_delivery ? 'Сопствена достава' : 'Платформска достава'}
+            </span>
           </div>
         </div>
 
@@ -147,6 +256,37 @@ export default function RestaurantProfile() {
                 </div>
               </div>
             ))}
+
+            {/* Reviews Section */}
+            <div className="bg-white rounded-3xl shadow-sm p-6 md:p-8">
+              <h2 className="text-2xl font-bold text-slate-800 mb-6 pb-4 border-b border-slate-100 flex items-center gap-2">
+                <Star className="text-amber-500" /> Рецензии од корисници
+              </h2>
+              {reviews.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <p>Сеуште нема рецензии за овој ресторан.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {reviews.map(rev => (
+                    <div key={rev.id} className="border-b border-slate-50 pb-6 last:border-0 last:pb-0">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <p className="font-bold text-slate-800">{rev.customer_name}</p>
+                          <div className="flex items-center gap-1 text-amber-500 mt-1">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} size={14} fill={i < rev.rating ? "currentColor" : "none"} />
+                            ))}
+                          </div>
+                        </div>
+                        <span className="text-xs text-slate-400">{new Date(rev.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-slate-600 text-sm italic">"{rev.comment}"</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Cart Sidebar */}

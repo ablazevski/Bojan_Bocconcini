@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 
@@ -75,8 +75,9 @@ const MACEDONIAN_CITIES = [
   { name: 'Демир Хисар', zip: '7240' }
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-function Countdown({ targetTime }: { targetTime: string }) {
+function Countdown({ targetTime, onExpire }: { targetTime: string, onExpire?: () => void }) {
   const [timeLeft, setTimeLeft] = useState('');
+  const expiredRef = useRef(false);
 
   useEffect(() => {
     const target = new Date(targetTime).getTime();
@@ -87,6 +88,10 @@ function Countdown({ targetTime }: { targetTime: string }) {
       
       if (difference <= 0) {
         setTimeLeft('00:00');
+        if (onExpire && !expiredRef.current) {
+          expiredRef.current = true;
+          onExpire();
+        }
         return;
       }
       
@@ -99,7 +104,7 @@ function Countdown({ targetTime }: { targetTime: string }) {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [targetTime]);
+  }, [targetTime, onExpire]);
 
   return <span>{timeLeft}</span>;
 }
@@ -166,7 +171,8 @@ export default function Restaurant() {
     spare_1: '',
     spare_2: '',
     spare_3: '',
-    spare_4: ''
+    spare_4: '',
+    working_hours: '{}'
   });
 
   useEffect(() => {
@@ -182,7 +188,10 @@ export default function Restaurant() {
         spare_1: loggedInRestaurant.spare_1 || '',
         spare_2: loggedInRestaurant.spare_2 || '',
         spare_3: loggedInRestaurant.spare_3 || '',
-        spare_4: loggedInRestaurant.spare_4 || ''
+        spare_4: loggedInRestaurant.spare_4 || '',
+        working_hours: typeof loggedInRestaurant.working_hours === 'string' 
+          ? loggedInRestaurant.working_hours 
+          : JSON.stringify(loggedInRestaurant.working_hours || {}, null, 2)
       });
     }
   }, [loggedInRestaurant]);
@@ -839,173 +848,201 @@ export default function Restaurant() {
             </div>
             
             {(() => {
-              const filteredOrders = orders.filter(o => 
-                orderView === 'active' 
-                  ? ['pending', 'accepted', 'delivering'].includes(o.status)
-                  : ['completed', 'rejected', 'cancelled'].includes(o.status)
-              );
+              const activeOrders = orders.filter(o => ['pending', 'accepted', 'delivering'].includes(o.status));
+              const completedOrders = orders.filter(o => ['completed', 'rejected', 'cancelled'].includes(o.status));
               
-              if (filteredOrders.length === 0) {
-                return (
-                  <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-8 text-center">
-                    <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Pizza size={32} />
+              if (orderView === 'completed') {
+                if (completedOrders.length === 0) {
+                  return (
+                    <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-8 text-center">
+                      <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Pizza size={32} />
+                      </div>
+                      <h2 className="text-2xl font-bold text-slate-800 mb-2">Нема завршени нарачки</h2>
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Нема нарачки</h2>
-                    <p className="text-slate-500">Моментално немате {orderView === 'active' ? 'активни' : 'завршени'} нарачки.</p>
+                  );
+                }
+                return (
+                  <div className="grid gap-4">
+                    {completedOrders.map(order => (
+                      <div key={order.id} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-slate-800">#{order.id} - {order.customer_name}</p>
+                          <p className="text-xs text-slate-500">{new Date(order.created_at).toLocaleString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-slate-800">{order.total_price} ден.</p>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${order.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                            {order.status === 'completed' ? 'Доставена' : 'Откажана'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 );
               }
-              
+
+              const columns = [
+                { id: 'pending', title: 'Нови', color: 'bg-amber-500', icon: <Clock size={16} /> },
+                { id: 'accepted', title: 'Се подготвува', color: 'bg-blue-500', icon: <Pizza size={16} /> },
+                { id: 'delivering', title: 'Во достава', color: 'bg-purple-500', icon: <MapPin size={16} /> }
+              ];
+
               return (
-                <div className="grid gap-6">
-                  {filteredOrders.map(order => {
-                    const items = JSON.parse(order.items);
-                    const isExpanded = expandedOrders.has(order.id);
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                  {columns.map(col => {
+                    const colOrders = activeOrders.filter(o => o.status === col.id);
                     return (
-                      <div key={order.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                        <div 
-                          className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 cursor-pointer ${isExpanded ? 'mb-6 pb-4 border-b border-slate-100' : ''}`}
-                          onClick={() => toggleOrderExpansion(order.id)}
-                        >
-                        <div>
-                          <h3 className="font-bold text-lg text-slate-800">Нарачка #{order.id}</h3>
-                          <p className="text-sm text-slate-500">{new Date(order.created_at).toLocaleString()}</p>
+                      <div key={col.id} className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between px-2">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${col.color}`}></div>
+                            <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm flex items-center gap-2">
+                              {col.icon}
+                              {col.title}
+                            </h3>
+                          </div>
+                          <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full text-xs font-bold">
+                            {colOrders.length}
+                          </span>
                         </div>
-                        <div className="flex flex-wrap gap-2 items-center" onClick={e => e.stopPropagation()}>
-                          {order.status === 'pending' && !order.spare_2 && (
-                            <div className="flex gap-1 mr-2">
-                              <button onClick={() => updateOrderDelay(order.id, 5)} className="px-2 py-1.5 rounded-lg text-xs font-bold bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 transition-colors">+5 мин</button>
-                              <button onClick={() => updateOrderDelay(order.id, 10)} className="px-2 py-1.5 rounded-lg text-xs font-bold bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 transition-colors">+10 мин</button>
-                              <button onClick={() => updateOrderDelay(order.id, 20)} className="px-2 py-1.5 rounded-lg text-xs font-bold bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 transition-colors">+20 мин</button>
-                            </div>
-                          )}
-                          {order.spare_2 && (order.status === 'pending' || order.status === 'accepted') && (
-                            <div className="px-3 py-1.5 mr-2 rounded-lg text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
-                              <Clock size={14} />
-                              <Countdown targetTime={order.spare_2} />
-                            </div>
-                          )}
-                          {[
-                            { id: 'pending', label: 'Чека потврда', color: 'yellow' },
-                            { id: 'accepted', label: 'Се подготвува', color: 'blue' },
-                            { id: 'delivering', label: 'Се доставува', color: 'purple' },
-                            { id: 'completed', label: 'Доставена', color: 'green' }
-                          ].map((s, idx, arr) => {
-                            const isCurrent = order.status === s.id;
-                            const isPast = arr.findIndex(x => x.id === order.status) > idx;
-                            const isNext = arr.findIndex(x => x.id === order.status) === idx - 1;
-                            const isDisabled = !isNext && !isCurrent && !isPast;
-                            
-                            const colorClasses: Record<string, string> = {
-                              yellow: isCurrent ? 'bg-yellow-500 text-white border-yellow-600' : isPast ? 'bg-yellow-50 text-yellow-400 border-yellow-100' : isNext ? 'bg-white text-yellow-600 border-yellow-200 hover:bg-yellow-50' : 'bg-slate-50 text-slate-300 border-slate-100',
-                              blue: isCurrent ? 'bg-blue-500 text-white border-blue-600' : isPast ? 'bg-blue-50 text-blue-400 border-blue-100' : isNext ? 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50' : 'bg-slate-50 text-slate-300 border-slate-100',
-                              purple: isCurrent ? 'bg-purple-500 text-white border-purple-600' : isPast ? 'bg-purple-50 text-purple-400 border-purple-100' : isNext ? 'bg-white text-purple-600 border-purple-200 hover:bg-purple-50' : 'bg-slate-50 text-slate-300 border-slate-100',
-                              green: isCurrent ? 'bg-green-500 text-white border-green-600' : isPast ? 'bg-green-50 text-green-400 border-green-100' : isNext ? 'bg-white text-green-600 border-green-200 hover:bg-green-50' : 'bg-slate-50 text-slate-300 border-slate-100',
-                            };
+                        
+                        <div className="space-y-4 min-h-[500px] bg-slate-100/50 p-3 rounded-2xl border border-slate-200/50">
+                          {colOrders.map(order => {
+                            const items = JSON.parse(order.items || '[]');
+                            const isExpanded = expandedOrders.has(order.id);
                             
                             return (
-                              <button
-                                key={s.id}
-                                disabled={isDisabled || isPast || order.status === 'cancelled'}
-                                onClick={() => updateOrderStatus(order.id, s.id)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${colorClasses[s.color]}`}
+                              <div 
+                                key={order.id} 
+                                className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-md' : 'hover:border-slate-300'}`}
                               >
-                                {s.label}
-                              </button>
+                                <div 
+                                  className="p-4 cursor-pointer"
+                                  onClick={() => toggleOrderExpansion(order.id)}
+                                >
+                                  <div className="flex justify-between items-start mb-2">
+                                    <span className="text-xs font-bold text-slate-400">#{order.id}</span>
+                                    <div className="flex flex-col items-end">
+                                      <span className="text-[10px] text-slate-400 font-mono">{new Date(order.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                      {order.status === 'pending' && order.spare_2 && (
+                                        <div className="text-lg font-black text-orange-600 animate-pulse">
+                                          <Countdown targetTime={order.spare_2} onExpire={() => updateOrderStatus(order.id, 'accepted')} />
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <h4 className="font-bold text-slate-800 truncate">{order.customer_name}</h4>
+                                  <p className="text-xs text-slate-500 truncate mb-3">{order.delivery_address}</p>
+                                  
+                                    <div className="flex justify-between items-center mb-3">
+                                      <span className="font-bold text-indigo-600 text-sm">{order.total_price} ден.</span>
+                                      <div className="flex gap-1">
+                                        {order.status === 'pending' && (
+                                          <div className="flex gap-1">
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'accepted'); }}
+                                              className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                                              title="Прифати"
+                                            >
+                                              <Check size={16} />
+                                            </button>
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
+                                              className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                                              title="Одбиј"
+                                            >
+                                              <X size={16} />
+                                            </button>
+                                          </div>
+                                        )}
+                                        {order.status === 'accepted' && (
+                                          <div className="flex gap-1">
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
+                                              className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"
+                                              title="Во достава"
+                                            >
+                                              <MapPin size={16} />
+                                            </button>
+                                            {activeDeliveryPartners === 0 && (
+                                              <button 
+                                                onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
+                                                className="px-2 py-1 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors text-[10px] font-bold flex items-center gap-1"
+                                                title="Сопствена достава"
+                                              >
+                                                <Truck size={12} /> Сопствена
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                        {order.status === 'delivering' && (
+                                          <button 
+                                            onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'completed'); }}
+                                            className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                                            title="Заврши"
+                                          >
+                                            <CheckCircle size={16} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {order.status === 'pending' && (
+                                      <div className="flex gap-1 mt-2">
+                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 5); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100">+5м</button>
+                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 10); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100">+10м</button>
+                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 20); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100">+20м</button>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {(isExpanded || order.status === 'pending' || order.status === 'accepted') && (
+                                    <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2">
+                                      <div className="space-y-1">
+                                        {items.map((item: any, i: number) => (
+                                          <div key={i} className="text-xs flex flex-col text-slate-600 border-b border-slate-200/50 pb-1 last:border-0">
+                                            <div className="flex justify-between font-bold text-slate-800">
+                                              <span>{item.quantity || 1}x {item.name}</span>
+                                              <span>{item.finalPrice} ден.</span>
+                                            </div>
+                                            {item.selectedModifiers && Object.keys(item.selectedModifiers).length > 0 && (
+                                              <div className="pl-4 text-[10px] text-slate-400 italic">
+                                                {Object.entries(item.selectedModifiers).map(([group, options]: [string, any]) => (
+                                                  <div key={group}>
+                                                    {group}: {Array.isArray(options) ? options.map((o: any) => o.name).join(', ') : options.name}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                      
+                                      <div className="flex flex-col gap-2 pt-2">
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); window.open(`/track/${order.tracking_token}`, '_blank'); }}
+                                          className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                                        >
+                                          <Share2 size={14} /> Следење & QR
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                              </div>
                             );
                           })}
-                          <button
-                            disabled={order.status === 'completed' || order.status === 'cancelled'}
-                            onClick={() => updateOrderStatus(order.id, 'cancelled')}
-                            className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                              order.status === 'cancelled' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
-                            }`}
-                          >
-                            Откажи
-                          </button>
-                          <div className="ml-2 text-slate-400">
-                            {isExpanded ? '▲' : '▼'}
-                          </div>
+                          {colOrders.length === 0 && (
+                            <div className="h-24 flex items-center justify-center text-slate-300 text-xs italic">
+                              Нема нарачки
+                            </div>
+                          )}
                         </div>
                       </div>
-                      
-                      {isExpanded && (
-                        <div className="space-y-6">
-                          {order.tracking_token && (
-                            <div className="flex justify-end">
-                              <button 
-                                onClick={() => window.open(`/track/${order.tracking_token}`, '_blank')}
-                                className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all border border-indigo-100"
-                              >
-                                <Share2 size={16} />
-                                Следење & QR Код
-                              </button>
-                            </div>
-                          )}
-
-                          {order.delivery_code && (
-                            <div className="mb-6 p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs overflow-x-auto border-l-4 border-orange-500">
-                              <div className="flex justify-between items-start mb-2">
-                                <div className="flex flex-col gap-2">
-                                  <p className="text-orange-400 font-bold uppercase tracking-wider">Генериран код за достава:</p>
-                                </div>
-                                {order.delivery_partner_name && (
-                                  <div className="text-right">
-                                    <p className="text-emerald-400 font-bold uppercase tracking-wider">Доставувач:</p>
-                                    <p className="text-white">{order.delivery_partner_name}</p>
-                                  </div>
-                                )}
-                              </div>
-                              <pre>{JSON.stringify(JSON.parse(order.delivery_code), null, 2)}</pre>
-                            </div>
-                          )}
-                          
-                          <div className="grid md:grid-cols-2 gap-8">
-                            <div>
-                              <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">Информации за клиент</h4>
-                              <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                <p className="font-bold text-slate-800">{order.customer_name}</p>
-                                <p className="text-slate-600 flex items-center gap-2">
-                                  <span className="w-5 h-5 bg-white rounded flex items-center justify-center border border-slate-200 text-xs">📞</span>
-                                  {order.customer_phone}
-                                </p>
-                                <p className="text-slate-600 flex items-center gap-2">
-                                  <span className="w-5 h-5 bg-white rounded flex items-center justify-center border border-slate-200 text-xs">📍</span>
-                                  {order.delivery_address}
-                                </p>
-                              </div>
-                            </div>
-                            <div>
-                              <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">Содржина на нарачка</h4>
-                              <ul className="space-y-3 mb-4">
-                                {items.map((item: any, idx: number) => (
-                                  <li key={idx} className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                    <div className="flex justify-between font-bold text-slate-800 mb-1">
-                                      <span>1x {item.name}</span>
-                                      <span className="text-orange-600">{item.finalPrice} ден.</span>
-                                    </div>
-                                    {Object.entries(item.selectedModifiers || {}).map(([group, sel]: [string, any]) => {
-                                      if (Array.isArray(sel) && sel.length > 0) return <div key={group} className="text-xs text-slate-500 flex gap-1"><span className="font-medium">{group}:</span> {sel.join(', ')}</div>;
-                                      if (typeof sel === 'string' && sel) return <div key={group} className="text-xs text-slate-500 flex gap-1"><span className="font-medium">{group}:</span> {sel}</div>;
-                                      return null;
-                                    })}
-                                  </li>
-                                ))}
-                              </ul>
-                              <div className="flex justify-between items-center pt-4 border-t border-slate-100 mt-auto">
-                                <span className="font-bold text-slate-600">Вкупно за наплата:</span>
-                                <span className="text-2xl font-extrabold text-slate-800">{order.total_price} ден.</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
+                    );
+                  })}
+                </div>
+              );
             })()}
           </div>
         ) : activeTab === 'settings' ? (
@@ -1089,6 +1126,78 @@ export default function Restaurant() {
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 4</label>
                     <input type="text" value={settingsForm.spare_4} onChange={e => setSettingsForm({...settingsForm, spare_4: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                      <Clock size={18} className="text-red-500" />
+                      Работно време
+                    </label>
+                    <div className="space-y-3">
+                      {[
+                        { key: 'monday', label: 'Понеделник' },
+                        { key: 'tuesday', label: 'Вторник' },
+                        { key: 'wednesday', label: 'Среда' },
+                        { key: 'thursday', label: 'Четврток' },
+                        { key: 'friday', label: 'Петок' },
+                        { key: 'saturday', label: 'Сабота' },
+                        { key: 'sunday', label: 'Недела' }
+                      ].map((day) => {
+                        let hours = { active: true, open: '08:00', close: '22:00' };
+                        try {
+                          const parsed = JSON.parse(settingsForm.working_hours || '{}');
+                          if (parsed[day.key]) {
+                            hours = { 
+                              active: parsed[day.key].active !== undefined ? parsed[day.key].active : true,
+                              open: parsed[day.key].open || parsed[day.key].start || '08:00',
+                              close: parsed[day.key].close || parsed[day.key].end || '22:00'
+                            };
+                          }
+                        } catch (e) {}
+
+                        const updateDay = (updates: any) => {
+                          try {
+                            const current = JSON.parse(settingsForm.working_hours || '{}');
+                            current[day.key] = { ...hours, ...updates };
+                            setSettingsForm({ ...settingsForm, working_hours: JSON.stringify(current) });
+                          } catch (e) {
+                            const current: any = {};
+                            current[day.key] = { ...hours, ...updates };
+                            setSettingsForm({ ...settingsForm, working_hours: JSON.stringify(current) });
+                          }
+                        };
+
+                        return (
+                          <div key={day.key} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="font-bold text-slate-700 w-32">{day.label}</span>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <input 
+                                  type="time" 
+                                  value={hours.open} 
+                                  disabled={!hours.active}
+                                  onChange={(e) => updateDay({ open: e.target.value })}
+                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none disabled:opacity-50"
+                                />
+                                <span className="text-slate-400">-</span>
+                                <input 
+                                  type="time" 
+                                  value={hours.close} 
+                                  disabled={!hours.active}
+                                  onChange={(e) => updateDay({ close: e.target.value })}
+                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none disabled:opacity-50"
+                                />
+                              </div>
+                              <input 
+                                type="checkbox" 
+                                checked={hours.active} 
+                                onChange={(e) => updateDay({ active: e.target.checked })}
+                                className="w-5 h-5 rounded text-red-600 focus:ring-red-500 cursor-pointer"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
                 <div className="flex justify-end pt-4">

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck } from 'lucide-react';
+import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import QRCode from 'qrcode';
 
@@ -11,6 +11,9 @@ export default function TrackOrder() {
   const [error, setError] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string>('');
   const [isCompleting, setIsCompleting] = useState(false);
+  const [review, setReview] = useState({ rating: 5, comment: '' });
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
   useEffect(() => {
     fetchOrder();
@@ -53,6 +56,34 @@ export default function TrackOrder() {
       console.error('Failed to complete order', err);
     } finally {
       setIsCompleting(false);
+    }
+  };
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingReview(true);
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: order.id,
+          restaurant_id: order.restaurant_id,
+          customer_name: order.customer_name,
+          rating: review.rating,
+          comment: review.comment
+        })
+      });
+      if (res.ok) {
+        setReviewSubmitted(true);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Грешка при испраќање на рецензијата');
+      }
+    } catch (err) {
+      console.error('Failed to submit review', err);
+    } finally {
+      setIsSubmittingReview(false);
     }
   };
 
@@ -102,123 +133,224 @@ export default function TrackOrder() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="p-2 hover:bg-slate-50 rounded-xl transition-colors">
-            <ArrowLeft size={24} className="text-slate-600" />
+    <div className="min-h-screen bg-[#F5F2ED] pb-20 font-serif">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-6 h-20 flex items-center justify-between">
+          <Link to="/" className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+            <ArrowLeft size={24} className="text-slate-800" />
           </Link>
-          <h1 className="font-bold text-slate-800">Следење на нарачка</h1>
+          <div className="text-center">
+            <h1 className="font-black text-xl text-slate-900 tracking-tight">PIZZA TIME</h1>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold">Tracking Service</p>
+          </div>
           <div className="w-10"></div>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto p-4 space-y-6">
-        {/* Status Card */}
+      <main className="max-w-4xl mx-auto p-6 space-y-8">
+        {/* Status Hero */}
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 text-center"
+          className="bg-white rounded-[40px] shadow-2xl shadow-slate-200/50 overflow-hidden border border-white"
         >
-          <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold mb-6 ${statusColors[order.status] || 'bg-slate-100'}`}>
-            {statusLabels[order.status] || order.status}
-          </div>
+          <div className="p-10 text-center">
+            <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mb-8 font-sans ${statusColors[order.status] || 'bg-slate-100'}`}>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
+              </span>
+              {statusLabels[order.status] || order.status}
+            </div>
 
-          <h2 className="text-3xl font-black text-slate-800 mb-2">#{order.id}</h2>
-          <p className="text-slate-500 mb-8">Нарачано на {new Date(order.created_at).toLocaleString('mk-MK')}</p>
+            <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tighter">#{order.id}</h2>
+            <p className="text-slate-400 font-sans text-sm mb-12">Нарачано на {new Date(order.created_at).toLocaleString('mk-MK')}</p>
 
-          <div className="flex justify-center mb-8">
-            <div className="relative">
-              <div className={`w-24 h-24 rounded-full flex items-center justify-center ${order.status === 'completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-100 text-indigo-600 animate-pulse'}`}>
-                {order.status === 'completed' ? <CheckCircle size={48} /> : <Clock size={48} />}
+            {/* Visual Stepper */}
+            <div className="max-w-md mx-auto mb-12 px-4">
+              <div className="relative flex justify-between items-center">
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-0.5 bg-slate-100"></div>
+                <div 
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-600 transition-all duration-1000"
+                  style={{ 
+                    width: order.status === 'pending' ? '0%' : 
+                           order.status === 'accepted' ? '33%' : 
+                           order.status === 'delivering' ? '66%' : 
+                           order.status === 'completed' ? '100%' : '0%' 
+                  }}
+                ></div>
+                
+                {['pending', 'accepted', 'delivering', 'completed'].map((s, i) => {
+                  const isPast = ['pending', 'accepted', 'delivering', 'completed'].indexOf(order.status) >= i;
+                  return (
+                    <div key={s} className="relative z-10 flex flex-col items-center">
+                      <div className={`w-4 h-4 rounded-full border-4 transition-all duration-500 ${isPast ? 'bg-indigo-600 border-indigo-100' : 'bg-white border-slate-100'}`}></div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between mt-4 font-sans text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                <span>Примена</span>
+                <span>Кујна</span>
+                <span>Пат</span>
+                <span>Дома</span>
               </div>
             </div>
+
+            {order.status !== 'completed' && order.status !== 'cancelled' && (
+              <button 
+                onClick={handleComplete}
+                disabled={isCompleting}
+                className="w-full max-w-sm bg-slate-900 text-white py-5 rounded-3xl font-sans font-black text-sm uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-xl shadow-slate-900/20 disabled:opacity-50"
+              >
+                {isCompleting ? 'Се процесира...' : 'Потврди прием'}
+              </button>
+            )}
+
+            {order.status === 'completed' && (
+              <div className="space-y-6">
+                <div className="inline-flex items-center gap-3 px-8 py-4 bg-emerald-50 rounded-full text-emerald-700 font-sans font-black text-xs uppercase tracking-widest border border-emerald-100">
+                  <ShieldCheck size={20} />
+                  Успешно доставено
+                </div>
+
+                {!reviewSubmitted ? (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="max-w-md mx-auto mt-8 p-8 bg-slate-50 rounded-[32px] border border-slate-100"
+                  >
+                    <h3 className="font-serif text-2xl font-black text-slate-900 mb-2">Како беше храната?</h3>
+                    <p className="text-slate-500 font-sans text-sm mb-6">Вашето мислење ни помага да бидеме подобри.</p>
+                    
+                    <form onSubmit={handleSubmitReview} className="space-y-6">
+                      <div className="flex justify-center gap-2">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => setReview({ ...review, rating: star })}
+                            className={`p-2 transition-all ${review.rating >= star ? 'text-amber-500' : 'text-slate-300'}`}
+                          >
+                            <Star size={32} fill={review.rating >= star ? "currentColor" : "none"} />
+                          </button>
+                        ))}
+                      </div>
+                      
+                      <textarea
+                        value={review.comment}
+                        onChange={(e) => setReview({ ...review, comment: e.target.value })}
+                        placeholder="Напишете коментар (опционално)..."
+                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-sans text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none"
+                      />
+                      
+                      <button
+                        type="submit"
+                        disabled={isSubmittingReview}
+                        className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-sans font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50"
+                      >
+                        {isSubmittingReview ? 'Се испраќа...' : 'Испрати рецензија'}
+                      </button>
+                    </form>
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-8 p-6 bg-emerald-50 text-emerald-700 rounded-2xl font-sans font-bold text-sm"
+                  >
+                    Благодариме за вашата рецензија!
+                  </motion.div>
+                )}
+              </div>
+            )}
           </div>
-
-          {order.status !== 'completed' && order.status !== 'cancelled' && (
-            <button 
-              onClick={handleComplete}
-              disabled={isCompleting}
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50"
-            >
-              {isCompleting ? 'Се процесира...' : 'Потврди дека е доставено'}
-            </button>
-          )}
-
-          {order.status === 'completed' && (
-            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-center gap-3 text-emerald-700 font-bold">
-              <ShieldCheck size={24} />
-              Нарачката е успешно затворена
-            </div>
-          )}
         </motion.div>
 
-        {/* Restaurant Info */}
-        <div className="bg-white p-6 rounded-3xl shadow-lg border border-slate-100">
-          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Store className="text-indigo-600" size={20} />
-            Ресторан
-          </h3>
-          <div className="space-y-3">
-            <p className="font-bold text-lg text-slate-800">{order.restaurant_name}</p>
-            <div className="flex items-center gap-2 text-slate-500 text-sm">
-              <MapPin size={16} />
-              {order.restaurant_address}
-            </div>
-            <div className="flex items-center gap-2 text-slate-500 text-sm">
-              <Phone size={16} />
-              {order.restaurant_phone}
-            </div>
-          </div>
-        </div>
-
-        {/* Order Items */}
-        <div className="bg-white p-6 rounded-3xl shadow-lg border border-slate-100">
-          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Package className="text-indigo-600" size={20} />
-            Детали за нарачката
-          </h3>
-          <div className="space-y-4">
-            {items.map((item: any, idx: number) => (
-              <div key={idx} className="flex justify-between items-start py-3 border-b border-slate-50 last:border-0">
-                <div>
-                  <p className="font-bold text-slate-800">{item.name}</p>
-                  <p className="text-xs text-slate-500">
-                    {Object.entries(item.selectedModifiers || {}).map(([key, val]: any) => 
-                      `${key}: ${Array.isArray(val) ? val.join(', ') : val}`
-                    ).join(' | ')}
-                  </p>
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Details */}
+          <div className="space-y-8">
+            <div className="bg-white p-8 rounded-[32px] shadow-xl shadow-slate-200/30 border border-white">
+              <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
+                <Store size={14} />
+                Ресторан
+              </h3>
+              <div className="space-y-4 font-sans">
+                <p className="font-serif text-2xl font-black text-slate-900">{order.restaurant_name}</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 text-slate-500 text-sm">
+                    <MapPin size={16} className="text-indigo-600" />
+                    {order.restaurant_address}
+                  </div>
+                  <div className="flex items-center gap-3 text-slate-500 text-sm">
+                    <Phone size={16} className="text-indigo-600" />
+                    {order.restaurant_phone}
+                  </div>
                 </div>
-                <p className="font-bold text-slate-800">{item.finalPrice} ден.</p>
               </div>
-            ))}
-            <div className="pt-4 flex justify-between items-center border-t border-slate-100">
-              <span className="font-black text-lg text-slate-800">Вкупно</span>
-              <span className="font-black text-2xl text-indigo-600">{order.total_price} ден.</span>
+            </div>
+
+            <div className="bg-white p-8 rounded-[32px] shadow-xl shadow-slate-200/30 border border-white">
+              <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
+                <Package size={14} />
+                Вашата Нарачка
+              </h3>
+              <div className="space-y-6 font-sans">
+                {items.map((item: any, idx: number) => (
+                  <div key={idx} className="flex justify-between items-start">
+                    <div>
+                      <p className="font-serif text-lg font-black text-slate-900">{item.name}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">
+                        {Object.entries(item.selectedModifiers || {}).map(([key, val]: any) => 
+                          `${key}: ${Array.isArray(val) ? val.join(', ') : val}`
+                        ).join(' • ')}
+                      </p>
+                    </div>
+                    <p className="font-black text-slate-900">{item.finalPrice} ден.</p>
+                  </div>
+                ))}
+                <div className="pt-6 border-t border-slate-100 flex justify-between items-center">
+                  <span className="font-black text-slate-400 uppercase tracking-widest text-[10px]">Вкупно</span>
+                  <span className="font-serif text-3xl font-black text-indigo-600">{order.total_price} ден.</span>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* QR Code for sharing */}
-        <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-100 text-center">
-          <h3 className="font-bold text-slate-800 mb-2">Сподели следење</h3>
-          <p className="text-xs text-slate-500 mb-6">Скенирајте го овој код за да ја следите нарачката на друг уред</p>
-          {qrCode && (
-            <div className="inline-block p-4 bg-white border-4 border-slate-50 rounded-3xl shadow-inner">
-              <img src={qrCode} alt="Tracking QR" className="w-48 h-48" />
+          {/* QR & Share */}
+          <div className="space-y-8">
+            <div className="bg-white p-10 rounded-[32px] shadow-xl shadow-slate-200/30 border border-white text-center">
+              <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-8">Скенирај за следење</h3>
+              {qrCode && (
+                <div className="inline-block p-6 bg-[#F5F2ED] rounded-[40px] mb-8">
+                  <img src={qrCode} alt="Tracking QR" className="w-48 h-48 mix-blend-multiply" />
+                </div>
+              )}
+              <div className="space-y-4">
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    alert('Линкот е копиран!');
+                  }}
+                  className="w-full py-4 bg-slate-50 text-slate-900 rounded-2xl font-sans font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
+                >
+                  <ExternalLink size={16} />
+                  Копирај линк
+                </button>
+              </div>
             </div>
-          )}
-          <div className="mt-6">
-            <button 
-              onClick={() => {
-                navigator.clipboard.writeText(window.location.href);
-                alert('Линкот е копиран!');
-              }}
-              className="text-indigo-600 font-bold text-sm flex items-center justify-center gap-2 mx-auto hover:underline"
-            >
-              <ExternalLink size={16} />
-              Копирај линк
-            </button>
+
+            <div className="p-8 bg-indigo-600 rounded-[32px] text-white shadow-xl shadow-indigo-600/20">
+              <h4 className="font-sans font-black text-[10px] uppercase tracking-widest opacity-60 mb-4">Помош</h4>
+              <p className="font-serif text-lg leading-tight mb-6">Имате проблем со нарачката? Контактирајте го ресторанот директно.</p>
+              <a 
+                href={`tel:${order.restaurant_phone}`}
+                className="inline-flex items-center gap-2 font-sans font-black text-xs uppercase tracking-widest bg-white/20 hover:bg-white/30 px-6 py-3 rounded-full transition-all"
+              >
+                <Phone size={16} />
+                Повикај сега
+              </a>
+            </div>
           </div>
         </div>
       </main>
