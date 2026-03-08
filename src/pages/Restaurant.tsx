@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
+import { io } from 'socket.io-client';
 
 interface ModifierOption {
   name: string;
@@ -40,6 +41,9 @@ interface Order {
   delivery_partner_name?: string;
   created_at: string;
   spare_2?: string;
+  ready_at?: string;
+  payment_method: string;
+  selected_fees: string;
 }
 
 const MACEDONIAN_CITIES = [
@@ -109,15 +113,51 @@ function Countdown({ targetTime, onExpire }: { targetTime: string, onExpire?: ()
   return <span>{timeLeft}</span>;
 }
 
+function FreshnessTimer({ readyAt }: { readyAt: string }) {
+  const [elapsed, setElapsed] = useState('');
+
+  useEffect(() => {
+    const start = new Date(readyAt).getTime();
+    
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const difference = now - start;
+      
+      const minutes = Math.floor(difference / (1000 * 60));
+      const seconds = Math.floor((difference % (1000 * 60)) / 1000);
+      
+      setElapsed(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [readyAt]);
+
+  const minutes = parseInt(elapsed.split(':')[0]);
+  let colorClass = "text-emerald-600";
+  if (minutes >= 30) colorClass = "text-red-600 animate-bounce font-black";
+  else if (minutes >= 15) colorClass = "text-orange-600 font-bold";
+
+  return (
+    <div className={`flex items-center gap-1 ${colorClass}`}>
+      <Clock size={14} />
+      <span className="text-sm font-mono">{elapsed}</span>
+    </div>
+  );
+}
+
 export default function Restaurant() {
   const [loggedInRestaurant, setLoggedInRestaurant] = useState<any>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings'>('orders');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings' | 'reviews' | 'campaigns'>('orders');
   const [dashboardFilter, setDashboardFilter] = useState<'today' | 'week' | 'month' | 'all'>('today');
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
   const [activeDeliveryPartners, setActiveDeliveryPartners] = useState<number>(0);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -275,12 +315,26 @@ export default function Restaurant() {
     if (loggedInRestaurant) {
       fetchMenu();
       fetchOrders();
+      fetchReviews();
+      fetchCampaigns();
       
+      const socket = io();
+      socket.emit('join_restaurant', loggedInRestaurant.id);
+
+      socket.on('new_order', (data) => {
+        console.log('New order received via socket:', data);
+        playNotificationSound();
+        fetchOrders(true);
+      });
+
       const interval = setInterval(() => {
         fetchOrders(true);
-      }, 10000);
+      }, 30000); // Keep as fallback but less frequent
       
-      return () => clearInterval(interval);
+      return () => {
+        socket.disconnect();
+        clearInterval(interval);
+      };
     }
   }, [loggedInRestaurant]);
 
@@ -314,6 +368,20 @@ export default function Restaurant() {
     const res = await fetch(`/api/menu/${loggedInRestaurant.id}`);
     const data = await res.json();
     setMenuItems(data);
+  };
+
+  const fetchReviews = async () => {
+    if (!loggedInRestaurant) return;
+    const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/reviews`);
+    const data = await res.json();
+    setReviews(data);
+  };
+
+  const fetchCampaigns = async () => {
+    if (!loggedInRestaurant) return;
+    const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/campaigns`);
+    const data = await res.json();
+    setCampaigns(data);
   };
 
   const fetchActiveDeliveryPartners = async () => {
@@ -590,6 +658,18 @@ export default function Restaurant() {
               Мени
             </button>
             <button 
+              onClick={() => setActiveTab('reviews')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'reviews' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Рецензии
+            </button>
+            <button 
+              onClick={() => setActiveTab('campaigns')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'campaigns' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Промоции
+            </button>
+            <button 
               onClick={() => setActiveTab('settings')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
@@ -776,38 +856,100 @@ export default function Restaurant() {
                     </div>
 
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                      <h3 className="text-lg font-bold text-slate-800 mb-6">Најпродавани продукти</h3>
-                      <div className="space-y-4">
-                        {(() => {
-                          const itemCounts: Record<string, number> = {};
-                          filteredOrders.forEach(order => {
-                            try {
-                              const items = JSON.parse(order.items);
-                              items.forEach((item: any) => {
-                                itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+                      <h3 className="text-lg font-bold text-slate-800 mb-6">Трендови на продажба</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={(() => {
+                              const salesByDay: Record<string, number> = {};
+                              filteredOrders.forEach(o => {
+                                const date = new Date(o.created_at).toLocaleDateString('mk-MK', { weekday: 'short' });
+                                salesByDay[date] = (salesByDay[date] || 0) + o.total_price;
                               });
-                            } catch (e) {}
-                          });
-                          const topItems = Object.entries(itemCounts)
-                            .sort((a, b) => b[1] - a[1])
-                            .slice(0, 5);
-                          
-                          if (topItems.length === 0) {
-                            return <p className="text-slate-500 text-center py-8">Нема доволно податоци</p>;
-                          }
+                              return Object.entries(salesByDay).map(([name, total]) => ({ name, total }));
+                            })()}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            />
+                            <Line type="monotone" dataKey="total" stroke="#ef4444" strokeWidth={3} dot={{ r: 4, fill: '#ef4444' }} activeDot={{ r: 6 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
 
-                          return topItems.map(([name, count], index) => (
-                            <div key={name} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-sm font-bold text-slate-600 shadow-sm">
-                                  #{index + 1}
-                                </div>
-                                <span className="font-medium text-slate-800">{name}</span>
-                              </div>
-                              <span className="font-bold text-blue-600">{count} порции</span>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <h3 className="text-lg font-bold text-slate-800 mb-6">Најпопуларни продукти</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={(() => {
+                                const itemCounts: Record<string, number> = {};
+                                filteredOrders.forEach(order => {
+                                  try {
+                                    const items = JSON.parse(order.items);
+                                    items.forEach((item: any) => {
+                                      itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+                                    });
+                                  } catch (e) {}
+                                });
+                                return Object.entries(itemCounts)
+                                  .map(([name, value]) => ({ name, value }))
+                                  .sort((a, b) => b.value - a.value)
+                                  .slice(0, 5);
+                              })()}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#6366f1'].map((color, index) => (
+                                <Cell key={`cell-${index}`} fill={color} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend verticalAlign="bottom" height={36}/>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <h3 className="text-lg font-bold text-slate-800 mb-6">Брза Статистика</h3>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-white rounded-lg shadow-sm">
+                              <DollarSign size={16} className="text-emerald-500" />
                             </div>
-                          ));
-                        })()}
+                            <span className="text-sm font-medium text-slate-600">Најголема нарачка:</span>
+                          </div>
+                          <span className="font-bold text-slate-800">{Math.max(...filteredOrders.map(o => o.total_price), 0).toLocaleString()} ден.</span>
+                        </div>
+                        <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-white rounded-lg shadow-sm">
+                              <CheckCircle size={16} className="text-blue-500" />
+                            </div>
+                            <span className="text-sm font-medium text-slate-600">Завршени нарачки:</span>
+                          </div>
+                          <span className="font-bold text-slate-800">{filteredOrders.filter(o => o.status === 'completed').length}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-white rounded-lg shadow-sm">
+                              <X size={16} className="text-red-500" />
+                            </div>
+                            <span className="text-sm font-medium text-slate-600">Откажани:</span>
+                          </div>
+                          <span className="font-bold text-slate-800">{filteredOrders.filter(o => ['rejected', 'cancelled'].includes(o.status)).length}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -848,7 +990,7 @@ export default function Restaurant() {
             </div>
             
             {(() => {
-              const activeOrders = orders.filter(o => ['pending', 'accepted', 'delivering'].includes(o.status));
+              const activeOrders = orders.filter(o => ['pending', 'accepted', 'ready', 'delivering'].includes(o.status));
               const completedOrders = orders.filter(o => ['completed', 'rejected', 'cancelled'].includes(o.status));
               
               if (orderView === 'completed') {
@@ -885,11 +1027,12 @@ export default function Restaurant() {
               const columns = [
                 { id: 'pending', title: 'Нови', color: 'bg-amber-500', icon: <Clock size={16} /> },
                 { id: 'accepted', title: 'Се подготвува', color: 'bg-blue-500', icon: <Pizza size={16} /> },
+                { id: 'ready', title: 'Подготвено', color: 'bg-emerald-500', icon: <CheckCircle size={16} /> },
                 { id: 'delivering', title: 'Во достава', color: 'bg-purple-500', icon: <MapPin size={16} /> }
               ];
 
               return (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
                   {columns.map(col => {
                     const colOrders = activeOrders.filter(o => o.status === col.id);
                     return (
@@ -930,6 +1073,9 @@ export default function Restaurant() {
                                           <Countdown targetTime={order.spare_2} onExpire={() => updateOrderStatus(order.id, 'accepted')} />
                                         </div>
                                       )}
+                                      {order.status === 'ready' && order.ready_at && (
+                                        <FreshnessTimer readyAt={order.ready_at} />
+                                      )}
                                     </div>
                                   </div>
                                   <h4 className="font-bold text-slate-800 truncate">{order.customer_name}</h4>
@@ -957,6 +1103,17 @@ export default function Restaurant() {
                                           </div>
                                         )}
                                         {order.status === 'accepted' && (
+                                          <div className="flex gap-1">
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'ready'); }}
+                                              className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                                              title="Подготвено"
+                                            >
+                                              <CheckCircle size={16} />
+                                            </button>
+                                          </div>
+                                        )}
+                                        {order.status === 'ready' && (
                                           <div className="flex gap-1">
                                             <button 
                                               onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
@@ -1017,6 +1174,27 @@ export default function Restaurant() {
                                             )}
                                           </div>
                                         ))}
+                                      </div>
+
+                                      {/* Payment & Fees */}
+                                      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase">Плаќање:</span>
+                                          <span className="text-xs font-bold text-slate-700">
+                                            {order.payment_method === 'cash' ? 'Готовина' : order.payment_method === 'card' ? 'Картичка' : 'Поени'}
+                                          </span>
+                                        </div>
+                                        {order.selected_fees && JSON.parse(order.selected_fees).length > 0 && (
+                                          <div className="pt-2 border-t border-slate-100">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Додатоци:</span>
+                                            {JSON.parse(order.selected_fees).map((fee: any, idx: number) => (
+                                              <div key={idx} className="flex justify-between text-[10px] text-slate-600">
+                                                <span>{fee.name}</span>
+                                                <span>+{fee.amount} ден.</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                       
                                       <div className="flex flex-col gap-2 pt-2">
@@ -1501,6 +1679,183 @@ export default function Restaurant() {
                 <div className="col-span-full text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-500">
                   <Pizza className="mx-auto mb-3 text-slate-300" size={32} />
                   <p>Вашето мени е празно. Додадете го првиот продукт!</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-slate-800">Рецензии од корисници</h2>
+              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm">
+                <Star className="text-yellow-400 fill-yellow-400" size={20} />
+                <span className="text-lg font-bold text-slate-800">
+                  {reviews.length > 0 
+                    ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) 
+                    : '0.0'}
+                </span>
+                <span className="text-slate-400 text-sm">({reviews.length})</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {reviews.map(review => (
+                <div key={review.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="font-bold text-slate-800">{review.customer_name}</h3>
+                      <p className="text-xs text-slate-400">{new Date(review.created_at).toLocaleDateString('mk-MK')}</p>
+                    </div>
+                    <div className="flex gap-0.5">
+                      {[...Array(5)].map((_, i) => (
+                        <Star 
+                          key={i} 
+                          size={16} 
+                          className={i < review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-slate-200'} 
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-slate-600 italic">"{review.comment}"</p>
+                </div>
+              ))}
+              {reviews.length === 0 && (
+                <div className="col-span-full text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
+                  <Star className="mx-auto text-slate-200 mb-4" size={48} />
+                  <p className="text-slate-500 font-medium">Сè уште немате рецензии.</p>
+                  <p className="text-sm text-slate-400 mt-1">Рецензиите се појавуваат откако корисниците ќе ги примат своите нарачки.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'campaigns' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-slate-800">Промотивни Кампањи</h2>
+              <button 
+                onClick={() => setIsAdding(prev => !prev)} 
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg ${isAdding ? 'bg-slate-200 text-slate-700' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-600/20'}`}
+              >
+                {isAdding ? <><X size={20} /> Затвори</> : <><Plus size={20} /> Побарај промоција</>}
+              </button>
+            </div>
+
+            {isAdding && (
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-indigo-100 animate-in fade-in slide-in-from-top-4 duration-300">
+                <h3 className="text-lg font-bold text-slate-800 mb-6">Барање за нова промотивна кампања</h3>
+                <p className="text-sm text-slate-500 mb-8 bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                  <strong>Напомена:</strong> Секое барање за промоција мора да биде одобрено од администраторот пред да стане активно.
+                </p>
+                
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.target as HTMLFormElement;
+                  const formData = new FormData(form);
+                  const payload = {
+                    name: formData.get('name'),
+                    description: formData.get('description'),
+                    budget: parseFloat(formData.get('budget') as string),
+                    quantity: parseInt(formData.get('quantity') as string),
+                    start_date: formData.get('start_date'),
+                    end_date: formData.get('end_date'),
+                    restaurant_id: loggedInRestaurant.id
+                  };
+                  
+                  const res = await fetch('/api/campaigns/request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                  });
+                  
+                  if (res.ok) {
+                    alert('Барањето е успешно испратено до администраторот!');
+                    setIsAdding(false);
+                    fetchCampaigns();
+                  }
+                }} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Име на кампања</label>
+                      <input name="name" required type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="пр. Викенд Попуст" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Опис</label>
+                      <textarea name="description" required className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 h-24" placeholder="Опис на промоцијата..." />
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Буџет (ден.)</label>
+                        <input name="budget" required type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="5000" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Број на купони</label>
+                        <input name="quantity" required type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="50" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Почеток</label>
+                        <input name="start_date" required type="date" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Крај</label>
+                        <input name="end_date" required type="date" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-span-full pt-4">
+                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-indigo-600/20">
+                      Испрати барање за одобрување
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {campaigns.map(campaign => (
+                <div key={campaign.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 flex flex-col">
+                  <div className={`p-4 text-center text-xs font-bold uppercase tracking-wider ${
+                    campaign.status === 'active' ? 'bg-emerald-500 text-white' : 
+                    campaign.status === 'pending' ? 'bg-amber-500 text-white' : 
+                    'bg-slate-500 text-white'
+                  }`}>
+                    {campaign.status === 'active' ? 'Активна' : 
+                     campaign.status === 'pending' ? 'Чека одобрување' : 
+                     'Завршена/Одбиена'}
+                  </div>
+                  <div className="p-6 flex-1 flex flex-col">
+                    <h3 className="font-bold text-lg text-slate-800 mb-2">{campaign.name}</h3>
+                    <p className="text-slate-500 text-sm mb-4 flex-1">{campaign.description}</p>
+                    
+                    <div className="space-y-3 pt-4 border-t border-slate-50">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">Буџет:</span>
+                        <span className="font-bold text-slate-800">{campaign.budget} ден.</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">Купони:</span>
+                        <span className="font-bold text-slate-800">{campaign.quantity}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">Период:</span>
+                        <span className="font-medium text-slate-600">{new Date(campaign.start_date).toLocaleDateString()} - {new Date(campaign.end_date).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {campaigns.length === 0 && !isAdding && (
+                <div className="col-span-full text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
+                  <Target className="mx-auto text-slate-200 mb-4" size={48} />
+                  <p className="text-slate-500 font-medium">Сè уште немате побарано промоции.</p>
+                  <p className="text-sm text-slate-400 mt-1">Промоциите ви помагаат да привлечете повеќе корисници.</p>
                 </div>
               )}
             </div>

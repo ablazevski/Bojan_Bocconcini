@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { MapPin, Phone, Clock, ShoppingBag, ArrowLeft, Plus, Minus, Info, Star } from 'lucide-react';
+import { MapPin, Phone, Clock, ShoppingBag, ArrowLeft, Plus, Minus, Info, Star, X } from 'lucide-react';
 
 export default function RestaurantProfile() {
   const { username } = useParams();
@@ -11,6 +11,8 @@ export default function RestaurantProfile() {
   const [reviews, setReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<any[]>([]);
+  const [selectedItem, setSelectedItem] = useState<any | null>(null);
+  const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
 
   useEffect(() => {
     fetch(`/api/customer/restaurant/${username}`)
@@ -20,7 +22,12 @@ export default function RestaurantProfile() {
       })
       .then(data => {
         setRestaurant(data.restaurant);
-        setMenu(data.menu);
+        // Parse modifiers from JSON string
+        const parsedMenu = data.menu.map((item: any) => ({
+          ...item,
+          modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
+        }));
+        setMenu(parsedMenu);
         
         // Fetch reviews
         fetch(`/api/restaurants/${data.restaurant.id}/reviews`)
@@ -39,18 +46,76 @@ export default function RestaurantProfile() {
     if (savedCart) setCart(JSON.parse(savedCart));
   }, [username]);
 
-  const addToCart = (item: any) => {
-    const newCart = [...cart, { 
-      ...item, 
-      cartId: Math.random().toString(36).substr(2, 9),
-      selectedModifiers: {},
-      finalPrice: item.price
-    }];
-    setCart(newCart);
-    localStorage.setItem('cart', JSON.stringify(newCart));
+  const openItemModal = (item: any) => {
+    setSelectedItem(item);
+    // Initialize default selections for single choice modifiers
+    const initialModifiers: Record<string, string | string[]> = {};
+    if (item.modifiers) {
+      item.modifiers.forEach((group: any) => {
+        if (group.type === 'single' && group.options.length > 0) {
+          initialModifiers[group.name] = group.options[0].name; // Select first by default
+        } else if (group.type === 'multiple') {
+          initialModifiers[group.name] = [];
+        }
+      });
+    }
+    setSelectedModifiers(initialModifiers);
   };
 
-  const removeFromCart = (cartId: number) => {
+  const toggleModifier = (groupName: string, optionName: string, type: 'single' | 'multiple') => {
+    setSelectedModifiers(prev => {
+      const next = { ...prev };
+      if (type === 'single') {
+        next[groupName] = optionName;
+      } else {
+        const current = (next[groupName] as string[]) || [];
+        if (current.includes(optionName)) {
+          next[groupName] = current.filter(o => o !== optionName);
+        } else {
+          next[groupName] = [...current, optionName];
+        }
+      }
+      return next;
+    });
+  };
+
+  const calculateItemPrice = (item: any, modifiers: Record<string, string | string[]>) => {
+    let price = item.price;
+    if (!item.modifiers) return price;
+
+    item.modifiers.forEach((group: any) => {
+      const selection = modifiers[group.name];
+      if (Array.isArray(selection)) {
+        selection.forEach(sel => {
+          const option = group.options.find((o: any) => o.name === sel);
+          if (option) price += option.price;
+        });
+      } else if (selection) {
+        const option = group.options.find((o: any) => o.name === selection);
+        if (option) price += option.price;
+      }
+    });
+    return price;
+  };
+
+  const handleAddToCart = () => {
+    if (!selectedItem) return;
+
+    const finalPrice = calculateItemPrice(selectedItem, selectedModifiers);
+    const newCartItem = {
+      ...selectedItem,
+      cartId: Math.random().toString(36).substr(2, 9),
+      selectedModifiers: { ...selectedModifiers },
+      finalPrice
+    };
+
+    const newCart = [...cart, newCartItem];
+    setCart(newCart);
+    localStorage.setItem('cart', JSON.stringify(newCart));
+    setSelectedItem(null);
+  };
+
+  const removeFromCart = (cartId: string) => {
     const newCart = cart.filter(item => item.cartId !== cartId);
     setCart(newCart);
     localStorage.setItem('cart', JSON.stringify(newCart));
@@ -82,7 +147,7 @@ export default function RestaurantProfile() {
     return acc;
   }, {});
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.price, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + (item.finalPrice || item.price), 0);
 
   const averageRating = reviews.length > 0 
     ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
@@ -246,7 +311,7 @@ export default function RestaurantProfile() {
                         <p className="text-sm text-slate-500 line-clamp-2 mb-4">{item.description}</p>
                       </div>
                       <button 
-                        onClick={() => addToCart(item)}
+                        onClick={() => openItemModal(item)}
                         className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 mt-auto"
                       >
                         <Plus size={18} /> Додади
@@ -308,17 +373,27 @@ export default function RestaurantProfile() {
                 <>
                   <div className="space-y-4 mb-6 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                     {cart.map(item => (
-                      <div key={item.cartId} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        <div className="flex-1 pr-4">
-                          <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
-                          <span className="text-orange-600 font-bold text-sm">{item.price} ден.</span>
+                      <div key={item.cartId} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1 pr-4">
+                            <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
+                            <span className="text-orange-600 font-bold text-sm">{item.finalPrice || item.price} ден.</span>
+                          </div>
+                          <button 
+                            onClick={() => removeFromCart(item.cartId)}
+                            className="w-8 h-8 bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 rounded-lg flex items-center justify-center transition-colors shadow-sm"
+                          >
+                            <Minus size={16} />
+                          </button>
                         </div>
-                        <button 
-                          onClick={() => removeFromCart(item.cartId)}
-                          className="w-8 h-8 bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 rounded-lg flex items-center justify-center transition-colors shadow-sm"
-                        >
-                          <Minus size={16} />
-                        </button>
+                        <div className="text-[10px] text-slate-500 space-y-0.5">
+                          {Object.entries(item.selectedModifiers || {}).map(([group, selection]) => {
+                            if (Array.isArray(selection)) {
+                              return selection.length > 0 ? <p key={group}><span className="font-medium">{group}:</span> {selection.join(', ')}</p> : null;
+                            }
+                            return selection ? <p key={group}><span className="font-medium">{group}:</span> {selection}</p> : null;
+                          })}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -340,6 +415,89 @@ export default function RestaurantProfile() {
           </div>
         </div>
       </div>
+      {/* Item Customization Modal */}
+      {selectedItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+          >
+            <div className="relative h-64 flex-shrink-0">
+              <img src={selectedItem.image_url} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <button 
+                onClick={() => setSelectedItem(null)}
+                className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-md transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 md:p-8 overflow-y-auto flex-1">
+              <div className="mb-6">
+                <h3 className="text-3xl font-extrabold text-slate-800 mb-2">{selectedItem.name}</h3>
+                <p className="text-slate-500 leading-relaxed">{selectedItem.description}</p>
+              </div>
+
+              {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
+                <div className="space-y-8">
+                  {selectedItem.modifiers.map((group: any) => (
+                    <div key={group.name} className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                      <div className="flex justify-between items-center mb-4">
+                        <h4 className="font-bold text-slate-800 text-lg">{group.name}</h4>
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400 px-2 py-1 bg-white rounded-lg border border-slate-100">
+                          {group.type === 'single' ? 'Еден избор' : 'Повеќе избори'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {group.options.map((option: any) => {
+                          const isSelected = group.type === 'single' 
+                            ? selectedModifiers[group.name] === option.name
+                            : (selectedModifiers[group.name] as string[])?.includes(option.name);
+                          
+                          return (
+                            <button
+                              key={option.name}
+                              onClick={() => toggleModifier(group.name, option.name, group.type)}
+                              className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                                isSelected 
+                                  ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-md shadow-orange-200' 
+                                  : 'border-white bg-white hover:border-orange-200 text-slate-600'
+                              }`}
+                            >
+                              <span className="font-bold">{option.name}</span>
+                              {option.price > 0 && (
+                                <span className={`text-sm font-black ${isSelected ? 'text-orange-600' : 'text-slate-400'}`}>
+                                  +{option.price} ден.
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-6">
+              <div className="flex flex-col">
+                <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Вкупна цена</span>
+                <span className="text-3xl font-black text-slate-800">
+                  {calculateItemPrice(selectedItem, selectedModifiers)} <span className="text-lg font-bold text-slate-500">ден.</span>
+                </span>
+              </div>
+              <button 
+                onClick={handleAddToCart}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-lg transition-all shadow-lg shadow-orange-500/30 active:scale-95"
+              >
+                Додади во кошничка
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

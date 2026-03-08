@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import QRCode from 'qrcode';
+import { io } from 'socket.io-client';
 
 export default function TrackOrder() {
   const { token } = useParams<{ token: string }>();
@@ -18,6 +19,25 @@ export default function TrackOrder() {
   useEffect(() => {
     fetchOrder();
     generateQR();
+
+    const socket = io();
+    socket.emit('join_order', token);
+
+    socket.on('status_updated', (data) => {
+      console.log('Order status updated via socket:', data);
+      fetchOrder();
+    });
+
+    socket.on('order_stale_reminder', () => {
+      alert('Вашата нарачка е подготвена и ве чека! Ве молиме подигнете ја или очекувајте го доставувачот наскоро.');
+    });
+
+    const interval = setInterval(fetchOrder, 30000); // Fallback
+
+    return () => {
+      socket.disconnect();
+      clearInterval(interval);
+    };
   }, [token]);
 
   const fetchOrder = async () => {
@@ -309,6 +329,28 @@ export default function TrackOrder() {
                     <p className="font-black text-slate-900">{item.finalPrice} ден.</p>
                   </div>
                 ))}
+
+                {/* Fees and Payment */}
+                <div className="pt-6 border-t border-slate-100 space-y-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Плаќање</span>
+                    <span className="font-black text-slate-700">
+                      {order.payment_method === 'cash' ? 'Готовина' : order.payment_method === 'card' ? 'Картичка' : 'Поени'}
+                    </span>
+                  </div>
+                  {order.selected_fees && JSON.parse(order.selected_fees).length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-slate-400 font-bold uppercase tracking-widest text-[10px] block mb-2">Додатоци</span>
+                      {JSON.parse(order.selected_fees).map((fee: any, idx: number) => (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <span className="text-slate-500">{fee.name}</span>
+                          <span className="font-bold text-slate-700">+{fee.amount} ден.</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="pt-6 border-t border-slate-100 flex justify-between items-center">
                   <span className="font-black text-slate-400 uppercase tracking-widest text-[10px]">Вкупно</span>
                   <span className="font-serif text-3xl font-black text-indigo-600">{order.total_price} ден.</span>

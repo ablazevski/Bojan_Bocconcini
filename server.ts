@@ -1,5 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
+import { createServer } from "http";
+import { Server } from "socket.io";
 import Database from "better-sqlite3";
 import crypto from "crypto";
 import multer from "multer";
@@ -92,6 +94,9 @@ try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_id INTEGER'); } ca
 try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_name TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN tracking_token TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN ready_at DATETIME'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT "cash"'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN selected_fees TEXT DEFAULT "[]"'); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS reviews (
@@ -135,6 +140,7 @@ try { db.exec('ALTER TABLE restaurants ADD COLUMN working_hours TEXT DEFAULT "{}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN spare_4 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN logo_url TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN cover_url TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN payment_config TEXT DEFAULT \'{"methods":["cash"],"fees":[]}\''); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS delivery_partners (
@@ -257,7 +263,42 @@ if (restCount.count === 0) {
 
   async function startServer() {
     const app = express();
+    const httpServer = createServer(app);
+    const io = new Server(httpServer, {
+      cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+      }
+    });
     const PORT = 3000;
+
+    io.on("connection", (socket) => {
+      console.log("A user connected:", socket.id);
+
+      socket.on("join_restaurant", (restaurantId) => {
+        socket.join(`restaurant_${restaurantId}`);
+        console.log(`Socket ${socket.id} joined restaurant_${restaurantId}`);
+      });
+
+      socket.on("join_order", (token) => {
+        socket.join(`order_${token}`);
+        console.log(`Socket ${socket.id} joined order_${token}`);
+      });
+
+      socket.on("join_delivery", () => {
+        socket.join("delivery_partners");
+        console.log(`Socket ${socket.id} joined delivery_partners`);
+      });
+
+      socket.on("join_admin", () => {
+        socket.join("admin_room");
+        console.log(`Socket ${socket.id} joined admin_room`);
+      });
+
+      socket.on("disconnect", () => {
+        console.log("User disconnected:", socket.id);
+      });
+    });
   
     app.use(express.json({ limit: '50mb' }));
     app.use(session({
@@ -650,11 +691,32 @@ if (restCount.count === 0) {
 
   app.post("/api/admin/restaurants/:id/approve", (req, res) => {
     const id = req.params.id;
-    const { contract_percentage, username, password } = req.body;
+    const { contract_percentage, username, password, payment_config } = req.body;
     
-    db.prepare("UPDATE restaurants SET status = 'approved', username = ?, password = ?, contract_percentage = ? WHERE id = ?").run(username, password, contract_percentage || 0, id);
+    db.prepare("UPDATE restaurants SET status = 'approved', username = ?, password = ?, contract_percentage = ?, payment_config = ? WHERE id = ?").run(
+      username, 
+      password, 
+      contract_percentage || 0, 
+      payment_config || '{"methods":["cash"],"fees":[]}',
+      id
+    );
     
     res.json({ success: true, username, password });
+  });
+
+  app.put("/api/admin/restaurants/:id", (req, res) => {
+    const id = req.params.id;
+    const { contract_percentage, username, password, payment_config } = req.body;
+    
+    db.prepare("UPDATE restaurants SET username = ?, password = ?, contract_percentage = ?, payment_config = ? WHERE id = ?").run(
+      username, 
+      password, 
+      contract_percentage || 0, 
+      payment_config || '{"methods":["cash"],"fees":[]}',
+      id
+    );
+    
+    res.json({ success: true });
   });
 
   app.post("/api/admin/restaurants/:id/reject", (req, res) => {
@@ -792,7 +854,7 @@ if (restCount.count === 0) {
   });
 
   app.get("/api/customer/restaurant/:username", (req, res) => {
-    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, has_own_delivery, working_hours FROM restaurants WHERE username = ? AND status = 'approved'").get(req.params.username) as any;
+    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, has_own_delivery, working_hours, payment_config FROM restaurants WHERE username = ? AND status = 'approved'").get(req.params.username) as any;
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
@@ -892,6 +954,7 @@ if (restCount.count === 0) {
           address: r.address, 
           working_hours: r.working_hours,
           delivery_zones: r.delivery_zones,
+          payment_config: r.payment_config,
           active_orders: activeOrders.count,
           is_open: isOpen,
           delivery_delay: deliveryDelay
@@ -902,7 +965,7 @@ if (restCount.count === 0) {
   });
 
   app.post("/api/orders", (req, res) => {
-    const { customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, campaign_id, user_id } = req.body;
+    const { customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, campaign_id, user_id, payment_method, selected_fees } = req.body;
     
     // Group items by restaurant
     const itemsByRestaurant = items.reduce((acc: any, item: any) => {
@@ -912,8 +975,8 @@ if (restCount.count === 0) {
     }, {});
 
     const insert = db.prepare(`
-      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token, payment_method, selected_fees)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const orderIds = [];
@@ -942,7 +1005,7 @@ if (restCount.count === 0) {
 
     for (const [restaurantId, restItems] of Object.entries(itemsByRestaurant)) {
       // Check if restaurant is open
-      const restaurant = db.prepare("SELECT working_hours, name FROM restaurants WHERE id = ?").get(restaurantId) as any;
+      const restaurant = db.prepare("SELECT working_hours, name, payment_config FROM restaurants WHERE id = ?").get(restaurantId) as any;
       if (restaurant && restaurant.working_hours) {
         try {
           const workingHours = JSON.parse(restaurant.working_hours);
@@ -982,6 +1045,51 @@ if (restCount.count === 0) {
       }
 
       let totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
+      
+      // Add selected fees for this restaurant
+      let restFees = [];
+      if (selected_fees) {
+        try {
+          const allSelectedFees = JSON.parse(selected_fees);
+          const feeNames = allSelectedFees[restaurantId] || [];
+          if (feeNames.length > 0 && restaurant && restaurant.payment_config) {
+            const config = JSON.parse(restaurant.payment_config);
+            const fees = config.fees || [];
+            fees.forEach((f: any) => {
+              if (feeNames.includes(f.name)) {
+                totalPrice += f.amount;
+                restFees.push(f);
+              }
+            });
+          }
+        } catch (e) {
+          console.error("Error parsing selected fees:", e);
+        }
+      }
+
+      // Handle loyalty points payment
+      if (payment_method === 'points' && user_id) {
+        const user = db.prepare("SELECT loyalty_points FROM users WHERE id = ?").get(user_id) as any;
+        if (!user || user.loyalty_points < totalPrice) {
+          return res.status(400).json({ error: "Немате доволно поени за оваа нарачка." });
+        }
+        
+        // Check max redemption percent from restaurant config
+        if (restaurant && restaurant.payment_config) {
+          try {
+            const config = JSON.parse(restaurant.payment_config);
+            const maxRedemptionPercent = config.loyalty_max_pay_percent ?? 100;
+            const maxRedeemable = (totalPrice * maxRedemptionPercent) / 100;
+            if (totalPrice > maxRedeemable && maxRedemptionPercent < 100) {
+              return res.status(400).json({ error: `Овој ресторан дозволува плаќање со поени до максимум ${maxRedemptionPercent}% од износот на нарачката.` });
+            }
+          } catch (e) {}
+        }
+
+        // Deduct points
+        db.prepare("UPDATE users SET loyalty_points = loyalty_points - ? WHERE id = ?").run(totalPrice, user_id);
+      }
+
       let campaignCode = null;
 
       const shouldApplyCampaign = campaignCodeToUse && !campaignApplied && (!campaignRestId || Number(restaurantId) === Number(campaignRestId));
@@ -995,10 +1103,15 @@ if (restCount.count === 0) {
 
       const trackingToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const info = insert.run(
-        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken
+        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees)
       );
       orderIds.push(info.lastInsertRowid);
       trackingTokens[Number(info.lastInsertRowid)] = trackingToken;
+
+      // Notify restaurant
+      io.to(`restaurant_${restaurantId}`).emit("new_order", { id: info.lastInsertRowid });
+      // Notify delivery partners
+      io.to("delivery_partners").emit("new_available_order");
     }
 
     res.json({ success: true, orderIds, trackingTokens });
@@ -1016,6 +1129,12 @@ if (restCount.count === 0) {
     const targetTime = new Date(Date.now() + delayMinutes * 60000).toISOString();
     db.prepare("UPDATE orders SET spare_2 = ? WHERE id = ?").run(targetTime, orderId);
     
+    // Notify customer
+    const order = db.prepare("SELECT tracking_token FROM orders WHERE id = ?").get(orderId) as any;
+    if (order) {
+      io.to(`order_${order.tracking_token}`).emit("status_updated", { status: 'accepted', targetTime });
+    }
+
     res.json({ success: true, targetTime });
   });
 
@@ -1026,6 +1145,16 @@ if (restCount.count === 0) {
     let delivery_code = null;
     let delivery_partner_name = null;
     
+    if (status === 'ready') {
+      db.prepare("UPDATE orders SET status = ?, ready_at = CURRENT_TIMESTAMP WHERE id = ?").run(status, orderId);
+      const order = db.prepare("SELECT tracking_token, restaurant_id FROM orders WHERE id = ?").get(orderId) as any;
+      if (order) {
+        io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
+        io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
+      }
+      return res.json({ success: true });
+    }
+
     if (status === 'accepted') {
       // Generate delivery code: Name, Address, and 4 spare fields from restaurant
       const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
@@ -1044,6 +1173,11 @@ if (restCount.count === 0) {
       delivery_code = JSON.stringify(codeData);
       
       db.prepare("UPDATE orders SET status = ?, delivery_code = ? WHERE id = ?").run(status, delivery_code, orderId);
+      
+      // Notify customer
+      io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
+      // Notify delivery partners
+      io.to("delivery_partners").emit("new_available_order");
     } else if (status === 'delivering' || status === 'completed') {
       const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
       // If no delivery partner is assigned yet, the restaurant is delivering it themselves
@@ -1071,16 +1205,38 @@ if (restCount.count === 0) {
       } else {
         db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
       }
+      
+      // Notify customer
+      if (order) {
+        io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
+      }
     } else {
       db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+      
+      // Notify customer
+      const order = db.prepare("SELECT tracking_token FROM orders WHERE id = ?").get(orderId) as any;
+      if (order) {
+        io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
+      }
     }
     
     // Award loyalty points on completion
     if (status === 'completed') {
       const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
       if (order && order.user_id) {
-        const points = Math.floor(order.total_price / 100); // 1 point per 100 MKD
-        db.prepare("UPDATE users SET loyalty_points = loyalty_points + ? WHERE id = ?").run(points, order.user_id);
+        const restaurant = db.prepare("SELECT payment_config FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
+        let earnPercent = 1; // Default 1% if not specified
+        if (restaurant && restaurant.payment_config) {
+          try {
+            const config = JSON.parse(restaurant.payment_config);
+            earnPercent = config.loyalty_earn_percent ?? 1;
+          } catch (e) {}
+        }
+        // Only award points if not paid with points (or maybe award on the cash portion? let's keep it simple: award on total price)
+        const points = Math.floor((order.total_price * earnPercent) / 100);
+        if (points > 0) {
+          db.prepare("UPDATE users SET loyalty_points = loyalty_points + ? WHERE id = ?").run(points, order.user_id);
+        }
       }
     }
     
@@ -1490,6 +1646,59 @@ if (restCount.count === 0) {
     res.json(campaigns);
   });
 
+  // Background check for stale orders
+  setInterval(() => {
+    const now = new Date();
+    const staleThreshold = 15 * 60 * 1000; // 15 minutes
+    const criticalThreshold = 30 * 60 * 1000; // 30 minutes
+    
+    try {
+      const staleOrders = db.prepare(`
+        SELECT o.*, r.name as restaurant_name 
+        FROM orders o
+        JOIN restaurants r ON o.restaurant_id = r.id
+        WHERE o.status = 'ready' AND o.ready_at IS NOT NULL
+      `).all() as any[];
+      
+      staleOrders.forEach(order => {
+        const readyTime = new Date(order.ready_at).getTime();
+        const elapsed = now.getTime() - readyTime;
+        
+        if (elapsed > criticalThreshold) {
+          // Solution 5: Alert Admin
+          io.to("admin_room").emit("stale_order_alert", { 
+            orderId: order.id, 
+            restaurant: order.restaurant_name,
+            elapsed: Math.floor(elapsed / 60000)
+          });
+        } else if (elapsed > staleThreshold) {
+          // Solution 1: Notify Delivery Partners / Customer
+          io.to("delivery_partners").emit("stale_order_reminder", { orderId: order.id });
+          io.to(`order_${order.tracking_token}`).emit("order_stale_reminder");
+        }
+        
+        // Solution 3: Re-assignment (if assigned but not picked up)
+        if (elapsed > 20 * 60 * 1000 && order.delivery_partner_id) {
+          const prevPartner = order.delivery_partner_name;
+          db.prepare("UPDATE orders SET delivery_partner_id = NULL, delivery_partner_name = NULL WHERE id = ?").run(order.id);
+          io.to("delivery_partners").emit("new_available_order");
+          io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
+          
+          // Alert Admin about re-assignment
+          io.to("admin_room").emit("stale_order_alert", { 
+            orderId: order.id, 
+            restaurant: order.restaurant_name,
+            elapsed: Math.floor(elapsed / 60000),
+            isReassignment: true,
+            prevPartner
+          });
+        }
+      });
+    } catch (e) {
+      console.error("Error in stale order check:", e);
+    }
+  }, 60000); // Every minute
+
   // Review Endpoints
   app.post("/api/reviews", (req, res) => {
     const { order_id, restaurant_id, customer_name, rating, comment } = req.body;
@@ -1559,6 +1768,57 @@ if (restCount.count === 0) {
     }
   });
 
+  // Campaign Endpoints
+  app.get("/api/restaurants/:id/campaigns", (req, res) => {
+    const { id } = req.params;
+    try {
+      const campaigns = db.prepare("SELECT * FROM campaigns WHERE restaurant_id = ? ORDER BY created_at DESC").all(id);
+      res.json(campaigns);
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при вчитување на кампањите" });
+    }
+  });
+
+  app.post("/api/campaigns/request", (req, res) => {
+    const { name, description, budget, quantity, start_date, end_date, restaurant_id } = req.body;
+    try {
+      db.prepare(`
+        INSERT INTO campaigns (name, description, budget, quantity, start_date, end_date, restaurant_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+      `).run(name, description, budget, quantity, start_date, end_date, restaurant_id);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Грешка при испраќање на барањето" });
+    }
+  });
+
+  app.get("/api/admin/campaigns/pending", (req, res) => {
+    try {
+      const campaigns = db.prepare(`
+        SELECT c.*, r.name as restaurant_name 
+        FROM campaigns c
+        JOIN restaurants r ON c.restaurant_id = r.id
+        WHERE c.status = 'pending'
+        ORDER BY c.created_at DESC
+      `).all();
+      res.json(campaigns);
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при вчитување на барањата" });
+    }
+  });
+
+  app.put("/api/admin/campaigns/:id/status", (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    try {
+      db.prepare("UPDATE campaigns SET status = ? WHERE id = ?").run(status, id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при промена на статусот" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -1570,7 +1830,7 @@ if (restCount.count === 0) {
     app.use(express.static("dist"));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

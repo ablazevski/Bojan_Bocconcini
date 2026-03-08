@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign } from 'lucide-react';
 import LocationPickerMap from '../components/LocationPickerMap';
 
 interface ModifierOption {
@@ -51,6 +51,8 @@ export default function Customer() {
   const [user, setUser] = useState<any>(null);
   const [lastOrderTrackingTokens, setLastOrderTrackingTokens] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [selectedFees, setSelectedFees] = useState<Record<number, string[]>>({}); // restaurantId -> feeNames[]
   
   const [checkoutForm, setCheckoutForm] = useState({
     firstName: '',
@@ -303,9 +305,23 @@ export default function Customer() {
   };
 
   const cartTotal = cart.reduce((sum, item) => sum + item.finalPrice, 0);
+  const feesTotal = Object.entries(selectedFees).reduce((total, [restId, feeNames]) => {
+    const restaurant = availableRestaurants.find(r => r.id === Number(restId));
+    if (!restaurant || !restaurant.payment_config) return total;
+    try {
+      const config = JSON.parse(restaurant.payment_config);
+      const fees = config.fees || [];
+      const selectedAmount = fees
+        .filter((f: any) => (feeNames as string[]).includes(f.name))
+        .reduce((sum: number, f: any) => sum + f.amount, 0);
+      return total + selectedAmount;
+    } catch (e) {
+      return total;
+    }
+  }, 0);
   
   const selectedCampaign = activeCampaigns.find(c => c.id === selectedCampaignId);
-  const finalTotal = Math.max(0, cartTotal + (selectedCampaign ? selectedCampaign.budget : 0) + deliveryFee);
+  const finalTotal = Math.max(0, cartTotal + (selectedCampaign ? selectedCampaign.budget : 0) + deliveryFee + feesTotal);
 
   const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
     let x = point[0], y = point[1];
@@ -357,7 +373,9 @@ export default function Customer() {
         delivery_lng: location![1],
         items: cart,
         campaign_id: selectedCampaignId,
-        user_id: user?.id
+        user_id: user?.id,
+        payment_method: paymentMethod,
+        selected_fees: JSON.stringify(selectedFees)
       })
     });
     
@@ -832,6 +850,12 @@ export default function Customer() {
                     <span className="text-lg text-slate-600">Вкупно за наплата:</span>
                     <span className="text-3xl font-extrabold text-slate-800">{finalTotal} ден.</span>
                   </div>
+                  {feesTotal > 0 && (
+                    <div className="flex justify-between items-center mb-2 text-blue-600 px-1">
+                      <span className="text-sm text-slate-500">Дополнителни опции:</span>
+                      <span className="font-bold">+{feesTotal} ден.</span>
+                    </div>
+                  )}
                   <button 
                     onClick={() => setStep('checkout')}
                     className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-colors shadow-lg shadow-orange-500/30 text-lg"
@@ -881,6 +905,120 @@ export default function Customer() {
                   <input required type="text" value={checkoutForm.address} onChange={e => setCheckoutForm({...checkoutForm, address: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all" />
                 </div>
 
+                {/* Payment & Extras Section */}
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-6">
+                  <div>
+                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      <DollarSign size={18} className="text-orange-500" />
+                      Начин на плаќање
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Get unique payment methods from all restaurants in cart */}
+                      {(() => {
+                        const cartRestaurantIds = Array.from(new Set(cart.map(item => item.restaurant_id)));
+                        const allowedMethods = cartRestaurantIds.reduce((acc: string[], restId) => {
+                          const rest = availableRestaurants.find(r => r.id === restId);
+                          if (rest && rest.payment_config) {
+                            try {
+                              const config = JSON.parse(rest.payment_config);
+                              if (config.methods) {
+                                if (acc.length === 0) return config.methods;
+                                return acc.filter(m => config.methods.includes(m));
+                              }
+                            } catch (e) {}
+                          }
+                          return acc.length === 0 ? ['cash'] : acc;
+                        }, [] as string[]);
+
+                        const methods = (allowedMethods as string[]).length > 0 ? allowedMethods : ['cash'];
+
+                        return (methods as string[]).map(method => (
+                          <label key={method} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${paymentMethod === method ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                            <div className="flex items-center gap-3">
+                              <input 
+                                type="radio" 
+                                name="paymentMethod" 
+                                value={method} 
+                                checked={paymentMethod === method} 
+                                onChange={() => setPaymentMethod(method)}
+                                className="w-4 h-4 text-orange-500 focus:ring-orange-500"
+                              />
+                              <span className="font-bold text-slate-700">
+                                {method === 'cash' ? 'Готовина' : method === 'card' ? 'Картичка' : 'Поени'}
+                              </span>
+                            </div>
+                            {method === 'points' && user && (
+                              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">
+                                {user.loyalty_points || 0} поени
+                              </span>
+                            )}
+                          </label>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Restaurant Extras (Fees) */}
+                  {(() => {
+                    const cartRestaurantIds = Array.from(new Set(cart.map(item => item.restaurant_id)));
+                    const restaurantsWithFees = cartRestaurantIds.filter(restId => {
+                      const rest = availableRestaurants.find(r => r.id === restId);
+                      if (rest && rest.payment_config) {
+                        try {
+                          const config = JSON.parse(rest.payment_config);
+                          return config.fees && config.fees.length > 0;
+                        } catch (e) {}
+                      }
+                      return false;
+                    });
+
+                    if (restaurantsWithFees.length === 0) return null;
+
+                    return (
+                      <div>
+                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                          <Plus size={18} className="text-orange-500" />
+                          Дополнителни опции
+                        </h3>
+                        <div className="space-y-4">
+                          {restaurantsWithFees.map(restId => {
+                            const rest = availableRestaurants.find(r => r.id === restId);
+                            const config = JSON.parse(rest.payment_config);
+                            return (
+                              <div key={restId} className="bg-white p-4 rounded-xl border border-slate-200">
+                                <p className="text-xs font-bold text-slate-400 uppercase mb-3">{rest.name}</p>
+                                <div className="space-y-2">
+                                  {config.fees.map((fee: any) => (
+                                    <label key={fee.name} className="flex items-center justify-between cursor-pointer group">
+                                      <div className="flex items-center gap-3">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={(selectedFees[restId] || []).includes(fee.name)}
+                                          onChange={(e) => {
+                                            const current = selectedFees[restId] || [];
+                                            if (e.target.checked) {
+                                              setSelectedFees(prev => ({...prev, [restId as any]: [...current, fee.name]}));
+                                            } else {
+                                              setSelectedFees(prev => ({...prev, [restId as any]: current.filter(n => n !== fee.name)}));
+                                            }
+                                          }}
+                                          className="w-5 h-5 rounded border-slate-300 text-orange-500 focus:ring-orange-500"
+                                        />
+                                        <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">{fee.name}</span>
+                                      </div>
+                                      <span className="text-sm font-bold text-slate-600">+{fee.amount} ден.</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
                 <div className="pt-4 border-t border-slate-100">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-slate-500">Вкупно продукти:</span>
@@ -902,6 +1040,12 @@ export default function Customer() {
                     <span className="text-lg text-slate-600">Вкупно за наплата:</span>
                     <span className="text-2xl font-extrabold text-slate-800">{finalTotal} ден.</span>
                   </div>
+                  {feesTotal > 0 && (
+                    <div className="flex justify-between items-center mb-2 text-blue-600 px-1">
+                      <span className="text-sm text-slate-500">Дополнителни опции:</span>
+                      <span className="font-bold">+{feesTotal} ден.</span>
+                    </div>
+                  )}
                   
                   {!isLocationValid() && (
                     <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-xl border border-red-200 text-sm font-medium">

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
+import { io } from 'socket.io-client';
 
 interface PendingRestaurant {
   id: number;
@@ -21,6 +22,9 @@ interface PendingRestaurant {
   spare_3: string;
   spare_4: string;
   username?: string;
+  contract_percentage?: number;
+  password?: string;
+  payment_config?: string;
 }
 
 interface DeliveryPartner {
@@ -95,7 +99,36 @@ export default function Admin() {
   const [codeFormat, setCodeFormat] = useState('--- -- ---');
   const [contractPercentage, setContractPercentage] = useState<number>(15);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
+  const [paymentConfig, setPaymentConfig] = useState<{
+    methods: string[], 
+    fees: {name: string, amount: number}[],
+    loyalty_earn_percent?: number,
+    loyalty_max_pay_percent?: number
+  }>({
+    methods: ['cash'],
+    fees: [],
+    loyalty_earn_percent: 5,
+    loyalty_max_pay_percent: 50
+  });
   const [isImporting, setIsImporting] = useState(false);
+  const [staleOrderAlerts, setStaleOrderAlerts] = useState<any[]>([]);
+
+  useEffect(() => {
+    const socket = io();
+    socket.emit('join_admin');
+
+    socket.on('stale_order_alert', (alert) => {
+      setStaleOrderAlerts(prev => {
+        // Avoid duplicate alerts for the same order
+        if (prev.some(a => a.orderId === alert.orderId)) return prev;
+        return [...prev, { ...alert, id: Date.now() }];
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
   const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
@@ -240,11 +273,27 @@ export default function Admin() {
 
   const openApprovalModal = (rest: PendingRestaurant) => {
     setSelectedRestaurant(rest);
-    setContractPercentage(15);
+    setContractPercentage(rest.contract_percentage || 15);
     setCredentials({
-      username: `rest_${rest.id}_${Math.random().toString(36).substring(2, 6)}`,
-      password: Math.random().toString(36).substring(2, 8)
+      username: rest.username || `rest_${rest.id}_${Math.random().toString(36).substring(2, 6)}`,
+      password: rest.password || Math.random().toString(36).substring(2, 8)
     });
+
+    if (rest.payment_config) {
+      try {
+        const config = JSON.parse(rest.payment_config);
+        setPaymentConfig({
+          methods: config.methods || ['cash'],
+          fees: config.fees || [],
+          loyalty_earn_percent: config.loyalty_earn_percent ?? 5,
+          loyalty_max_pay_percent: config.loyalty_max_pay_percent ?? 50
+        });
+      } catch (e) {
+        setPaymentConfig({ methods: ['cash'], fees: [], loyalty_earn_percent: 5, loyalty_max_pay_percent: 50 });
+      }
+    } else {
+      setPaymentConfig({ methods: ['cash'], fees: [], loyalty_earn_percent: 5, loyalty_max_pay_percent: 50 });
+    }
   };
 
   const openDeliveryApprovalModal = (partner: DeliveryPartner) => {
@@ -270,25 +319,31 @@ export default function Admin() {
     }
   };
 
-  const handleApprove = async () => {
+  const handleSaveRestaurant = async () => {
     if (!selectedRestaurant) return;
     if (!credentials.username || !credentials.password) {
       alert('Внесете корисничко име и лозинка!');
       return;
     }
     
-    const res = await fetch(`/api/admin/restaurants/${selectedRestaurant.id}/approve`, { 
-      method: 'POST',
+    const isUpdate = selectedRestaurant.status === 'approved';
+    const url = isUpdate 
+      ? `/api/admin/restaurants/${selectedRestaurant.id}`
+      : `/api/admin/restaurants/${selectedRestaurant.id}/approve`;
+    
+    const res = await fetch(url, { 
+      method: isUpdate ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         contract_percentage: contractPercentage,
         username: credentials.username,
-        password: credentials.password
+        password: credentials.password,
+        payment_config: JSON.stringify(paymentConfig)
       })
     });
     
     if (res.ok) {
-      alert('Ресторанот е успешно одобрен!');
+      alert(isUpdate ? 'Поставките се успешно зачувани!' : 'Ресторанот е успешно одобрен!');
       setSelectedRestaurant(null);
       fetchData();
     }
@@ -617,6 +672,38 @@ export default function Admin() {
       </header>
       
       <main className="max-w-6xl mx-auto p-6">
+        {staleOrderAlerts.length > 0 && (
+          <div className="mb-6 space-y-2">
+            {staleOrderAlerts.map(alert => (
+              <div key={alert.id} className="bg-red-50 border-l-4 border-red-500 p-4 flex justify-between items-center animate-pulse shadow-sm rounded-r-xl">
+                <div className="flex items-center gap-3">
+                  <div className="bg-red-100 p-2 rounded-full">
+                    <Clock className="text-red-600" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-red-800 uppercase tracking-tight">
+                      {alert.isReassignment ? 'ПРЕРАСПОРЕДЕНА НАРАЧКА' : 'КРИТИЧНА НАРАЧКА'} #{alert.orderId}
+                    </p>
+                    <p className="text-xs text-red-600 font-medium">
+                      Ресторан: <span className="font-bold">{alert.restaurant}</span> — Храната чека веќе <span className="font-bold underline">{alert.elapsed} минути</span>!
+                      {alert.isReassignment && alert.prevPartner && (
+                        <span className="block mt-1 text-[10px] opacity-80 italic">
+                          * Доставувачот {alert.prevPartner} не ја подигна навреме. Нарачката е вратена како слободна.
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setStaleOrderAlerts(prev => prev.filter(a => a.id !== alert.id))}
+                  className="p-2 hover:bg-red-100 rounded-full transition-colors text-red-400 hover:text-red-600"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {activeTab === 'database' ? (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 max-w-2xl mx-auto mt-8">
             <div className="text-center mb-8">
@@ -762,7 +849,12 @@ export default function Admin() {
                           {order.status}
                         </span>
                       </td>
-                      <td className="p-4 text-sm font-bold text-slate-800">{order.total_price} ден.</td>
+                      <td className="p-4">
+                        <p className="text-sm font-bold text-slate-800">{order.total_price} ден.</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">
+                          {order.payment_method === 'cash' ? 'Готовина' : order.payment_method === 'card' ? 'Картичка' : 'Поени'}
+                        </p>
+                      </td>
                       <td className="p-4">
                         {order.delivery_code ? (
                           <div className="text-[10px] font-mono bg-slate-100 p-1 rounded max-w-[150px] truncate" title={order.delivery_code}>
@@ -1513,6 +1605,12 @@ export default function Admin() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 w-full md:w-auto">
+                    <button 
+                      onClick={() => openApprovalModal(rest)}
+                      className="flex-1 md:flex-none bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <Settings2 size={18} /> Поставки
+                    </button>
                     <button onClick={() => loginAsOwner(rest)} className="flex-1 md:flex-none bg-slate-800 text-white hover:bg-slate-900 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors">
                       <LogIn size={18} /> Најави се како сопственик
                     </button>
@@ -1531,7 +1629,9 @@ export default function Admin() {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 p-6 flex items-center justify-between z-10">
-              <h2 className="text-2xl font-bold text-slate-800">Преглед на ресторан</h2>
+              <h2 className="text-2xl font-bold text-slate-800">
+                {selectedRestaurant.status === 'approved' ? 'Поставки за ресторан' : 'Преглед на ресторан'}
+              </h2>
               <button onClick={() => setSelectedRestaurant(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
                 <X size={24} />
               </button>
@@ -1581,6 +1681,127 @@ export default function Admin() {
                 </div>
               )}
 
+              {/* Payment Configuration */}
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
+                <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2"><DollarSign className="text-blue-600" /> Услови за плаќање и Додатоци</h3>
+                
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-blue-900 mb-2">Методи на плаќање</label>
+                    <div className="flex flex-wrap gap-4">
+                      {['cash', 'card', 'points'].map(method => (
+                        <label key={method} className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={paymentConfig.methods.includes(method)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setPaymentConfig({...paymentConfig, methods: [...paymentConfig.methods, method]});
+                              } else {
+                                setPaymentConfig({...paymentConfig, methods: paymentConfig.methods.filter(m => m !== method)});
+                              }
+                            }}
+                            className="w-5 h-5 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-blue-800 font-medium">
+                            {method === 'cash' ? 'Готовина' : method === 'card' ? 'Картичка' : 'Поени'}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-blue-900">Дополнителни трошоци (на пр. прибор)</label>
+                      <button 
+                        onClick={() => setPaymentConfig({...paymentConfig, fees: [...paymentConfig.fees, {name: '', amount: 0}]})}
+                        className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+                      >
+                        <Plus size={12} /> Додај
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {paymentConfig.fees.map((fee, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <input 
+                            type="text" 
+                            placeholder="Име (пр. Прибор)" 
+                            value={fee.name}
+                            onChange={(e) => {
+                              const newFees = [...paymentConfig.fees];
+                              newFees[idx].name = e.target.value;
+                              setPaymentConfig({...paymentConfig, fees: newFees});
+                            }}
+                            className="flex-1 p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <input 
+                            type="number" 
+                            placeholder="Износ" 
+                            value={fee.amount}
+                            onChange={(e) => {
+                              const newFees = [...paymentConfig.fees];
+                              newFees[idx].amount = Number(e.target.value);
+                              setPaymentConfig({...paymentConfig, fees: newFees});
+                            }}
+                            className="w-24 p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button 
+                            onClick={() => setPaymentConfig({...paymentConfig, fees: paymentConfig.fees.filter((_, i) => i !== idx)})}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                      {paymentConfig.fees.length === 0 && (
+                        <p className="text-xs text-blue-500 italic">Нема дефинирано дополнителни трошоци.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-blue-100">
+                    <h4 className="text-sm font-bold text-blue-900 mb-4 flex items-center gap-2">
+                      <Award size={16} className="text-blue-600" />
+                      Поставки за Лојалност и Поени
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">Заработка на поени (% од нарачка)</label>
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            min="0"
+                            max="100"
+                            value={paymentConfig.loyalty_earn_percent}
+                            onChange={(e) => setPaymentConfig({...paymentConfig, loyalty_earn_percent: Number(e.target.value)})}
+                            className="w-full p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 pr-8"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-400 text-xs">%</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">Макс. плаќање со поени (% од нарачка)</label>
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            min="0"
+                            max="100"
+                            value={paymentConfig.loyalty_max_pay_percent}
+                            onChange={(e) => setPaymentConfig({...paymentConfig, loyalty_max_pay_percent: Number(e.target.value)})}
+                            className="w-full p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 pr-8"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-400 text-xs">%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-blue-500 italic">
+                      * 1 поен = 1 денар. Клиентите заработуваат поени при секоја нарачка и можат да ги користат за попуст при плаќање.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Approval Section */}
               <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6">
                 <h3 className="text-lg font-bold text-orange-900 mb-4 flex items-center gap-2"><Percent className="text-orange-600" /> Договор и Одобрување</h3>
@@ -1618,11 +1839,13 @@ export default function Admin() {
                 </div>
 
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => handleReject(selectedRestaurant.id)} className="bg-white text-red-600 border border-red-200 hover:bg-red-50 px-6 py-3 rounded-xl font-bold transition-colors">
-                    Одбиј
-                  </button>
-                  <button onClick={handleApprove} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20">
-                    Одобри Ресторан
+                  {selectedRestaurant.status !== 'approved' && (
+                    <button onClick={() => handleReject(selectedRestaurant.id)} className="bg-white text-red-600 border border-red-200 hover:bg-red-50 px-6 py-3 rounded-xl font-bold transition-colors">
+                      Одбиј
+                    </button>
+                  )}
+                  <button onClick={handleSaveRestaurant} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20">
+                    {selectedRestaurant.status === 'approved' ? 'Зачувај промени' : 'Одобри Ресторан'}
                   </button>
                 </div>
               </div>

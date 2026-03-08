@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign } from 'lucide-react';
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
+import { io } from 'socket.io-client';
 
 interface Order {
   id: number;
@@ -13,6 +14,10 @@ interface Order {
   restaurant_id: number;
   tracking_token?: string;
   spare_2?: string;
+  ready_at?: string;
+  total_price: number;
+  payment_method: string;
+  selected_fees: string;
 }
 
 function Countdown({ targetTime }: { targetTime: string }) {
@@ -76,8 +81,26 @@ export default function Delivery() {
     if (partner) {
       fetchOrders();
       fetchAvailableRestaurants();
-      const interval = setInterval(fetchOrders, 10000);
-      return () => clearInterval(interval);
+      
+      const socket = io();
+      socket.emit('join_delivery');
+
+      socket.on('new_available_order', () => {
+        console.log('New available order notification received');
+        fetchOrders();
+      });
+
+      socket.on('stale_order_reminder', (data) => {
+        console.log('Stale order reminder received:', data);
+        fetchOrders();
+      });
+
+      const interval = setInterval(fetchOrders, 30000); // Fallback
+      
+      return () => {
+        socket.disconnect();
+        clearInterval(interval);
+      };
     }
   }, [partner]);
 
@@ -392,6 +415,16 @@ export default function Delivery() {
                   <div>
                     <p className="text-xs text-slate-400 font-bold uppercase">Клиент</p>
                     <p className="text-slate-700 font-medium">{activeDelivery.customer_name} ({activeDelivery.customer_phone})</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-orange-50 rounded-xl border border-orange-100">
+                  <div className="p-2 bg-white rounded-lg text-orange-600 shadow-sm"><DollarSign size={18} /></div>
+                  <div>
+                    <p className="text-xs text-orange-400 font-bold uppercase">За наплата</p>
+                    <p className="text-lg font-black text-slate-800">{activeDelivery.total_price} ден.</p>
+                    <p className="text-[10px] font-bold text-orange-600 uppercase">
+                      Начин: {activeDelivery.payment_method === 'cash' ? 'ГОТОВИНА (Наплати!)' : activeDelivery.payment_method === 'card' ? 'КАРТИЧКА (Платено)' : 'ПОЕНИ (Платено)'}
+                    </p>
                   </div>
                 </div>
               </div>
