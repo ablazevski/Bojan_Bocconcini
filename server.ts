@@ -15,6 +15,205 @@ import webpush from "web-push";
 
 const db = new Database('pizza.db');
 
+// Create tables first
+db.exec(`
+  CREATE TABLE IF NOT EXISTS global_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+  
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    subscription TEXT UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    google_id TEXT UNIQUE,
+    email TEXT UNIQUE,
+    name TEXT,
+    loyalty_points INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS menu_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    restaurant_id INTEGER,
+    name TEXT,
+    description TEXT,
+    price REAL,
+    image_url TEXT,
+    category TEXT,
+    subcategory TEXT,
+    modifiers TEXT,
+    is_available INTEGER DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    restaurant_id INTEGER,
+    customer_name TEXT,
+    customer_email TEXT,
+    customer_phone TEXT,
+    delivery_address TEXT,
+    delivery_lat REAL,
+    delivery_lng REAL,
+    items TEXT,
+    total_price REAL,
+    status TEXT DEFAULT 'pending',
+    delivery_code TEXT,
+    delivery_partner_id INTEGER,
+    delivery_partner_name TEXT,
+    spare_1 TEXT,
+    spare_2 TEXT,
+    spare_3 TEXT,
+    tracking_token TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    restaurant_id INTEGER,
+    customer_name TEXT,
+    rating INTEGER,
+    comment TEXT,
+    is_visible INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS restaurants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    city TEXT,
+    address TEXT,
+    email TEXT,
+    phone TEXT,
+    bank_account TEXT,
+    has_own_delivery INTEGER,
+    delivery_zones TEXT,
+    spare_1 TEXT,
+    spare_2 TEXT,
+    spare_3 TEXT,
+    spare_4 TEXT,
+    status TEXT DEFAULT 'pending',
+    username TEXT,
+    password TEXT,
+    contract_percentage REAL DEFAULT 0,
+    working_hours TEXT DEFAULT '{}'
+  );
+
+  CREATE TABLE IF NOT EXISTS email_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    subject TEXT,
+    body TEXT,
+    description TEXT,
+    is_active INTEGER DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS email_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_name TEXT,
+    recipient TEXT,
+    subject TEXT,
+    status TEXT,
+    error TEXT,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS delivery_partners (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    city TEXT,
+    address TEXT,
+    email TEXT,
+    phone TEXT,
+    bank_account TEXT,
+    working_hours TEXT DEFAULT '{}',
+    preferred_restaurants TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'pending',
+    username TEXT,
+    password TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS marketing_associates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password TEXT,
+    company_name TEXT,
+    contact_person TEXT,
+    phone TEXT,
+    bank_account TEXT,
+    address TEXT,
+    city TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    associate_id INTEGER,
+    name TEXT,
+    description TEXT,
+    budget REAL,
+    start_date TEXT,
+    end_date TEXT,
+    location_type TEXT,
+    selected_cities TEXT DEFAULT '[]',
+    map_zones TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'pending',
+    quantity INTEGER DEFAULT 0,
+    code_format TEXT,
+    is_visible INTEGER DEFAULT 1,
+    restaurant_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS campaign_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id INTEGER,
+    code TEXT UNIQUE,
+    is_used INTEGER DEFAULT 0,
+    used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
+  );
+`);
+
+// Migration for subcategory and modifiers
+try { db.exec('ALTER TABLE menu_items ADD COLUMN subcategory TEXT DEFAULT "Општо"'); } catch (e) {}
+try { db.exec('ALTER TABLE menu_items ADD COLUMN modifiers TEXT DEFAULT "[]"'); } catch (e) {}
+try { db.exec('ALTER TABLE menu_items ADD COLUMN is_available INTEGER DEFAULT 1'); } catch (e) {}
+
+// Migration for orders
+try { db.exec('ALTER TABLE orders ADD COLUMN delivery_code TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN spare_1 TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN spare_2 TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN spare_3 TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_id INTEGER'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_name TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN tracking_token TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN ready_at DATETIME'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT "cash"'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN selected_fees TEXT DEFAULT "[]"'); } catch (e) {}
+
+// Migration for restaurants
+try { db.exec('ALTER TABLE restaurants ADD COLUMN contract_percentage REAL DEFAULT 0'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN working_hours TEXT DEFAULT "{}"'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN spare_4 TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN logo_url TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN cover_url TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE restaurants ADD COLUMN payment_config TEXT DEFAULT \'{"methods":["cash"],"fees":[]}\''); } catch (e) {}
+
+// Migration for campaigns
+try { db.exec('ALTER TABLE campaigns ADD COLUMN is_visible INTEGER DEFAULT 1'); } catch (e) {}
+try { db.exec('ALTER TABLE campaigns ADD COLUMN restaurant_id INTEGER'); } catch (e) {}
+
 // Ensure uploads directory exists
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -32,20 +231,6 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
-
-// Migration for subcategory and modifiers
-try { db.exec('ALTER TABLE menu_items ADD COLUMN subcategory TEXT DEFAULT "Општо"'); } catch (e) {}
-try { db.exec('ALTER TABLE menu_items ADD COLUMN modifiers TEXT DEFAULT "[]"'); } catch (e) {}
-try { db.exec('ALTER TABLE menu_items ADD COLUMN is_available INTEGER DEFAULT 1'); } catch (e) {}
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    subscription TEXT UNIQUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
 
 // VAPID keys should be generated once and stored in global_settings
 const getVapidKeys = () => {
@@ -103,137 +288,6 @@ async function sendPushNotification(userId: number | null, payload: any, orderId
     }
   }
 }
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    google_id TEXT UNIQUE,
-    email TEXT UNIQUE,
-    name TEXT,
-    loyalty_points INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS menu_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    restaurant_id INTEGER,
-    name TEXT,
-    description TEXT,
-    price REAL,
-    image_url TEXT,
-    category TEXT,
-    subcategory TEXT,
-    modifiers TEXT,
-    is_available INTEGER DEFAULT 1
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    restaurant_id INTEGER,
-    customer_name TEXT,
-    customer_email TEXT,
-    customer_phone TEXT,
-    delivery_address TEXT,
-    delivery_lat REAL,
-    delivery_lng REAL,
-    items TEXT,
-    total_price REAL,
-    status TEXT DEFAULT 'pending',
-    delivery_code TEXT,
-    delivery_partner_id INTEGER,
-    delivery_partner_name TEXT,
-    spare_1 TEXT,
-    spare_2 TEXT,
-    spare_3 TEXT,
-    tracking_token TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-// Migrations
-try { db.exec('ALTER TABLE orders ADD COLUMN delivery_code TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN spare_1 TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN spare_2 TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN spare_3 TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_id INTEGER'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN delivery_partner_name TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN tracking_token TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN ready_at DATETIME'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT "cash"'); } catch (e) {}
-try { db.exec('ALTER TABLE orders ADD COLUMN selected_fees TEXT DEFAULT "[]"'); } catch (e) {}
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS reviews (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id INTEGER,
-    restaurant_id INTEGER,
-    customer_name TEXT,
-    rating INTEGER,
-    comment TEXT,
-    is_visible INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS restaurants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    city TEXT,
-    address TEXT,
-    email TEXT,
-    phone TEXT,
-    bank_account TEXT,
-    has_own_delivery INTEGER,
-    delivery_zones TEXT,
-    spare_1 TEXT,
-    spare_2 TEXT,
-    spare_3 TEXT,
-    spare_4 TEXT,
-    status TEXT DEFAULT 'pending',
-    username TEXT,
-    password TEXT,
-    contract_percentage REAL DEFAULT 0,
-    working_hours TEXT DEFAULT '{}'
-  )
-`);
-
-// Migration for contract_percentage and working_hours
-try { db.exec('ALTER TABLE restaurants ADD COLUMN contract_percentage REAL DEFAULT 0'); } catch (e) {}
-try { db.exec('ALTER TABLE restaurants ADD COLUMN working_hours TEXT DEFAULT "{}"'); } catch (e) {}
-try { db.exec('ALTER TABLE restaurants ADD COLUMN spare_4 TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE restaurants ADD COLUMN logo_url TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE restaurants ADD COLUMN cover_url TEXT'); } catch (e) {}
-try { db.exec('ALTER TABLE restaurants ADD COLUMN payment_config TEXT DEFAULT \'{"methods":["cash"],"fees":[]}\''); } catch (e) {}
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS email_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE,
-    subject TEXT,
-    body TEXT,
-    description TEXT,
-    is_active INTEGER DEFAULT 1,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS email_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    template_name TEXT,
-    recipient TEXT,
-    subject TEXT,
-    status TEXT,
-    error TEXT,
-    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
 // Seed initial templates if they don't exist
 const seedTemplates = [
   {
@@ -270,83 +324,6 @@ const seedTemplates = [
 
 const insertTemplate = db.prepare('INSERT OR IGNORE INTO email_templates (name, subject, body, description) VALUES (?, ?, ?, ?)');
 seedTemplates.forEach(t => insertTemplate.run(t.name, t.subject, t.body, t.description));
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS delivery_partners (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    city TEXT,
-    address TEXT,
-    email TEXT,
-    phone TEXT,
-    bank_account TEXT,
-    working_hours TEXT DEFAULT '{}',
-    preferred_restaurants TEXT DEFAULT '[]',
-    status TEXT DEFAULT 'pending',
-    username TEXT,
-    password TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS marketing_associates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password TEXT,
-    company_name TEXT,
-    contact_person TEXT,
-    phone TEXT,
-    bank_account TEXT,
-    address TEXT,
-    city TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS campaigns (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    associate_id INTEGER,
-    name TEXT,
-    description TEXT,
-    budget REAL,
-    start_date TEXT,
-    end_date TEXT,
-    location_type TEXT,
-    selected_cities TEXT DEFAULT '[]',
-    map_zones TEXT DEFAULT '[]',
-    status TEXT DEFAULT 'pending',
-    quantity INTEGER DEFAULT 0,
-    code_format TEXT,
-    is_visible INTEGER DEFAULT 1,
-    restaurant_id INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-// Migration for campaigns
-try { db.exec('ALTER TABLE campaigns ADD COLUMN is_visible INTEGER DEFAULT 1'); } catch (e) {}
-try { db.exec('ALTER TABLE campaigns ADD COLUMN restaurant_id INTEGER'); } catch (e) {}
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS campaign_codes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    campaign_id INTEGER,
-    code TEXT UNIQUE,
-    is_used INTEGER DEFAULT 0,
-    used_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
-  )
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS global_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  )
-`);
 
 // Seed data if empty
 const count = db.prepare('SELECT COUNT(*) as count FROM menu_items').get() as {count: number};
@@ -2206,4 +2183,7 @@ if (restCount.count === 0) {
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

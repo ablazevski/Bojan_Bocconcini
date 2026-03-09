@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { useEffect } from 'react';
-import Home from './pages/Home';
+import Portal from './pages/Portal';
 import Admin from './pages/Admin';
 import Restaurant from './pages/Restaurant';
 import Customer from './pages/Customer';
@@ -62,7 +62,8 @@ export default function App() {
     <HelmetProvider>
       <BrowserRouter>
         <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<Customer />} />
+        <Route path="/portal" element={<Portal />} />
         <Route path="/admin/*" element={<Admin />} />
         <Route path="/restaurant/*" element={<Restaurant />} />
         <Route path="/customer/*" element={<Customer />} />

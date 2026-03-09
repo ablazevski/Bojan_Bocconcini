@@ -3,7 +3,7 @@ import { Shield, Store, User, Bike, PlusCircle, Users, Bell } from 'lucide-react
 import SEO from '../components/SEO';
 import { useState, useEffect } from 'react';
 
-export default function Home() {
+export default function Portal() {
   const [notificationStatus, setNotificationStatus] = useState<NotificationPermission>(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );

@@ -75,10 +75,7 @@ export default function Customer() {
   };
   
   useEffect(() => {
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then(data => setGlobalSettings(data))
-      .catch(err => console.error('Failed to fetch settings', err));
+    fetchSettings();
 
     fetch('/api/customer/cities')
       .then(res => res.json())
@@ -114,14 +111,6 @@ export default function Customer() {
 
     fetchUser();
 
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then(data => {
-        if (data.delivery_fee) setDeliveryFee(Number(data.delivery_fee));
-        setGlobalSettings(data);
-      })
-      .catch(err => console.error('Failed to fetch settings', err));
-
     const handleMessage = (event: MessageEvent) => {
       const origin = event.origin;
       if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
@@ -134,6 +123,18 @@ export default function Customer() {
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      const data = await res.json();
+      if (data.delivery_fee) setDeliveryFee(Number(data.delivery_fee));
+      setGlobalSettings(data);
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+    }
+  };
 
   const fetchUser = async () => {
     try {
@@ -430,9 +431,6 @@ export default function Customer() {
       <div className="relative z-10">
         <header className="bg-white/90 backdrop-blur-md border-b border-orange-100 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-4">
-            <Link to="/" className="p-2 hover:bg-orange-50 rounded-full text-orange-500 transition-colors">
-              <ArrowLeft size={20} />
-            </Link>
             <h1 className="text-xl font-extrabold text-orange-600 tracking-tight">PizzaTime</h1>
           </div>
           
@@ -1119,6 +1117,12 @@ export default function Customer() {
           </div>
         )}
       </main>
+      <footer className="mt-12 pt-8 border-t border-orange-100 text-center relative z-10 pb-8">
+        <p className="text-slate-400 text-sm mb-4">© 2024 PizzaTime. Сите права се задржани.</p>
+        <Link to="/portal" className="text-xs text-slate-300 hover:text-orange-300 transition-colors">
+          Портал за соработници
+        </Link>
+      </footer>
       </div>
 
       {/* Item Customization Modal */}
