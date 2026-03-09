@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { io } from 'socket.io-client';
 
@@ -60,7 +60,7 @@ const DAYS_MAP: Record<string, string> = {
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
@@ -98,6 +98,26 @@ export default function Admin() {
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
   const [codeFormat, setCodeFormat] = useState('--- -- ---');
   const [contractPercentage, setContractPercentage] = useState<number>(15);
+  
+  const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
+  const [emailLogs, setEmailLogs] = useState<any[]>([]);
+  const [smtpSettings, setSmtpSettings] = useState({
+    smtp_host: '',
+    smtp_port: '587',
+    smtp_user: '',
+    smtp_pass: '',
+    smtp_secure: 'false',
+    smtp_from: ''
+  });
+  const [acelleSettings, setAcelleSettings] = useState({
+    apiUrl: '',
+    apiKey: '',
+    listUid: ''
+  });
+  const [testRecipient, setTestRecipient] = useState('');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [isSyncingAcelle, setIsSyncingAcelle] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [paymentConfig, setPaymentConfig] = useState<{
     methods: string[], 
@@ -154,12 +174,46 @@ export default function Admin() {
     try {
       const res = await fetch('/api/settings');
       if (res.ok) {
-        setGlobalSettings(await res.json());
+        const data = await res.json();
+        setGlobalSettings(data);
+        if (data.contract_percentage) setContractPercentage(Number(data.contract_percentage));
+        if (data.code_format) setCodeFormat(data.code_format);
+        
+        setSmtpSettings({
+          smtp_host: data.smtp_host || '',
+          smtp_port: data.smtp_port || '587',
+          smtp_user: data.smtp_user || '',
+          smtp_pass: data.smtp_pass || '',
+          smtp_secure: data.smtp_secure || 'false',
+          smtp_from: data.smtp_from || ''
+        });
+
+        setAcelleSettings({
+          apiUrl: data.acelle_api_url || '',
+          apiKey: data.acelle_api_key || '',
+          listUid: data.acelle_list_uid || ''
+        });
       }
     } catch (e) {
       console.error('Failed to fetch settings', e);
     }
   };
+
+  const fetchEmailData = () => {
+    fetch('/api/email/templates')
+      .then(res => res.json())
+      .then(data => setEmailTemplates(data));
+    
+    fetch('/api/email/logs')
+      .then(res => res.json())
+      .then(data => setEmailLogs(data));
+  };
+
+  useEffect(() => {
+    if (activeTab === 'email') {
+      fetchEmailData();
+    }
+  }, [activeTab]);
 
   const saveGlobalSettings = async () => {
     setIsSavingSettings(true);
@@ -656,6 +710,13 @@ export default function Admin() {
             >
               <Settings size={16} />
               Поставки
+            </button>
+            <button 
+              onClick={() => setActiveTab('email')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'email' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Mail size={16} />
+              Е-маил
             </button>
             <Link 
               to="/marketing"
@@ -1432,6 +1493,375 @@ export default function Admin() {
                 <div className="p-12 text-center text-slate-400">Нема пронајдено рецензии.</div>
               )}
             </div>
+          </div>
+        ) : activeTab === 'email' ? (
+          <div className="space-y-8">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <Mail className="text-indigo-600" />
+                Е-маил Поставки и Маркетинг
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* SMTP Settings */}
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <Settings2 className="text-indigo-500" />
+                  SMTP Конфигурација
+                </h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Host</label>
+                      <input 
+                        type="text" 
+                        value={smtpSettings.smtp_host}
+                        onChange={e => setSmtpSettings({...smtpSettings, smtp_host: e.target.value})}
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="smtp.example.com"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Port</label>
+                      <input 
+                        type="text" 
+                        value={smtpSettings.smtp_port}
+                        onChange={e => setSmtpSettings({...smtpSettings, smtp_port: e.target.value})}
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="587"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">User</label>
+                      <input 
+                        type="text" 
+                        value={smtpSettings.smtp_user}
+                        onChange={e => setSmtpSettings({...smtpSettings, smtp_user: e.target.value})}
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pass</label>
+                      <input 
+                        type="password" 
+                        value={smtpSettings.smtp_pass}
+                        onChange={e => setSmtpSettings({...smtpSettings, smtp_pass: e.target.value})}
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">From Email</label>
+                      <input 
+                        type="text" 
+                        value={smtpSettings.smtp_from}
+                        onChange={e => setSmtpSettings({...smtpSettings, smtp_from: e.target.value})}
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="noreply@pizzatime.mk"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Secure (SSL/TLS)</label>
+                      <select 
+                        value={smtpSettings.smtp_secure}
+                        onChange={e => setSmtpSettings({...smtpSettings, smtp_secure: e.target.value})}
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                      >
+                        <option value="false">Не (STARTTLS)</option>
+                        <option value="true">Да (SSL/TLS)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="pt-4 flex gap-4">
+                    <button 
+                      onClick={() => {
+                        fetch('/api/settings', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(smtpSettings)
+                        }).then(() => alert('SMTP поставките се зачувани!'));
+                      }}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      <Save size={18} /> Зачувај
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-8 border-t border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-700 mb-4">Тестирај SMTP</h4>
+                  <div className="flex gap-2">
+                    <input 
+                      type="email" 
+                      value={testRecipient}
+                      onChange={e => setTestRecipient(e.target.value)}
+                      className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="Внесете е-маил за тест"
+                    />
+                    <button 
+                      onClick={() => {
+                        if (!testRecipient) return alert('Внесете е-маил!');
+                        setIsSendingTest(true);
+                        fetch('/api/email/test', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            recipient: testRecipient,
+                            host: smtpSettings.smtp_host,
+                            port: smtpSettings.smtp_port,
+                            user: smtpSettings.smtp_user,
+                            pass: smtpSettings.smtp_pass,
+                            secure: smtpSettings.smtp_secure,
+                            from: smtpSettings.smtp_from
+                          })
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                          if (data.success) alert('Тест е-маилот е успешно испратен!');
+                          else alert('Грешка: ' + data.message);
+                        })
+                        .finally(() => setIsSendingTest(false));
+                      }}
+                      disabled={isSendingTest}
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-6 rounded-xl transition-all flex items-center gap-2"
+                    >
+                      {isSendingTest ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
+                      Тест
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Acelle Mail Sync */}
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <RefreshCw className="text-emerald-500" />
+                  Acelle Mail Синхронизација
+                </h3>
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">API URL</label>
+                    <input 
+                      type="text" 
+                      value={acelleSettings.apiUrl}
+                      onChange={e => setAcelleSettings({...acelleSettings, apiUrl: e.target.value})}
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                      placeholder="https://acelle.yourdomain.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">API Key</label>
+                    <input 
+                      type="password" 
+                      value={acelleSettings.apiKey}
+                      onChange={e => setAcelleSettings({...acelleSettings, apiKey: e.target.value})}
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">List UID</label>
+                    <input 
+                      type="text" 
+                      value={acelleSettings.listUid}
+                      onChange={e => setAcelleSettings({...acelleSettings, listUid: e.target.value})}
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                      placeholder="65f23a..."
+                    />
+                  </div>
+                  <div className="pt-4 flex gap-4">
+                    <button 
+                      onClick={() => {
+                        fetch('/api/settings', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            acelle_api_url: acelleSettings.apiUrl,
+                            acelle_api_key: acelleSettings.apiKey,
+                            acelle_list_uid: acelleSettings.listUid
+                          })
+                        }).then(() => alert('Acelle поставките се зачувани!'));
+                      }}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      <Save size={18} /> Зачувај
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (!acelleSettings.apiUrl || !acelleSettings.apiKey || !acelleSettings.listUid) return alert('Пополнете ги сите полиња за Acelle!');
+                        setIsSyncingAcelle(true);
+                        fetch('/api/email/acelle-sync', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(acelleSettings)
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                          alert(`Синхронизацијата заврши! Успешни: ${data.successCount}, Неуспешни: ${data.failCount}`);
+                        })
+                        .finally(() => setIsSyncingAcelle(false));
+                      }}
+                      disabled={isSyncingAcelle}
+                      className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      {isSyncingAcelle ? <RefreshCw size={18} className="animate-spin" /> : <Database size={18} />}
+                      Синхронизирај Корисници
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Email Templates */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+              <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <FileText className="text-indigo-500" />
+                Шаблони за Е-маил
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {emailTemplates.map(template => (
+                  <div key={template.id} className="border border-slate-100 rounded-2xl p-6 hover:border-indigo-200 transition-all bg-slate-50/50">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h4 className="font-bold text-slate-800">{template.name}</h4>
+                        <p className="text-xs text-slate-500 mt-1">{template.description}</p>
+                      </div>
+                      <div className={`w-2 h-2 rounded-full ${template.is_active ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+                    </div>
+                    <button 
+                      onClick={() => setSelectedTemplate(template)}
+                      className="w-full py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-indigo-50 hover:border-indigo-200 transition-all"
+                    >
+                      Уреди Шаблон
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Email Logs */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+              <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <Activity className="text-orange-500" />
+                Дневник на испратени е-маилови
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                      <th className="pb-4 pr-4">Време</th>
+                      <th className="pb-4 pr-4">Шаблон</th>
+                      <th className="pb-4 pr-4">Примач</th>
+                      <th className="pb-4 pr-4">Тема</th>
+                      <th className="pb-4">Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm">
+                    {emailLogs.map(log => (
+                      <tr key={log.id} className="border-b border-slate-50 last:border-0">
+                        <td className="py-4 pr-4 text-slate-500">{new Date(log.sent_at).toLocaleString()}</td>
+                        <td className="py-4 pr-4 font-medium text-slate-700">{log.template_name}</td>
+                        <td className="py-4 pr-4 text-slate-600">{log.recipient}</td>
+                        <td className="py-4 pr-4 text-slate-600 truncate max-w-xs">{log.subject}</td>
+                        <td className="py-4">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            log.status === 'sent' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {log.status}
+                          </span>
+                          {log.error && <p className="text-[10px] text-red-400 mt-1">{log.error}</p>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Template Edit Modal */}
+            {selectedTemplate && (
+              <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+                <div className="bg-white rounded-3xl shadow-xl w-full max-w-3xl overflow-hidden max-h-[90vh] flex flex-col">
+                  <div className="bg-indigo-600 p-6 text-white flex items-center justify-between shrink-0">
+                    <h2 className="text-xl font-bold">Уреди Шаблон: {selectedTemplate.name}</h2>
+                    <button onClick={() => setSelectedTemplate(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                      <X size={24} />
+                    </button>
+                  </div>
+                  
+                  <div className="p-8 space-y-6 overflow-y-auto">
+                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
+                      <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-2">Достапни променливи</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {['customer_name', 'order_id', 'total_price', 'restaurant_name', 'partner_name'].map(v => (
+                          <code key={v} className="bg-white px-2 py-1 rounded border border-amber-200 text-xs text-amber-700">{'{{' + v + '}}'}</code>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Тема (Subject)</label>
+                        <input 
+                          type="text" 
+                          value={selectedTemplate.subject}
+                          onChange={e => setSelectedTemplate({...selectedTemplate, subject: e.target.value})}
+                          className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Содржина (HTML Body)</label>
+                        <textarea 
+                          value={selectedTemplate.body}
+                          onChange={e => setSelectedTemplate({...selectedTemplate, body: e.target.value})}
+                          className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-64 font-mono text-sm"
+                        />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          id="is_active"
+                          checked={selectedTemplate.is_active === 1 || selectedTemplate.is_active === true}
+                          onChange={e => setSelectedTemplate({...selectedTemplate, is_active: e.target.checked})}
+                          className="w-5 h-5 text-indigo-600 rounded"
+                        />
+                        <label htmlFor="is_active" className="text-sm font-bold text-slate-700">Активен шаблон</label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-4">
+                    <button 
+                      onClick={() => setSelectedTemplate(null)}
+                      className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-100 transition-all"
+                    >
+                      Откажи
+                    </button>
+                    <button 
+                      onClick={() => {
+                        fetch(`/api/email/templates/${selectedTemplate.id}`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(selectedTemplate)
+                        })
+                        .then(res => res.json())
+                        .then(() => {
+                          alert('Шаблонот е успешно зачуван!');
+                          setSelectedTemplate(null);
+                          fetchEmailData();
+                        });
+                      }}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/20 transition-all"
+                    >
+                      Зачувај Промени
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : activeTab === 'settings' ? (
           <div className="space-y-6">

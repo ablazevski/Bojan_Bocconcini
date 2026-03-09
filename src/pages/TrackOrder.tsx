@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck, Star } from 'lucide-react';
 import { motion } from 'motion/react';
+import SEO from '../components/SEO';
 import QRCode from 'qrcode';
 import { io } from 'socket.io-client';
 
@@ -154,6 +155,10 @@ export default function TrackOrder() {
 
   return (
     <div className="min-h-screen bg-[#F5F2ED] pb-20 font-serif">
+      <SEO 
+        title={`Следење на нарачка #${order.id} - PizzaTime`}
+        description={`Следете го статусот на вашата нарачка од ${order.restaurant_name} во реално време.`}
+      />
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-6 h-20 flex items-center justify-between">
           <Link to="/" className="p-2 hover:bg-slate-100 rounded-full transition-colors">

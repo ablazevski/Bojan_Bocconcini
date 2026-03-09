@@ -9,6 +9,9 @@ import path from "path";
 import fs from "fs";
 import session from "express-session";
 import axios from "axios";
+import nodemailer from "nodemailer";
+import handlebars from "handlebars";
+import webpush from "web-push";
 
 const db = new Database('pizza.db');
 
@@ -35,6 +38,71 @@ try { db.exec('ALTER TABLE menu_items ADD COLUMN subcategory TEXT DEFAULT "Оп�
 try { db.exec('ALTER TABLE menu_items ADD COLUMN modifiers TEXT DEFAULT "[]"'); } catch (e) {}
 try { db.exec('ALTER TABLE menu_items ADD COLUMN is_available INTEGER DEFAULT 1'); } catch (e) {}
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    subscription TEXT UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// VAPID keys should be generated once and stored in global_settings
+const getVapidKeys = () => {
+  let publicKey = db.prepare('SELECT value FROM global_settings WHERE key = ?').get('vapid_public_key') as any;
+  let privateKey = db.prepare('SELECT value FROM global_settings WHERE key = ?').get('vapid_private_key') as any;
+
+  if (!publicKey || !privateKey) {
+    const keys = webpush.generateVAPIDKeys();
+    db.prepare('INSERT OR REPLACE INTO global_settings (key, value) VALUES (?, ?)').run('vapid_public_key', keys.publicKey);
+    db.prepare('INSERT OR REPLACE INTO global_settings (key, value) VALUES (?, ?)').run('vapid_private_key', keys.privateKey);
+    publicKey = { value: keys.publicKey };
+    privateKey = { value: keys.privateKey };
+  }
+
+  return {
+    publicKey: publicKey.value,
+    privateKey: privateKey.value
+  };
+};
+
+const vapidKeys = getVapidKeys();
+webpush.setVapidDetails(
+  'mailto:aleksandar.busav@gmail.com',
+  vapidKeys.publicKey,
+  vapidKeys.privateKey
+);
+
+async function sendPushNotification(userId: number | null, payload: any, orderId?: number) {
+  let subscriptions;
+  if (userId) {
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ?').all(userId);
+  } else if (orderId) {
+    // If no userId, try to find subscriptions associated with the email in the order
+    const order = db.prepare('SELECT customer_email FROM orders WHERE id = ?').get(orderId) as any;
+    if (order?.customer_email) {
+      const user = db.prepare('SELECT id FROM users WHERE email = ?').get(order.customer_email) as any;
+      if (user) {
+        subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ?').all(user.id);
+      }
+    }
+  }
+
+  if (!subscriptions) return;
+
+  for (const sub of subscriptions as any[]) {
+    try {
+      await webpush.sendNotification(JSON.parse(sub.subscription), JSON.stringify(payload));
+    } catch (error: any) {
+      if (error.statusCode === 410 || error.statusCode === 404) {
+        // Subscription has expired or is no longer valid
+        db.prepare('DELETE FROM push_subscriptions WHERE subscription = ?').run(sub.subscription);
+      } else {
+        console.error('Error sending push notification:', error);
+      }
+    }
+  }
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,6 +209,67 @@ try { db.exec('ALTER TABLE restaurants ADD COLUMN spare_4 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN logo_url TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN cover_url TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN payment_config TEXT DEFAULT \'{"methods":["cash"],"fees":[]}\''); } catch (e) {}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS email_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    subject TEXT,
+    body TEXT,
+    description TEXT,
+    is_active INTEGER DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS email_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_name TEXT,
+    recipient TEXT,
+    subject TEXT,
+    status TEXT,
+    error TEXT,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Seed initial templates if they don't exist
+const seedTemplates = [
+  {
+    name: 'order_confirmation',
+    subject: 'Потврда за вашата нарачка #{{order_id}}',
+    body: '<h1>Здраво {{customer_name}},</h1><p>Вашата нарачка е успешно примена.</p><p>Вкупна сума: {{total_price}} ден.</p><p>Ресторан: {{restaurant_name}}</p><p>Благодариме што нарачувате преку PizzaTime!</p>',
+    description: 'Се испраќа до купувачот по успешна нарачка'
+  },
+  {
+    name: 'new_order_alert',
+    subject: 'Нова нарачка пристигна! #{{order_id}}',
+    body: '<h1>Нова нарачка!</h1><p>Имате нова нарачка од {{customer_name}}.</p><p>Вкупна сума: {{total_price}} ден.</p><p>Ве молиме проверете го вашиот панел за детали.</p>',
+    description: 'Се испраќа до ресторанот кога ќе пристигне нова нарачка'
+  },
+  {
+    name: 'registration_welcome',
+    subject: 'Добредојдовте во PizzaTime!',
+    body: '<h1>Здраво {{customer_name}},</h1><p>Добредојдовте во најголемата мрежа за достава на храна.</p><p>Уживајте во вашите омилени јадења!</p>',
+    description: 'Се испраќа до купувачот по регистрација'
+  },
+  {
+    name: 'restaurant_registration',
+    subject: 'Успешна апликација за ресторан: {{restaurant_name}}',
+    body: '<h1>Здраво,</h1><p>Вашата апликација за ресторанот {{restaurant_name}} е успешно примена.</p><p>Нашиот тим ќе ја прегледа и ќе ве контактира наскоро.</p>',
+    description: 'Се испраќа до сопственикот на ресторан по аплицирање'
+  },
+  {
+    name: 'delivery_registration',
+    subject: 'Успешна апликација за доставувач: {{partner_name}}',
+    body: '<h1>Здраво,</h1><p>Вашата апликација за доставувач е успешно примена.</p><p>Нашиот тим ќе ве контактира за понатамошни чекори.</p>',
+    description: 'Се испраќа до доставувачот по аплицирање'
+  }
+];
+
+const insertTemplate = db.prepare('INSERT OR IGNORE INTO email_templates (name, subject, body, description) VALUES (?, ?, ?, ?)');
+seedTemplates.forEach(t => insertTemplate.run(t.name, t.subject, t.body, t.description));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS delivery_partners (
@@ -360,6 +489,9 @@ if (restCount.count === 0) {
         if (!user) {
           const result = db.prepare('INSERT INTO users (google_id, email, name) VALUES (?, ?, ?)').run(googleUser.id, googleUser.email, googleUser.name);
           user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+          
+          // Send welcome email
+          sendEmail('registration_welcome', googleUser.email, { customer_name: googleUser.name }).catch(console.error);
         } else {
           db.prepare('UPDATE users SET name = ?, email = ? WHERE id = ?').run(googleUser.name, googleUser.email, user.id);
         }
@@ -448,6 +580,145 @@ if (restCount.count === 0) {
 
     app.use('/uploads', express.static(uploadDir));
   
+    // Email Service Helper
+    const sendEmail = async (templateName: string, recipient: string, data: any) => {
+      const settings = db.prepare('SELECT * FROM global_settings').all();
+      const s = settings.reduce((acc: any, curr: any) => {
+        acc[curr.key] = curr.value;
+        return acc;
+      }, {});
+
+      if (!s.smtp_host || !s.smtp_user || !s.smtp_pass) {
+        console.warn('SMTP settings not configured. Skipping email.');
+        return;
+      }
+
+      const template = db.prepare('SELECT * FROM email_templates WHERE name = ? AND is_active = 1').get(templateName) as any;
+      if (!template) {
+        console.warn(`Email template ${templateName} not found or inactive.`);
+        return;
+      }
+
+      try {
+        const transporter = nodemailer.createTransport({
+          host: s.smtp_host,
+          port: parseInt(s.smtp_port || '587'),
+          secure: s.smtp_secure === 'true',
+          auth: {
+            user: s.smtp_user,
+            pass: s.smtp_pass
+          }
+        });
+
+        const subjectTemplate = handlebars.compile(template.subject);
+        const bodyTemplate = handlebars.compile(template.body);
+
+        const subject = subjectTemplate(data);
+        const body = bodyTemplate(data);
+
+        await transporter.sendMail({
+          from: s.smtp_from || s.smtp_user,
+          to: recipient,
+          subject: subject,
+          html: body
+        });
+
+        db.prepare('INSERT INTO email_logs (template_name, recipient, subject, status) VALUES (?, ?, ?, ?)')
+          .run(templateName, recipient, subject, 'sent');
+      } catch (error: any) {
+        console.error('Failed to send email:', error);
+        db.prepare('INSERT INTO email_logs (template_name, recipient, subject, status, error) VALUES (?, ?, ?, ?, ?)')
+          .run(templateName, recipient, template.subject, 'failed', error.message);
+      }
+    };
+
+    // Email Management Routes
+    app.post('/api/push/subscribe', (req, res) => {
+      const { subscription } = req.body;
+      const user = (req.session as any).user;
+      
+      if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+      try {
+        db.prepare('INSERT OR REPLACE INTO push_subscriptions (user_id, subscription) VALUES (?, ?)')
+          .run(user.id, JSON.stringify(subscription));
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: 'Failed to subscribe' });
+      }
+    });
+
+    app.get('/api/push/key', (req, res) => {
+      res.json({ publicKey: vapidKeys.publicKey });
+    });
+
+    app.get('/sitemap.xml', (req, res) => {
+      const restaurants = db.prepare('SELECT username FROM restaurants WHERE status = "approved"').all() as any[];
+      const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+      
+      let sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${baseUrl}/</loc><priority>1.0</priority></url>
+  <url><loc>${baseUrl}/register-restaurant</loc><priority>0.8</priority></url>
+  <url><loc>${baseUrl}/register-delivery</loc><priority>0.8</priority></url>`;
+
+      restaurants.forEach(r => {
+        sitemap += `
+  <url><loc>${baseUrl}/r/${r.username}</loc><priority>0.9</priority></url>`;
+      });
+
+      sitemap += `
+</urlset>`;
+      
+      res.header('Content-Type', 'application/xml');
+      res.send(sitemap);
+    });
+
+    app.get('/api/email/templates', (req, res) => {
+      try {
+        const templates = db.prepare('SELECT * FROM email_templates').all();
+        res.json(templates);
+      } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch templates' });
+      }
+    });
+
+    app.put('/api/email/templates/:id', (req, res) => {
+      const { subject, body, is_active } = req.body;
+      db.prepare('UPDATE email_templates SET subject = ?, body = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(subject, body, is_active ? 1 : 0, req.params.id);
+      res.json({ success: true });
+    });
+
+    app.get('/api/email/logs', (req, res) => {
+      const logs = db.prepare('SELECT * FROM email_logs ORDER BY sent_at DESC LIMIT 100').all();
+      res.json(logs);
+    });
+
+    app.post('/api/email/test', async (req, res) => {
+      const { recipient, host, port, user, pass, secure, from } = req.body;
+      
+      try {
+        const transporter = nodemailer.createTransport({
+          host,
+          port: parseInt(port),
+          secure: secure === 'true',
+          auth: { user, pass }
+        });
+
+        await transporter.sendMail({
+          from: from || user,
+          to: recipient,
+          subject: 'Test Email from PizzaTime',
+          text: 'This is a test email to verify your SMTP settings.'
+        });
+
+        res.json({ success: true });
+      } catch (error: any) {
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
     // API routes
     app.get('/api/settings', (req, res) => {
       const settings = db.prepare('SELECT * FROM global_settings').all();
@@ -474,6 +745,56 @@ if (restCount.count === 0) {
       } catch (err) {
         res.status(500).json({ error: 'Failed to save settings' });
       }
+    });
+
+    app.post('/api/email/newsletter', async (req, res) => {
+      const { template_id, user_ids } = req.body;
+      const template = db.prepare('SELECT * FROM email_templates WHERE id = ?').get(template_id) as any;
+      if (!template) return res.status(404).json({ error: 'Template not found' });
+
+      const users = user_ids 
+        ? db.prepare(`SELECT * FROM users WHERE id IN (${user_ids.join(',')})`).all()
+        : db.prepare('SELECT * FROM users').all();
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const user of users as any[]) {
+        try {
+          await sendEmail(template.name, user.email, { customer_name: user.name });
+          successCount++;
+        } catch (e) {
+          failCount++;
+        }
+      }
+
+      res.json({ success: true, successCount, failCount });
+    });
+
+    app.post('/api/email/acelle-sync', async (req, res) => {
+      const { apiUrl, apiKey, listUid } = req.body;
+      if (!apiUrl || !apiKey || !listUid) return res.status(400).json({ error: 'Missing Acelle credentials' });
+
+      const users = db.prepare('SELECT * FROM users').all() as any[];
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const user of users) {
+        try {
+          // Acelle Mail API v1 subscriber add
+          await axios.post(`${apiUrl}/api/v1/subscribers?api_token=${apiKey}`, {
+            list_uid: listUid,
+            EMAIL: user.email,
+            FIRST_NAME: user.name.split(' ')[0],
+            LAST_NAME: user.name.split(' ').slice(1).join(' ')
+          });
+          successCount++;
+        } catch (e) {
+          failCount++;
+        }
+      }
+
+      res.json({ success: true, successCount, failCount });
     });
 
     app.post('/api/upload', upload.single('image'), (req, res) => {
@@ -618,6 +939,12 @@ if (restCount.count === 0) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
     `);
     const result = insert.run(name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery ? 1 : 0, JSON.stringify(delivery_zones || []), spare_1, spare_2, spare_3, spare_4, JSON.stringify(working_hours || {}));
+    
+    // Send registration email
+    if (email) {
+      sendEmail('restaurant_registration', email, { restaurant_name: name }).catch(console.error);
+    }
+    
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
@@ -732,6 +1059,12 @@ if (restCount.count === 0) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
     `);
     const result = insert.run(name, city, address, email, phone, bank_account, JSON.stringify(working_hours || {}), JSON.stringify(preferred_restaurants || []));
+    
+    // Send registration email
+    if (email) {
+      sendEmail('delivery_registration', email, { partner_name: name }).catch(console.error);
+    }
+    
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
@@ -1108,6 +1441,24 @@ if (restCount.count === 0) {
       orderIds.push(info.lastInsertRowid);
       trackingTokens[Number(info.lastInsertRowid)] = trackingToken;
 
+      // Send confirmation emails
+      if (customer_email) {
+        sendEmail('order_confirmation', customer_email, {
+          order_id: info.lastInsertRowid,
+          customer_name: customer_name,
+          total_price: totalPrice,
+          restaurant_name: restaurant.name
+        }).catch(console.error);
+      }
+
+      if (restaurant.email) {
+        sendEmail('new_order_alert', restaurant.email, {
+          order_id: info.lastInsertRowid,
+          customer_name: customer_name,
+          total_price: totalPrice
+        }).catch(console.error);
+      }
+
       // Notify restaurant
       io.to(`restaurant_${restaurantId}`).emit("new_order", { id: info.lastInsertRowid });
       // Notify delivery partners
@@ -1151,6 +1502,12 @@ if (restCount.count === 0) {
       if (order) {
         io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
         io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
+        
+        sendPushNotification(null, {
+          title: 'Нарачката е подготвена!',
+          body: `Вашата нарачка #${orderId} е подготвена за достава.`,
+          url: `/track/${order.tracking_token}`
+        }, Number(orderId)).catch(console.error);
       }
       return res.json({ success: true });
     }
@@ -1176,6 +1533,13 @@ if (restCount.count === 0) {
       
       // Notify customer
       io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
+      
+      sendPushNotification(null, {
+        title: 'Нарачката е прифатена!',
+        body: `Вашата нарачка #${orderId} е прифатена од ресторанот.`,
+        url: `/track/${order.tracking_token}`
+      }, Number(orderId)).catch(console.error);
+
       // Notify delivery partners
       io.to("delivery_partners").emit("new_available_order");
     } else if (status === 'delivering' || status === 'completed') {
@@ -1209,6 +1573,13 @@ if (restCount.count === 0) {
       // Notify customer
       if (order) {
         io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
+        
+        const statusText = status === 'delivering' ? 'е на пат кон вас' : 'е успешно доставена';
+        sendPushNotification(null, {
+          title: status === 'delivering' ? 'Нарачката е на пат!' : 'Нарачката е доставена!',
+          body: `Вашата нарачка #${orderId} ${statusText}.`,
+          url: `/track/${order.tracking_token}`
+        }, Number(orderId)).catch(console.error);
       }
     } else {
       db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);

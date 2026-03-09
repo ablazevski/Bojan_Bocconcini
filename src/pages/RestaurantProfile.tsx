@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { MapPin, Phone, Clock, ShoppingBag, ArrowLeft, Plus, Minus, Info, Star, X } from 'lucide-react';
+import SEO from '../components/SEO';
 
 export default function RestaurantProfile() {
   const { username } = useParams();
@@ -155,6 +156,11 @@ export default function RestaurantProfile() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
+      <SEO 
+        title={`${restaurant.name} - Достава на храна во ${restaurant.city}`}
+        description={`Нарачајте храна од ${restaurant.name} во ${restaurant.city}. Проверете го менито и нарачајте брза достава до вашиот дом.`}
+        ogImage={restaurant.cover_url || restaurant.logo_url}
+      />
       {/* Cover Image */}
       <div className="h-64 md:h-80 w-full relative bg-slate-800">
         {restaurant.cover_url ? (

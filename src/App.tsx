@@ -1,4 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
+import { useEffect } from 'react';
 import Home from './pages/Home';
 import Admin from './pages/Admin';
 import Restaurant from './pages/Restaurant';
@@ -11,9 +13,55 @@ import RestaurantProfile from './pages/RestaurantProfile';
 import TrackOrder from './pages/TrackOrder';
 
 export default function App() {
+  useEffect(() => {
+    // Register Service Worker for Push Notifications
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      // Only register, don't subscribe automatically on load to avoid "permission denied" errors
+      // and browser blocks for non-user-gesture subscriptions.
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          console.log('Service Worker registered with scope:', registration.scope);
+          
+          // If permission is already granted, we can try to refresh the subscription
+          if (Notification.permission === 'granted') {
+            registration.pushManager.getSubscription()
+              .then(async subscription => {
+                if (!subscription) {
+                  // Get public key from server
+                  const res = await fetch('/api/push/key');
+                  const { publicKey } = await res.json();
+                  
+                  // Subscribe the user
+                  const newSubscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(publicKey)
+                  });
+                  
+                  // Send subscription to server
+                  await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscription: newSubscription })
+                  });
+                }
+              });
+          }
+        })
+        .catch(error => {
+          // If we are in an iframe, this is a common issue and we should log it gracefully
+          if (window.self !== window.top) {
+            console.warn('Service Worker registration skipped or failed in iframe context. This is expected in some browsers. Try opening the app in a new tab for full push notification support.', error);
+          } else {
+            console.error('Service Worker registration failed:', error);
+          }
+        });
+    }
+  }, []);
+
   return (
-    <BrowserRouter>
-      <Routes>
+    <HelmetProvider>
+      <BrowserRouter>
+        <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/admin/*" element={<Admin />} />
         <Route path="/restaurant/*" element={<Restaurant />} />
@@ -25,6 +73,22 @@ export default function App() {
         <Route path="/r/:username" element={<RestaurantProfile />} />
         <Route path="/track/:token" element={<TrackOrder />} />
       </Routes>
-    </BrowserRouter>
+      </BrowserRouter>
+    </HelmetProvider>
   );
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
 }

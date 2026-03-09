@@ -1,9 +1,67 @@
 import { Link } from 'react-router-dom';
-import { Shield, Store, User, Bike, PlusCircle, Users } from 'lucide-react';
+import { Shield, Store, User, Bike, PlusCircle, Users, Bell } from 'lucide-react';
+import SEO from '../components/SEO';
+import { useState, useEffect } from 'react';
 
 export default function Home() {
+  const [notificationStatus, setNotificationStatus] = useState<NotificationPermission>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
+
+  const requestPermission = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert('Вашиот прелистувач не поддржува известувања.');
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationStatus(permission);
+      
+      if (permission === 'granted') {
+        const registration = await navigator.serviceWorker.ready;
+        const res = await fetch('/api/push/key');
+        const { publicKey } = await res.json();
+        
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+        
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription })
+        });
+        
+        alert('Успешно се претплативте на известувања!');
+      }
+    } catch (error) {
+      console.error('Error subscribing to push:', error);
+      alert('Грешка при претплата на известувања. Обидете се повторно.');
+    }
+  };
+
+  function urlBase64ToUint8Array(base64String: string) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/');
+
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
   return (
     <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6">
+      <SEO 
+        title="PizzaTime - Најбрза достава на храна во Македонија"
+        description="Нарачајте ја вашата омилена храна од најдобрите ресторани во вашиот град. Брза и сигурна достава до вашата врата."
+      />
       <div className="max-w-4xl w-full">
         <div className="text-center mb-12">
           <h1 className="text-5xl font-extrabold text-orange-600 mb-4 tracking-tight">PizzaTime</h1>
@@ -72,7 +130,7 @@ export default function Home() {
           </Link>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
           <Link to="/register-restaurant" className="inline-flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium bg-orange-100/50 hover:bg-orange-100 px-6 py-3 rounded-full transition-colors">
             <PlusCircle size={20} />
             Сакате да го додадете вашиот ресторан?
@@ -82,6 +140,22 @@ export default function Home() {
             Сакате да станете доставувач?
           </Link>
         </div>
+
+        {notificationStatus !== 'granted' && (
+          <div className="flex flex-col items-center gap-4 p-6 bg-white rounded-3xl border border-orange-100 shadow-sm">
+            <div className="text-center">
+              <h3 className="text-lg font-bold text-slate-800 mb-1">Бидете во тек!</h3>
+              <p className="text-sm text-slate-500 mb-4">Вклучете известувања за да добивате информации за вашите нарачки во реално време.</p>
+              <button 
+                onClick={requestPermission}
+                className="inline-flex items-center gap-2 bg-orange-600 text-white px-8 py-3 rounded-full font-bold hover:bg-orange-700 transition-all shadow-md hover:shadow-lg active:scale-95"
+              >
+                <Bell size={20} />
+                Овозможи известувања
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
