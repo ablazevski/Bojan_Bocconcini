@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { io } from 'socket.io-client';
+import QRCode from 'qrcode';
 
 interface ModifierOption {
   name: string;
@@ -159,6 +160,11 @@ export default function Restaurant() {
   const [reviews, setReviews] = useState<any[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [activeDeliveryPartners, setActiveDeliveryPartners] = useState<number>(0);
+  const [deliveryMethodCounts, setDeliveryMethodCounts] = useState<Record<string, number>>({
+    bicycle: 0,
+    motorcycle: 0,
+    car: 0
+  });
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deliveryZones, setDeliveryZones] = useState<[number, number][][]>([]);
@@ -166,7 +172,9 @@ export default function Restaurant() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [orderView, setOrderView] = useState<'active' | 'completed'>('active');
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
+  const [hasNewOrders, setHasNewOrders] = useState(false);
   const maxOrderIdRef = useRef<number>(0);
+  const audioIntervalRef = useRef<any>(null);
 
   const toggleOrderExpansion = (orderId: number) => {
     setExpandedOrders(prev => {
@@ -181,23 +189,58 @@ export default function Restaurant() {
   };
 
   const playNotificationSound = () => {
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-      
-      oscillator.start();
-      gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5);
-      oscillator.stop(audioCtx.currentTime + 0.5);
-    } catch (e) {
-      console.error("Audio playback failed", e);
+    if (audioIntervalRef.current) return; // Already playing
+
+    const play = () => {
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        
+        oscillator.start();
+        gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5);
+        oscillator.stop(audioCtx.currentTime + 0.5);
+      } catch (e) {
+        console.error("Audio playback failed", e);
+      }
+    };
+
+    play();
+    audioIntervalRef.current = setInterval(play, 2000);
+  };
+
+  const stopNotificationSound = () => {
+    if (audioIntervalRef.current) {
+      clearInterval(audioIntervalRef.current);
+      audioIntervalRef.current = null;
+    }
+    setHasNewOrders(false);
+  };
+
+  const sendBrowserNotification = (orderId: number) => {
+    if (!("Notification" in window)) return;
+    
+    if (Notification.permission === "granted") {
+      new Notification("Нова нарачка!", {
+        body: `Пристигна нова нарачка #${orderId}`,
+        icon: "/favicon.ico"
+      });
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then(permission => {
+        if (permission === "granted") {
+          new Notification("Нова нарачка!", {
+            body: `Пристигна нова нарачка #${orderId}`,
+            icon: "/favicon.ico"
+          });
+        }
+      });
     }
   };
   const [settingsForm, setSettingsForm] = useState({
@@ -323,7 +366,9 @@ export default function Restaurant() {
 
       socket.on('new_order', (data) => {
         console.log('New order received via socket:', data);
+        setHasNewOrders(true);
         playNotificationSound();
+        sendBrowserNotification(data.id);
         fetchOrders(true);
       });
 
@@ -390,6 +435,7 @@ export default function Restaurant() {
       const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/active-delivery-partners`);
       const data = await res.json();
       setActiveDeliveryPartners(data.count || 0);
+      setDeliveryMethodCounts(data.countsByMethod || { bicycle: 0, motorcycle: 0, car: 0 });
     } catch (e) {
       console.error(e);
     }
@@ -403,7 +449,10 @@ export default function Restaurant() {
     if (data.length > 0) {
       const currentMaxId = Math.max(...data.map((o: any) => o.id));
       if (isBackground && maxOrderIdRef.current > 0 && currentMaxId > maxOrderIdRef.current) {
+        setHasNewOrders(true);
         playNotificationSound();
+        const newOrder = data.find((o: any) => o.id === currentMaxId);
+        if (newOrder) sendBrowserNotification(newOrder.id);
       }
       maxOrderIdRef.current = currentMaxId;
     }
@@ -426,6 +475,101 @@ export default function Restaurant() {
         }
         return o;
       }));
+    }
+  };
+
+  const handlePrintLabel = async (order: Order) => {
+    try {
+      const trackingUrl = `${window.location.origin}/track/${order.tracking_token}`;
+      const qrDataUrl = await QRCode.toDataURL(trackingUrl, { margin: 1, width: 200 });
+      
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert('Ве молиме овозможете скокачки прозорци (pop-ups) за да печатите.');
+        return;
+      }
+
+      const restaurantLogo = loggedInRestaurant?.logo_url || 'https://pizzatime.mk/logo.png';
+      const restaurantName = loggedInRestaurant?.name || 'PizzaTime';
+      const restaurantAddress = loggedInRestaurant?.address || '';
+      const restaurantCity = loggedInRestaurant?.city || '';
+      const restaurantZip = loggedInRestaurant?.spare_3 || '';
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Печати Налепница #${order.id}</title>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+              @page { margin: 0; size: 80mm 150mm; }
+              body { 
+                font-family: 'Inter', sans-serif; 
+                margin: 0; 
+                padding: 10px; 
+                width: 70mm; 
+                text-align: center;
+                color: #000;
+                background: #fff;
+              }
+              .header { font-size: 14px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+              .logo-container { margin: 10px auto; width: 50mm; height: 30mm; display: flex; items-center; justify-content: center; border-radius: 10px; overflow: hidden; }
+              .logo { max-width: 100%; max-height: 100%; object-fit: contain; }
+              .restaurant-name { font-size: 24px; font-weight: 900; color: #e11d48; margin: 5px 0; text-transform: uppercase; line-height: 1; }
+              .address { font-size: 11px; color: #444; margin-bottom: 10px; font-weight: 700; }
+              .qr-container { padding: 10px; margin: 10px 0; display: inline-block; border-radius: 15px; }
+              .qr-code { width: 45mm; height: 45mm; }
+              .order-info { font-size: 14px; margin: 10px 0; font-weight: bold; line-height: 1.5; }
+              .order-id { color: #e11d48; font-size: 18px; }
+              .footer-text { font-size: 9px; color: #666; margin-top: 15px; line-height: 1.4; font-weight: 500; }
+              .divider { border-top: 1px solid #eee; margin: 10px 0; }
+              .bold { font-weight: 900; }
+              .highlight { color: #e11d48; }
+            </style>
+          </head>
+          <body>
+            <div class="header">PizzaTime delivery by</div>
+            <div class="logo-container">
+              <img src="${restaurantLogo}" class="logo" />
+            </div>
+            <div class="restaurant-name">${restaurantName}</div>
+            <div class="address">${restaurantAddress}<br/>${restaurantZip}, ${restaurantCity}</div>
+            
+            <div class="qr-container">
+              <img src="${qrDataUrl}" class="qr-code" />
+            </div>
+            
+            <div class="order-info">
+              Број на нарачка: <span class="order-id">#PT-${new Date().getFullYear()}-${order.id.toString().padStart(3, '0')}</span><br/>
+              Време на подготовка: <span class="bold">${new Date(order.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            </div>
+
+            <div class="bold" style="font-size: 13px; margin-top: 10px; line-height: 1.2;">
+              Скенирај го кодот за да ја оцениш услугата!
+            </div>
+            
+            <div class="footer-text">
+              Твоето мислење ни е важно.<br/>
+              Ви благодариме за довербата!<br/>
+              <div class="divider"></div>
+              Оваа нарачка е процесирана преку PizzaTime. За поддршка или рекламации: 07X XXX XXX<br/>
+              www.pizzatime.mk
+            </div>
+
+            <script>
+              window.onload = () => {
+                setTimeout(() => {
+                  window.print();
+                  window.close();
+                }, 500);
+              };
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    } catch (err) {
+      console.error('Print error:', err);
+      alert('Грешка при генерирање на налепницата.');
     }
   };
 
@@ -646,10 +790,13 @@ export default function Restaurant() {
               Дашборд
             </button>
             <button 
-              onClick={() => setActiveTab('orders')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'orders' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              onClick={() => {
+                setActiveTab('orders');
+                stopNotificationSound();
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'} ${hasNewOrders ? 'animate-pulse bg-red-600 text-white shadow-lg shadow-red-200' : ''}`}
             >
-              Нарачки
+              Нарачки {hasNewOrders && <span className="ml-1 w-2 h-2 bg-white rounded-full inline-block animate-ping"></span>}
             </button>
             <button 
               onClick={() => setActiveTab('menu')}
@@ -705,8 +852,11 @@ export default function Restaurant() {
           Дашборд
         </button>
         <button 
-          onClick={() => setActiveTab('orders')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'orders' ? 'bg-red-50 text-red-600' : 'text-slate-500'}`}
+          onClick={() => {
+            setActiveTab('orders');
+            stopNotificationSound();
+          }}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-red-50 text-red-600' : 'text-slate-500'} ${hasNewOrders ? 'bg-red-600 text-white animate-pulse' : ''}`}
         >
           Нарачки
         </button>
@@ -960,17 +1110,44 @@ export default function Restaurant() {
         ) : activeTab === 'orders' ? (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                <Clock className="text-orange-500" />
-                Нарачки
-              </h2>
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  <span className="text-sm font-bold">Активни доставувачи: {activeDeliveryPartners}</span>
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                  <Clock className="text-orange-500" />
+                  Нарачки
+                </h2>
+                {hasNewOrders && (
+                  <button 
+                    onClick={stopNotificationSound}
+                    className="bg-red-600 text-white px-4 py-2 rounded-xl font-bold text-sm animate-bounce shadow-lg flex items-center gap-2"
+                  >
+                    <X size={16} /> СТОП АЛАРМ
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="text-sm font-bold">Активни: {activeDeliveryPartners}</span>
+                  </div>
+                  <div className="h-4 w-px bg-emerald-200 hidden sm:block"></div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1" title="Велосипед">
+                      <Bike size={16} />
+                      <span className="text-xs font-bold">{deliveryMethodCounts.bicycle}</span>
+                    </div>
+                    <div className="flex items-center gap-1" title="Мотор">
+                      <Bike size={16} className="opacity-70" />
+                      <span className="text-xs font-bold">{deliveryMethodCounts.motorcycle}</span>
+                    </div>
+                    <div className="flex items-center gap-1" title="Автомобил">
+                      <Car size={16} />
+                      <span className="text-xs font-bold">{deliveryMethodCounts.car}</span>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex bg-slate-100 p-1 rounded-lg">
                   <button
@@ -1204,6 +1381,14 @@ export default function Restaurant() {
                                         >
                                           <Share2 size={14} /> Следење & QR
                                         </button>
+                                        {(order.status === 'accepted' || order.status === 'ready') && (
+                                          <button 
+                                            onClick={(e) => { e.stopPropagation(); handlePrintLabel(order); }}
+                                            className="w-full py-2 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-900 transition-all flex items-center justify-center gap-2"
+                                          >
+                                            <Printer size={14} /> Принт
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
                                   )}

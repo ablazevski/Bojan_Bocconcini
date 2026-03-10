@@ -135,6 +135,7 @@ db.exec(`
     bank_account TEXT,
     working_hours TEXT DEFAULT '{}',
     preferred_restaurants TEXT DEFAULT '[]',
+    delivery_methods TEXT DEFAULT '[]',
     status TEXT DEFAULT 'pending',
     username TEXT,
     password TEXT,
@@ -213,6 +214,9 @@ try { db.exec('ALTER TABLE restaurants ADD COLUMN payment_config TEXT DEFAULT \'
 // Migration for campaigns
 try { db.exec('ALTER TABLE campaigns ADD COLUMN is_visible INTEGER DEFAULT 1'); } catch (e) {}
 try { db.exec('ALTER TABLE campaigns ADD COLUMN restaurant_id INTEGER'); } catch (e) {}
+
+// Migration for delivery partners
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN delivery_methods TEXT DEFAULT "[]"'); } catch (e) {}
 
 // Ensure uploads directory exists
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -861,9 +865,9 @@ if (restCount.count === 0) {
 
           // Insert delivery partners
           if (delivery_partners && delivery_partners.length > 0) {
-            const insertDel = db.prepare(`INSERT INTO delivery_partners (id, name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, status, username, password, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertDel = db.prepare(`INSERT INTO delivery_partners (id, name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods, status, username, password, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const d of delivery_partners) {
-              insertDel.run(d.id, d.name, d.city, d.address, d.email, d.phone, d.bank_account, d.working_hours, d.preferred_restaurants, d.status, d.username, d.password, d.created_at);
+              insertDel.run(d.id, d.name, d.city, d.address, d.email, d.phone, d.bank_account, d.working_hours, d.preferred_restaurants, d.delivery_methods || '[]', d.status, d.username, d.password, d.created_at);
             }
           }
 
@@ -1030,12 +1034,12 @@ if (restCount.count === 0) {
 
   // --- DELIVERY PARTNER REGISTRATION & ADMIN ---
   app.post("/api/delivery/register", (req, res) => {
-    const { name, city, address, email, phone, bank_account, working_hours, preferred_restaurants } = req.body;
+    const { name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods } = req.body;
     const insert = db.prepare(`
-      INSERT INTO delivery_partners (name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+      INSERT INTO delivery_partners (name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
     `);
-    const result = insert.run(name, city, address, email, phone, bank_account, JSON.stringify(working_hours || {}), JSON.stringify(preferred_restaurants || []));
+    const result = insert.run(name, city, address, email, phone, bank_account, JSON.stringify(working_hours || {}), JSON.stringify(preferred_restaurants || []), JSON.stringify(delivery_methods || []));
     
     // Send registration email
     if (email) {
@@ -1101,9 +1105,15 @@ if (restCount.count === 0) {
 
   app.get("/api/restaurants/:id/active-delivery-partners", (req, res) => {
     const restaurantId = Number(req.params.id);
-    const partners = db.prepare("SELECT preferred_restaurants, working_hours FROM delivery_partners WHERE status = 'approved'").all() as any[];
+    const partners = db.prepare("SELECT preferred_restaurants, working_hours, delivery_methods FROM delivery_partners WHERE status = 'approved'").all() as any[];
     
-    let count = 0;
+    let totalCount = 0;
+    const countsByMethod: Record<string, number> = {
+      'bicycle': 0,
+      'motorcycle': 0,
+      'car': 0
+    };
+
     const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
     const now = new Date();
     const currentDay = days[now.getDay()];
@@ -1125,12 +1135,18 @@ if (restCount.count === 0) {
           }
             
           if (isWorking) {
-            count++;
+            totalCount++;
+            const methods = JSON.parse(p.delivery_methods || '[]');
+            methods.forEach((m: string) => {
+              if (countsByMethod[m] !== undefined) {
+                countsByMethod[m]++;
+              }
+            });
           }
         }
       } catch (e) {}
     }
-    res.json({ count });
+    res.json({ count: totalCount, countsByMethod });
   });
 
   // --- RESTAURANT LOGIN & SETTINGS ---
@@ -1747,12 +1763,12 @@ if (restCount.count === 0) {
   });
 
   app.put("/api/delivery/:id/profile", (req, res) => {
-    const { preferred_restaurants, working_hours } = req.body;
+    const { preferred_restaurants, working_hours, delivery_methods } = req.body;
     const { id } = req.params;
     
     try {
-      db.prepare("UPDATE delivery_partners SET preferred_restaurants = ?, working_hours = ? WHERE id = ?")
-        .run(JSON.stringify(preferred_restaurants), JSON.stringify(working_hours), id);
+      db.prepare("UPDATE delivery_partners SET preferred_restaurants = ?, working_hours = ?, delivery_methods = ? WHERE id = ?")
+        .run(JSON.stringify(preferred_restaurants), JSON.stringify(working_hours), JSON.stringify(delivery_methods || []), id);
       
       const updatedPartner = db.prepare("SELECT * FROM delivery_partners WHERE id = ?").get(id);
       res.json({ success: true, partner: updatedPartner });

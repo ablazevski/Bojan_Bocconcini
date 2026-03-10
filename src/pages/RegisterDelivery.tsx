@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, MapPin, CheckCircle2, Clock, Store, Package } from 'lucide-react';
+import { ArrowLeft, MapPin, CheckCircle2, Clock, Store, Package, Bike } from 'lucide-react';
 
 const DAYS_OF_WEEK = [
   { id: 'monday', label: 'Понеделник' },
@@ -31,6 +31,7 @@ export default function RegisterDelivery() {
 
   const [workingHours, setWorkingHours] = useState(initialWorkingHours);
   const [selectedRestaurants, setSelectedRestaurants] = useState<number[]>([]);
+  const [deliveryMethods, setDeliveryMethods] = useState<string[]>([]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -73,6 +74,12 @@ export default function RegisterDelivery() {
     );
   };
 
+  const toggleDeliveryMethod = (method: string) => {
+    setDeliveryMethods(prev => 
+      prev.includes(method) ? prev.filter(m => m !== method) : [...prev, method]
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const res = await fetch('/api/delivery/register', {
@@ -81,7 +88,8 @@ export default function RegisterDelivery() {
       body: JSON.stringify({ 
         ...formData, 
         working_hours: workingHours,
-        preferred_restaurants: selectedRestaurants
+        preferred_restaurants: selectedRestaurants,
+        delivery_methods: deliveryMethods
       })
     });
     
@@ -160,6 +168,40 @@ export default function RegisterDelivery() {
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-2">Жиро сметка *</label>
                 <input required type="text" value={formData.bank_account} onChange={e => setFormData({...formData, bank_account: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="XXXX XXXX XXXX XXX" />
+              </div>
+            </div>
+
+            {/* Delivery Methods */}
+            <div className="py-6 border-t border-slate-100">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <Bike className="text-emerald-500" />
+                Начин на достава
+              </h3>
+              <p className="text-sm text-slate-500 mb-6">Изберете со кои превозни средства располагате за достава.</p>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                  { id: 'bicycle', label: 'Велосипед' },
+                  { id: 'motorcycle', label: 'Мотор' },
+                  { id: 'car', label: 'Автомобил' }
+                ].map(method => (
+                  <label 
+                    key={method.id} 
+                    className={`flex items-center gap-3 p-4 rounded-2xl border transition-all cursor-pointer ${
+                      deliveryMethods.includes(method.id) 
+                        ? 'bg-emerald-50 border-emerald-200 shadow-sm' 
+                        : 'bg-white border-slate-100 hover:border-slate-200'
+                    }`}
+                  >
+                    <input 
+                      type="checkbox" 
+                      checked={deliveryMethods.includes(method.id)} 
+                      onChange={() => toggleDeliveryMethod(method.id)}
+                      className="w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500" 
+                    />
+                    <span className="font-bold text-slate-800">{method.label}</span>
+                  </label>
+                ))}
               </div>
             </div>
 

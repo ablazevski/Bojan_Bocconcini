@@ -61,11 +61,13 @@ export default function Delivery() {
 
   const [editHours, setEditHours] = useState<any>({});
   const [editRestaurants, setEditRestaurants] = useState<number[]>([]);
+  const [editMethods, setEditMethods] = useState<string[]>([]);
 
   useEffect(() => {
     if (partner) {
       setEditHours(JSON.parse(partner.working_hours || '{}'));
       setEditRestaurants(JSON.parse(partner.preferred_restaurants || '[]'));
+      setEditMethods(JSON.parse(partner.delivery_methods || '[]'));
     }
   }, [partner]);
 
@@ -123,7 +125,8 @@ export default function Delivery() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           preferred_restaurants: editRestaurants,
-          working_hours: editHours
+          working_hours: editHours,
+          delivery_methods: editMethods
         })
       });
       const data = await res.json();
@@ -313,6 +316,34 @@ export default function Delivery() {
               </div>
 
               <div className="p-6 space-y-8">
+                {/* Delivery Methods */}
+                <section>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Bike size={18} className="text-emerald-500" />
+                    Начин на достава
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      { id: 'bicycle', label: 'Велосипед' },
+                      { id: 'motorcycle', label: 'Мотор' },
+                      { id: 'car', label: 'Автомобил' }
+                    ].map(method => (
+                      <label key={method.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-emerald-50 transition-colors cursor-pointer group">
+                        <input 
+                          type="checkbox"
+                          checked={editMethods.includes(method.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setEditMethods([...editMethods, method.id]);
+                            else setEditMethods(editMethods.filter(m => m !== method.id));
+                          }}
+                          className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">{method.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+
                 {/* Restaurants Selection */}
                 <section>
                   <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">

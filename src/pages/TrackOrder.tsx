@@ -20,6 +20,7 @@ export default function TrackOrder() {
   useEffect(() => {
     fetchOrder();
     generateQR();
+    checkDeliveryPickup();
 
     const socket = io();
     socket.emit('join_order', token);
@@ -61,6 +62,34 @@ export default function TrackOrder() {
       setQrCode(qr);
     } catch (err) {
       console.error('Failed to generate QR', err);
+    }
+  };
+
+  const checkDeliveryPickup = async () => {
+    const auth = localStorage.getItem('delivery_auth');
+    if (!auth) return;
+
+    try {
+      const partner = JSON.parse(auth);
+      const res = await fetch(`/api/orders/track/${token}`);
+      if (!res.ok) return;
+      const orderData = await res.json();
+
+      // If order is ready or accepted and scanned by a logged-in delivery partner
+      if (['ready', 'accepted'].includes(orderData.status)) {
+        await fetch(`/api/delivery/orders/${orderData.id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            status: 'delivering',
+            partnerId: partner.id,
+            partnerName: partner.name
+          })
+        });
+        fetchOrder();
+      }
+    } catch (err) {
+      console.error('Delivery pickup check failed', err);
     }
   };
 
@@ -150,7 +179,7 @@ export default function TrackOrder() {
     'preparing': 'Се подготвува',
     'delivering': 'Во достава',
     'completed': 'Доставена',
-    'cancelled': 'Откажана'
+    'cancelled': 'Одбиена'
   };
 
   return (
@@ -189,6 +218,13 @@ export default function TrackOrder() {
             </div>
 
             <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tighter">#{order.id}</h2>
+            
+            {order.status === 'cancelled' && (
+              <div className="bg-red-50 text-red-600 p-6 rounded-3xl mb-8 font-sans font-bold">
+                Кујната е презафатена. Вашата нарачка не може да биде прифатена во овој момент.
+              </div>
+            )}
+
             <p className="text-slate-400 font-sans text-sm mb-12">Нарачано на {new Date(order.created_at).toLocaleString('mk-MK')}</p>
 
             {/* Visual Stepper */}
