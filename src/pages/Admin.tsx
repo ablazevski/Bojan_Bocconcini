@@ -39,6 +39,8 @@ interface DeliveryPartner {
   preferred_restaurants: string;
   status: string;
   username?: string;
+  role?: 'rider' | 'lead';
+  fleet_manager_id?: number;
 }
 
 interface MarketingAssociate {
@@ -66,6 +68,7 @@ export default function Admin() {
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
   const [approvedDelivery, setApprovedDelivery] = useState<DeliveryPartner[]>([]);
   const [inactiveDelivery, setInactiveDelivery] = useState<DeliveryPartner[]>([]);
+  const [allDeliveryPartners, setAllDeliveryPartners] = useState<DeliveryPartner[]>([]);
   const [deliveryView, setDeliveryView] = useState<'active' | 'inactive' | 'pending'>('active');
   const [marketingAssociates, setMarketingAssociates] = useState<MarketingAssociate[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
@@ -96,6 +99,8 @@ export default function Admin() {
   const [selectedRestaurant, setSelectedRestaurant] = useState<PendingRestaurant | null>(null);
   const [selectedDelivery, setSelectedDelivery] = useState<DeliveryPartner | null>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
+  const [isDeliveryRoleModalOpen, setIsDeliveryRoleModalOpen] = useState(false);
+  const [selectedDeliveryForRole, setSelectedDeliveryForRole] = useState<DeliveryPartner | null>(null);
   const [codeFormat, setCodeFormat] = useState('--- -- ---');
   const [contractPercentage, setContractPercentage] = useState<number>(15);
   
@@ -302,6 +307,9 @@ export default function Admin() {
     const resInactiveDel = await fetch('/api/admin/delivery/inactive');
     setInactiveDelivery(await resInactiveDel.json());
 
+    const resAllDel = await fetch('/api/admin/delivery/all');
+    setAllDeliveryPartners(await resAllDel.json());
+
     const resMarketing = await fetch('/api/admin/marketing-associates');
     setMarketingAssociates(await resMarketing.json());
 
@@ -430,6 +438,22 @@ export default function Admin() {
     const res = await fetch(`/api/admin/delivery/${id}/toggle-status`, { method: 'POST' });
     if (res.ok) {
       fetchData();
+    }
+  };
+
+  const handleUpdateDeliveryRole = async (id: number, role: 'rider' | 'lead', fleetManagerId: number | null) => {
+    try {
+      const res = await fetch(`/api/admin/delivery/${id}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role, fleet_manager_id: fleetManagerId })
+      });
+      if (res.ok) {
+        setIsDeliveryRoleModalOpen(false);
+        fetchData();
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -1329,12 +1353,23 @@ export default function Admin() {
                             <span>👤 {partner.username}</span>
                           </div>
                         </div>
-                        <button 
-                          onClick={() => toggleDeliveryStatus(partner.id)}
-                          className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-                        >
-                          Деактивирај
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => {
+                              setSelectedDeliveryForRole(partner);
+                              setIsDeliveryRoleModalOpen(true);
+                            }}
+                            className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-2"
+                          >
+                            <Settings2 size={16} /> Управувај
+                          </button>
+                          <button 
+                            onClick={() => toggleDeliveryStatus(partner.id)}
+                            className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                          >
+                            Деактивирај
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2783,6 +2818,70 @@ export default function Admin() {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delivery Role Management Modal */}
+      {isDeliveryRoleModalOpen && selectedDeliveryForRole && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-bold text-slate-800">Управувај со доставувач</h3>
+              <button onClick={() => setIsDeliveryRoleModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={20} className="text-slate-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Улога</label>
+                <select 
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={selectedDeliveryForRole.role || 'rider'}
+                  onChange={(e) => setSelectedDeliveryForRole({...selectedDeliveryForRole, role: e.target.value as 'rider' | 'lead'})}
+                >
+                  <option value="rider">Доставувач (Rider)</option>
+                  <option value="lead">Шеф на тим (Lead)</option>
+                </select>
+              </div>
+
+              {selectedDeliveryForRole.role === 'rider' && (
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Шеф на тим (Fleet Manager)</label>
+                  <select 
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={selectedDeliveryForRole.fleet_manager_id || ''}
+                    onChange={(e) => setSelectedDeliveryForRole({...selectedDeliveryForRole, fleet_manager_id: e.target.value ? parseInt(e.target.value) : undefined})}
+                  >
+                    <option value="">Без шеф (Самостоен)</option>
+                    {allDeliveryPartners
+                      .filter(p => p.role === 'lead' && p.id !== selectedDeliveryForRole.id)
+                      .map(lead => (
+                        <option key={lead.id} value={lead.id}>{lead.name}</option>
+                      ))
+                    }
+                  </select>
+                </div>
+              )}
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  onClick={() => setIsDeliveryRoleModalOpen(false)}
+                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  Откажи
+                </button>
+                <button 
+                  onClick={() => handleUpdateDeliveryRole(
+                    selectedDeliveryForRole.id, 
+                    selectedDeliveryForRole.role || 'rider', 
+                    selectedDeliveryForRole.fleet_manager_id || null
+                  )}
+                  className="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  Зачувај
+                </button>
+              </div>
             </div>
           </div>
         </div>

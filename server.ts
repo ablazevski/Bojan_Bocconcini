@@ -137,6 +137,8 @@ db.exec(`
     preferred_restaurants TEXT DEFAULT '[]',
     delivery_methods TEXT DEFAULT '[]',
     status TEXT DEFAULT 'pending',
+    role TEXT DEFAULT 'rider',
+    fleet_manager_id INTEGER,
     username TEXT,
     password TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -217,6 +219,8 @@ try { db.exec('ALTER TABLE campaigns ADD COLUMN restaurant_id INTEGER'); } catch
 
 // Migration for delivery partners
 try { db.exec('ALTER TABLE delivery_partners ADD COLUMN delivery_methods TEXT DEFAULT "[]"'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN role TEXT DEFAULT "rider"'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN fleet_manager_id INTEGER'); } catch (e) {}
 
 // Ensure uploads directory exists
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -536,6 +540,19 @@ if (restCount.count === 0) {
       }
       
       res.json(order);
+    });
+
+    app.get("/api/orders/track-by-code/:code", (req, res) => {
+      const { code } = req.params;
+      if (!code || code.length < 4) {
+        return res.status(400).json({ error: "Невалиден код" });
+      }
+      // Search for orders where tracking_token ends with the code
+      const order = db.prepare("SELECT tracking_token FROM orders WHERE tracking_token LIKE ? ORDER BY created_at DESC LIMIT 1").get(`%${code.toUpperCase()}`) as any;
+      if (!order) {
+        return res.status(404).json({ error: "Нарачката не е пронајдена" });
+      }
+      res.json({ token: order.tracking_token });
     });
 
     app.post("/api/orders/track/:token/complete", (req, res) => {
@@ -865,9 +882,9 @@ if (restCount.count === 0) {
 
           // Insert delivery partners
           if (delivery_partners && delivery_partners.length > 0) {
-            const insertDel = db.prepare(`INSERT INTO delivery_partners (id, name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods, status, username, password, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertDel = db.prepare(`INSERT INTO delivery_partners (id, name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods, status, username, password, role, fleet_manager_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const d of delivery_partners) {
-              insertDel.run(d.id, d.name, d.city, d.address, d.email, d.phone, d.bank_account, d.working_hours, d.preferred_restaurants, d.delivery_methods || '[]', d.status, d.username, d.password, d.created_at);
+              insertDel.run(d.id, d.name, d.city, d.address, d.email, d.phone, d.bank_account, d.working_hours, d.preferred_restaurants, d.delivery_methods || '[]', d.status, d.username, d.password, d.role || 'rider', d.fleet_manager_id || null, d.created_at);
             }
           }
 
@@ -1496,6 +1513,9 @@ if (restCount.count === 0) {
         io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
         io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
         
+        // Notify delivery partners that a new order is ready for pickup
+        io.to("delivery_partners").emit("new_available_order");
+
         sendPushNotification(null, {
           title: 'Нарачката е подготвена!',
           body: `Вашата нарачка #${orderId} е подготвена за достава.`,
@@ -1608,50 +1628,142 @@ if (restCount.count === 0) {
   });
 
   app.get("/api/delivery/orders", (req, res) => {
-    const partnerId = req.query.partnerId;
+    const { partnerId, clientTime, clientDay } = req.query;
     if (!partnerId) {
       return res.json([]);
     }
-    const partner = db.prepare("SELECT preferred_restaurants, working_hours FROM delivery_partners WHERE id = ?").get(partnerId) as any;
+    const partner = db.prepare("SELECT preferred_restaurants, working_hours, city, role FROM delivery_partners WHERE id = ?").get(partnerId) as any;
     if (!partner) return res.json([]);
     
     const preferred = JSON.parse(partner.preferred_restaurants || '[]');
-    if (preferred.length === 0) return res.json([]);
-    
-    const placeholders = preferred.map(() => '?').join(',');
-
     const workingHours = JSON.parse(partner.working_hours || '{}');
+    
+    // Use client time/day if provided, otherwise fallback to server UTC (less accurate)
     const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
     const now = new Date();
-    const currentDay = days[now.getDay()];
-    const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+    const currentDay = (clientDay as string) || days[now.getDay()];
+    const currentTime = (clientTime as string) || (now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0'));
     
-    // Try both exact match and lowercase match since the keys might be saved differently
     const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
     
-    // Default to true if not set, otherwise check active status and time bounds
-    const isWorking = todayHours 
-      ? (todayHours.active !== false && currentTime >= (todayHours.start || '08:00') && currentTime <= (todayHours.end || '22:00'))
-      : (currentTime >= '08:00' && currentTime <= '22:00'); // Default working hours if not configured
+    // STRICT: Must be explicitly configured and active
+    const isWorking = todayHours && todayHours.active !== false && 
+                     currentTime >= (todayHours.start || '08:00') && 
+                     currentTime <= (todayHours.end || '22:00');
 
-    let query = `SELECT * FROM orders WHERE restaurant_id IN (${placeholders}) AND (`;
-    if (isWorking) {
-      query += `status = 'accepted' OR `;
-    }
-    query += `(status = 'delivering' AND delivery_partner_id = ?)) ORDER BY created_at DESC`;
+    let query = `
+      SELECT o.*, r.name as restaurant_name, r.city as restaurant_city 
+      FROM orders o 
+      JOIN restaurants r ON o.restaurant_id = r.id 
+      WHERE `;
     
-    const orders = db.prepare(query).all(...preferred, partnerId);
+    const params: any[] = [];
+    
+    if (preferred.length > 0) {
+      const placeholders = preferred.map(() => '?').join(',');
+      query += `o.restaurant_id IN (${placeholders}) `;
+      params.push(...preferred);
+    } else {
+      // If no preferred restaurants, show all orders in the partner's city
+      query += `r.city = ? `;
+      params.push(partner.city);
+    }
+
+    query += `AND (`;
+    if (isWorking) {
+      query += `o.status IN ('accepted', 'ready') OR `;
+    }
+    query += `(o.status = 'delivering' AND o.delivery_partner_id = ?)) 
+    ORDER BY o.created_at DESC`;
+    params.push(partnerId);
+
+    try {
+      const orders = db.prepare(query).all(...params);
+      res.json(orders);
+    } catch (e) {
+      console.error("Error fetching delivery orders:", e);
+      res.json([]);
+    }
+  });
+
+  app.get("/api/admin/delivery/all", (req, res) => {
+    const partners = db.prepare("SELECT id, name, city, role, fleet_manager_id, status FROM delivery_partners").all();
+    res.json(partners);
+  });
+
+  app.put("/api/admin/delivery/:id/role", (req, res) => {
+    const { role, fleet_manager_id } = req.body;
+    db.prepare("UPDATE delivery_partners SET role = ?, fleet_manager_id = ? WHERE id = ?")
+      .run(role || 'rider', fleet_manager_id || null, req.params.id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/delivery/team/:leadId", (req, res) => {
+    const team = db.prepare("SELECT id, name, phone, status FROM delivery_partners WHERE fleet_manager_id = ?").all(req.params.leadId);
+    res.json(team);
+  });
+
+  app.get("/api/delivery/team/:leadId/orders", (req, res) => {
+    const teamMembers = db.prepare("SELECT id FROM delivery_partners WHERE fleet_manager_id = ? OR id = ?").all(req.params.leadId, req.params.leadId) as any[];
+    const ids = teamMembers.map(t => t.id).join(',');
+    if (!ids) return res.json([]);
+    
+    const orders = db.prepare(`
+      SELECT o.*, r.name as restaurant_name 
+      FROM orders o 
+      JOIN restaurants r ON o.restaurant_id = r.id 
+      WHERE (o.delivery_partner_id IN (${ids}) AND o.status = 'delivering') 
+         OR (o.status IN ('accepted', 'ready') AND o.delivery_partner_id IS NULL AND r.city = (SELECT city FROM delivery_partners WHERE id = ?))
+      ORDER BY o.created_at DESC
+    `).all(req.params.leadId);
     res.json(orders);
   });
 
-  app.post("/api/delivery/login", (req, res) => {
-    const { username, password } = req.body;
-    const partner = db.prepare("SELECT * FROM delivery_partners WHERE username = ? AND password = ? AND status = 'approved'").get(username, password) as any;
-    if (partner) {
-      res.json({ success: true, partner });
-    } else {
-      res.status(401).json({ error: "Невалидни податоци или профилот не е одобрен" });
-    }
+  app.get("/api/delivery/team/:leadId/analytics", (req, res) => {
+    const teamMembers = db.prepare("SELECT id, name FROM delivery_partners WHERE fleet_manager_id = ? OR id = ?").all(req.params.leadId, req.params.leadId) as any[];
+    const ids = teamMembers.map(t => t.id).join(',');
+    if (!ids) return res.json([]);
+
+    const orders = db.prepare(`
+      SELECT delivery_partner_id, total_price, selected_fees, status
+      FROM orders 
+      WHERE delivery_partner_id IN (${ids}) AND status = 'completed'
+    `).all() as any[];
+
+    const analytics = teamMembers.map(member => {
+      const memberOrders = orders.filter(o => o.delivery_partner_id === member.id);
+      const totalOrders = memberOrders.length;
+      const totalValue = memberOrders.reduce((sum, o) => sum + o.total_price, 0);
+      
+      let totalEarnings = 0;
+      memberOrders.forEach(o => {
+        try {
+          const fees = JSON.parse(o.selected_fees || '[]');
+          fees.forEach((f: any) => {
+            if (f.name.toLowerCase().includes('достава') || f.name.toLowerCase().includes('delivery')) {
+              totalEarnings += f.amount;
+            }
+          });
+        } catch (e) {}
+      });
+
+      return {
+        id: member.id,
+        name: member.name,
+        totalOrders,
+        totalValue,
+        totalEarnings
+      };
+    });
+
+    res.json(analytics);
+  });
+
+  app.post("/api/delivery/team/assign", (req, res) => {
+    const { orderId, partnerId, partnerName } = req.body;
+    db.prepare("UPDATE orders SET delivery_partner_id = ?, delivery_partner_name = ?, status = 'delivering' WHERE id = ?")
+      .run(partnerId, partnerName, orderId);
+    res.json({ success: true });
   });
 
   app.put("/api/delivery/orders/:orderId/status", (req, res) => {

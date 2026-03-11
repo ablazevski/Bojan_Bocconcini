@@ -53,6 +53,8 @@ export default function Customer() {
   const [error, setError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [selectedFees, setSelectedFees] = useState<Record<number, string[]>>({}); // restaurantId -> feeNames[]
+  const [trackCode, setTrackCode] = useState('');
+  const [trackingError, setTrackingError] = useState('');
   
   const [checkoutForm, setCheckoutForm] = useState({
     firstName: '',
@@ -123,6 +125,25 @@ export default function Customer() {
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  const handleTrackByCode = async () => {
+    if (!trackCode || trackCode.length < 4) {
+      setTrackingError('Внесете барем 4 карактери');
+      return;
+    }
+    setTrackingError('');
+    try {
+      const res = await fetch(`/api/orders/track-by-code/${trackCode}`);
+      const data = await res.json();
+      if (res.ok) {
+        window.location.href = `/track/${data.token}`;
+      } else {
+        setTrackingError(data.error || 'Нарачката не е пронајдена');
+      }
+    } catch (err) {
+      setTrackingError('Грешка при пребарување');
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -486,6 +507,30 @@ export default function Customer() {
                 ))}
               </div>
             )}
+
+            <div className="mt-12 pt-8 border-t border-slate-100">
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Следи нарачка преку код</h3>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  placeholder="Внесете ги последните 4 знаци..." 
+                  className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none uppercase text-center font-mono tracking-widest"
+                  value={trackCode}
+                  onChange={e => setTrackCode(e.target.value.toUpperCase())}
+                  onKeyPress={e => e.key === 'Enter' && handleTrackByCode()}
+                />
+                <button 
+                  onClick={handleTrackByCode}
+                  className="bg-orange-500 text-white px-6 rounded-xl hover:bg-orange-600 transition-colors font-bold"
+                >
+                  Следи
+                </button>
+              </div>
+              {trackingError && <p className="text-red-500 text-xs mt-2 font-bold">{trackingError}</p>}
+              <p className="text-[10px] text-slate-400 mt-4 italic">
+                * Кодот се наоѓа на вашата сметка или во потврдата за нарачка.
+              </p>
+            </div>
           </div>
         )}
 

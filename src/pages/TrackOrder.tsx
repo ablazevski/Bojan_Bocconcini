@@ -183,7 +183,7 @@ export default function TrackOrder() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F2ED] pb-20 font-serif">
+    <div className="min-h-screen bg-[#F5F2ED] pb-20 font-sans">
       <SEO 
         title={`Следење на нарачка #${order.id} - PizzaTime`}
         description={`Следете го статусот на вашата нарачка од ${order.restaurant_name} во реално време.`}
@@ -235,14 +235,15 @@ export default function TrackOrder() {
                   className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-600 transition-all duration-1000"
                   style={{ 
                     width: order.status === 'pending' ? '0%' : 
-                           order.status === 'accepted' ? '33%' : 
-                           order.status === 'delivering' ? '66%' : 
+                           order.status === 'accepted' ? '25%' : 
+                           order.status === 'ready' ? '50%' :
+                           order.status === 'delivering' ? '75%' : 
                            order.status === 'completed' ? '100%' : '0%' 
                   }}
                 ></div>
                 
-                {['pending', 'accepted', 'delivering', 'completed'].map((s, i) => {
-                  const isPast = ['pending', 'accepted', 'delivering', 'completed'].indexOf(order.status) >= i;
+                {['pending', 'accepted', 'ready', 'delivering', 'completed'].map((s, i) => {
+                  const isPast = ['pending', 'accepted', 'ready', 'delivering', 'completed'].indexOf(order.status) >= i;
                   return (
                     <div key={s} className="relative z-10 flex flex-col items-center">
                       <div className={`w-4 h-4 rounded-full border-4 transition-all duration-500 ${isPast ? 'bg-indigo-600 border-indigo-100' : 'bg-white border-slate-100'}`}></div>
@@ -281,7 +282,7 @@ export default function TrackOrder() {
                     animate={{ opacity: 1, scale: 1 }}
                     className="max-w-md mx-auto mt-8 p-8 bg-slate-50 rounded-[32px] border border-slate-100"
                   >
-                    <h3 className="font-serif text-2xl font-black text-slate-900 mb-2">Како беше храната?</h3>
+                    <h3 className="font-sans text-2xl font-black text-slate-900 mb-2">Како беше храната?</h3>
                     <p className="text-slate-500 font-sans text-sm mb-6">Вашето мислење ни помага да бидеме подобри.</p>
                     
                     <form onSubmit={handleSubmitReview} className="space-y-6">
@@ -337,7 +338,7 @@ export default function TrackOrder() {
                 Ресторан
               </h3>
               <div className="space-y-4 font-sans">
-                <p className="font-serif text-2xl font-black text-slate-900">{order.restaurant_name}</p>
+                <p className="font-sans text-2xl font-black text-slate-900">{order.restaurant_name}</p>
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 text-slate-500 text-sm">
                     <MapPin size={16} className="text-indigo-600" />
@@ -360,7 +361,7 @@ export default function TrackOrder() {
                 {items.map((item: any, idx: number) => (
                   <div key={idx} className="flex justify-between items-start">
                     <div>
-                      <p className="font-serif text-lg font-black text-slate-900">{item.name}</p>
+                      <p className="font-sans text-lg font-black text-slate-900">{item.name}</p>
                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">
                         {Object.entries(item.selectedModifiers || {}).map(([key, val]: any) => 
                           `${key}: ${Array.isArray(val) ? val.join(', ') : val}`
@@ -394,7 +395,7 @@ export default function TrackOrder() {
 
                 <div className="pt-6 border-t border-slate-100 flex justify-between items-center">
                   <span className="font-black text-slate-400 uppercase tracking-widest text-[10px]">Вкупно</span>
-                  <span className="font-serif text-3xl font-black text-indigo-600">{order.total_price} ден.</span>
+                  <span className="font-sans text-3xl font-black text-indigo-600">{order.total_price} ден.</span>
                 </div>
               </div>
             </div>
@@ -425,7 +426,7 @@ export default function TrackOrder() {
 
             <div className="p-8 bg-indigo-600 rounded-[32px] text-white shadow-xl shadow-indigo-600/20">
               <h4 className="font-sans font-black text-[10px] uppercase tracking-widest opacity-60 mb-4">Помош</h4>
-              <p className="font-serif text-lg leading-tight mb-6">Имате проблем со нарачката? Контактирајте го ресторанот директно.</p>
+              <p className="font-sans text-lg leading-tight mb-6">Имате проблем со нарачката? Контактирајте го ресторанот директно.</p>
               <a 
                 href={`tel:${order.restaurant_phone}`}
                 className="inline-flex items-center gap-2 font-sans font-black text-xs uppercase tracking-widest bg-white/20 hover:bg-white/30 px-6 py-3 rounded-full transition-all"

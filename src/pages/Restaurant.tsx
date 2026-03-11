@@ -1288,6 +1288,13 @@ export default function Restaurant() {
                                             >
                                               <CheckCircle size={16} />
                                             </button>
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
+                                              className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                                              title="Откажи"
+                                            >
+                                              <X size={16} />
+                                            </button>
                                           </div>
                                         )}
                                         {order.status === 'ready' && (
@@ -1331,22 +1338,39 @@ export default function Restaurant() {
                                     )}
                                   </div>
 
-                                  {(isExpanded || order.status === 'pending' || order.status === 'accepted') && (
+                                  {(isExpanded || ['pending', 'accepted', 'ready', 'delivering'].includes(order.status)) && (
                                     <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2">
-                                      <div className="space-y-1">
+                                      <div className="space-y-2">
                                         {items.map((item: any, i: number) => (
-                                          <div key={i} className="text-xs flex flex-col text-slate-600 border-b border-slate-200/50 pb-1 last:border-0">
-                                            <div className="flex justify-between font-bold text-slate-800">
+                                          <div key={i} className="p-3 bg-white rounded-xl border border-slate-100 shadow-sm space-y-1">
+                                            <div className="flex justify-between font-black text-slate-800 text-sm">
                                               <span>{item.quantity || 1}x {item.name}</span>
                                               <span>{item.finalPrice} ден.</span>
                                             </div>
                                             {item.selectedModifiers && Object.keys(item.selectedModifiers).length > 0 && (
-                                              <div className="pl-4 text-[10px] text-slate-400 italic">
-                                                {Object.entries(item.selectedModifiers).map(([group, options]: [string, any]) => (
-                                                  <div key={group}>
-                                                    {group}: {Array.isArray(options) ? options.map((o: any) => o.name).join(', ') : options.name}
-                                                  </div>
-                                                ))}
+                                              <div className="pl-2 border-l-2 border-indigo-100 space-y-1">
+                                                {Object.entries(item.selectedModifiers).map(([group, options]: [string, any]) => {
+                                                  let selectedText = '';
+                                                  if (Array.isArray(options)) {
+                                                    selectedText = options
+                                                      .map((o: any) => (typeof o === 'string' ? o : o.name))
+                                                      .filter(val => val && val.trim() !== '')
+                                                      .join(', ');
+                                                  } else if (typeof options === 'string') {
+                                                    selectedText = options.trim();
+                                                  } else if (options && options.name) {
+                                                    selectedText = options.name.trim();
+                                                  }
+                                                  
+                                                  if (!selectedText) return null;
+                                                  
+                                                  return (
+                                                    <div key={group} className="text-[11px] leading-tight">
+                                                      <span className="font-bold text-slate-500 uppercase text-[9px] block">{group}:</span>
+                                                      <span className="text-slate-700 font-medium italic">{selectedText}</span>
+                                                    </div>
+                                                  );
+                                                })}
                                               </div>
                                             )}
                                           </div>

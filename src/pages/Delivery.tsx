@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign } from 'lucide-react';
+import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign, Users, Users2, UserPlus, ChevronRight } from 'lucide-react';
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
 import { io } from 'socket.io-client';
 
@@ -55,9 +55,15 @@ export default function Delivery() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'orders' | 'settings'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'settings' | 'team' | 'analytics'>('orders');
   const [availableRestaurants, setAvailableRestaurants] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+  const [team, setTeam] = useState<any[]>([]);
+  const [teamOrders, setTeamOrders] = useState<any[]>([]);
+  const [analytics, setAnalytics] = useState<any[]>([]);
+  const [loadingTeam, setLoadingTeam] = useState(false);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [creatingTest, setCreatingTest] = useState(false);
 
   const [editHours, setEditHours] = useState<any>({});
   const [editRestaurants, setEditRestaurants] = useState<number[]>([]);
@@ -83,6 +89,11 @@ export default function Delivery() {
     if (partner) {
       fetchOrders();
       fetchAvailableRestaurants();
+      if (partner.role === 'lead') {
+        fetchTeam();
+        fetchTeamOrders();
+        fetchAnalytics();
+      }
       
       const socket = io();
       socket.emit('join_delivery');
@@ -105,6 +116,128 @@ export default function Delivery() {
       };
     }
   }, [partner]);
+
+  useEffect(() => {
+    if (activeTab === 'team') {
+      fetchTeam();
+      fetchTeamOrders();
+    } else if (activeTab === 'analytics') {
+      fetchAnalytics();
+    }
+  }, [activeTab]);
+
+  const fetchTeam = async () => {
+    if (!partner || partner.role !== 'lead') return;
+    try {
+      const res = await fetch(`/api/delivery/team/${partner.id}`);
+      const data = await res.json();
+      setTeam(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchTeamOrders = async () => {
+    if (!partner || partner.role !== 'lead') return;
+    setLoadingTeam(true);
+    try {
+      const res = await fetch(`/api/delivery/team/${partner.id}/orders`);
+      const data = await res.json();
+      setTeamOrders(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingTeam(false);
+    }
+  };
+
+  const fetchAnalytics = async () => {
+    if (!partner || partner.role !== 'lead') return;
+    setLoadingAnalytics(true);
+    try {
+      const res = await fetch(`/api/delivery/team/${partner.id}/analytics`);
+      const data = await res.json();
+      setAnalytics(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
+  const handleAssignOrder = async (orderId: number, partnerId: number, partnerName: string) => {
+    try {
+      const res = await fetch('/api/delivery/team/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, partnerId, partnerName })
+      });
+      if (res.ok) {
+        fetchTeamOrders();
+        fetchOrders();
+        alert('Нарачката е успешно прераспределена!');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const createTestOrder = async () => {
+    if (!partner) return;
+    if (!isWorking) {
+      alert("Моментално сте НЕАКТИВНИ според вашето работно време. Променете го работното време во Поставки (на пр. ставете 00:00 - 23:59) за да можете да ја видите тест нарачката.");
+      return;
+    }
+    setCreatingTest(true);
+    try {
+      const restaurant = availableRestaurants.find(r => r.city === partner.city) || availableRestaurants[0];
+      if (!restaurant) {
+        alert("Нема ресторани во вашиот град за тест.");
+        return;
+      }
+
+      const testOrder = {
+        customer_name: "Тест Корисник",
+        customer_email: "test@example.com",
+        customer_phone: "070123456",
+        delivery_address: "Тест Адреса 123, " + partner.city,
+        delivery_lat: 41.9981,
+        delivery_lng: 21.4254,
+        items: [{
+          id: 1,
+          name: "Тест Оброк",
+          price: 300,
+          quantity: 1,
+          restaurant_id: restaurant.id,
+          finalPrice: 300
+        }],
+        payment_method: 'cash'
+      };
+
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testOrder)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const orderId = data.orderIds[0];
+        await fetch(`/api/restaurant/orders/${orderId}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'accepted' })
+        });
+
+        alert("Тест нарачката е креирана и прифатена од ресторанот! Почекајте неколку секунди да се појави.");
+        fetchOrders();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCreatingTest(false);
+    }
+  };
 
   const fetchAvailableRestaurants = async () => {
     if (!partner) return;
@@ -177,7 +310,12 @@ export default function Delivery() {
   const fetchOrders = async () => {
     if (!partner) return;
     try {
-      const res = await fetch(`/api/delivery/orders?partnerId=${partner.id}`);
+      const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
+      const now = new Date();
+      const currentDay = days[now.getDay()];
+      const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+      
+      const res = await fetch(`/api/delivery/orders?partnerId=${partner.id}&clientTime=${currentTime}&clientDay=${currentDay}`);
       const data = await res.json();
       setOrders(data);
     } catch (e) {
@@ -253,9 +391,6 @@ export default function Delivery() {
     );
   }
 
-  const newOrders = orders.filter(o => o.status === 'accepted');
-  const activeDelivery = orders.find(o => o.status === 'delivering');
-
   const workingHours = JSON.parse(partner.working_hours || '{}');
   const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
   const now = new Date();
@@ -265,10 +400,13 @@ export default function Delivery() {
   // Try both exact match and lowercase match since the keys might be saved differently
   const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
   
-  // Default to true if not set, otherwise check active status and time bounds
-  const isWorking = todayHours 
-    ? (todayHours.active !== false && currentTime >= (todayHours.start || '08:00') && currentTime <= (todayHours.end || '22:00'))
-    : (currentTime >= '08:00' && currentTime <= '22:00'); // Default working hours if not configured
+  // STRICT: Must be explicitly configured and active
+  const isWorking = todayHours && todayHours.active !== false && 
+                   currentTime >= (todayHours.start || '08:00') && 
+                   currentTime <= (todayHours.end || '22:00');
+
+  const newOrders = orders.filter(o => o.status === 'accepted' || o.status === 'ready');
+  const activeDelivery = orders.find(o => o.status === 'delivering');
 
   return (
     <div className="min-h-screen bg-emerald-50/30">
@@ -283,6 +421,24 @@ export default function Delivery() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {partner.role === 'lead' && (
+            <button 
+              onClick={() => setActiveTab(activeTab === 'analytics' ? 'orders' : 'analytics')}
+              className={`p-2 rounded-full transition-colors ${activeTab === 'analytics' ? 'bg-amber-100 text-amber-600' : 'hover:bg-emerald-50 text-slate-400'}`}
+              title="Аналитика"
+            >
+              <DollarSign size={20} />
+            </button>
+          )}
+          {partner.role === 'lead' && (
+            <button 
+              onClick={() => setActiveTab(activeTab === 'team' ? 'orders' : 'team')}
+              className={`p-2 rounded-full transition-colors ${activeTab === 'team' ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-emerald-50 text-slate-400'}`}
+              title="Тим"
+            >
+              <Users2 size={20} />
+            </button>
+          )}
           <button 
             onClick={() => setActiveTab(activeTab === 'orders' ? 'settings' : 'orders')}
             className={`p-2 rounded-full transition-colors ${activeTab === 'settings' ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-emerald-50 text-slate-400'}`}
@@ -418,6 +574,170 @@ export default function Delivery() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'analytics' ? (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+            <div className="bg-white rounded-3xl shadow-xl border border-amber-100 overflow-hidden">
+              <div className="bg-amber-500 p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <DollarSign size={24} />
+                      Аналитика и Исплати
+                    </h2>
+                    <p className="text-amber-100 text-sm mt-1">Преглед на успешно доставени нарачки и заработка</p>
+                  </div>
+                  <button onClick={fetchAnalytics} className="p-2 hover:bg-amber-400 rounded-full transition-colors">
+                    <Loader2 size={20} className={loadingAnalytics ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6">
+                <div className="grid grid-cols-1 gap-4">
+                  {analytics.map(item => (
+                    <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center font-black text-lg">
+                          {item.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 text-lg">{item.name}</p>
+                          <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">
+                            {item.id === partner.id ? 'Вие (Шеф)' : 'Доставувач'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4 flex-1 md:max-w-md">
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">Нарачки</p>
+                          <p className="text-lg font-black text-slate-800">{item.totalOrders}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">Промет</p>
+                          <p className="text-lg font-black text-slate-800">{Math.round(item.totalValue)}д</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-amber-600 uppercase">За исплата</p>
+                          <p className="text-lg font-black text-amber-600">{Math.round(item.totalEarnings)}д</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {analytics.length === 0 && (
+                    <div className="text-center py-12 text-slate-400 italic">
+                      Нема податоци за аналитика.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'team' ? (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+            <div className="bg-white rounded-3xl shadow-xl border border-indigo-100 overflow-hidden">
+              <div className="bg-indigo-600 p-6 text-white">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Users2 size={24} />
+                  Менаџирање на тим
+                </h2>
+                <p className="text-indigo-100 text-sm mt-1">Преглед на вашиот тим и активни нарачки</p>
+              </div>
+
+              <div className="p-6 space-y-8">
+                <section>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Users size={18} className="text-indigo-500" />
+                    Членови на тим ({team.length})
+                  </h3>
+                  <div className="space-y-3">
+                    {team.map(member => (
+                      <div key={member.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
+                            {member.name.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800">{member.name}</p>
+                            <p className="text-xs text-slate-500">{member.phone}</p>
+                          </div>
+                        </div>
+                        <div className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${member.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {member.status === 'approved' ? 'Активен' : member.status}
+                        </div>
+                      </div>
+                    ))}
+                    {team.length === 0 && (
+                      <p className="text-center py-4 text-slate-400 text-sm italic">Немате членови во вашиот тим.</p>
+                    )}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                      <Package size={18} className="text-indigo-500" />
+                      Активни нарачки на тимот
+                    </h3>
+                    <button onClick={fetchTeamOrders} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+                      <Loader2 size={16} className={loadingTeam ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {teamOrders.map(order => (
+                      <div key={order.id} className="p-4 border border-indigo-100 rounded-2xl bg-indigo-50/30">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-slate-800">Нарачка #{order.id}</h4>
+                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase ${
+                                order.status === 'ready' ? 'bg-amber-100 text-amber-700' : 
+                                order.status === 'accepted' ? 'bg-blue-100 text-blue-700' : 
+                                'bg-emerald-100 text-emerald-700'
+                              }`}>
+                                {order.status === 'ready' ? 'Подготвена' : order.status === 'accepted' ? 'Прифатена' : 'Во достава'}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-indigo-600 font-bold uppercase">{order.restaurant_name}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-bold text-slate-500">Доставувач:</p>
+                            <p className="text-sm font-black text-indigo-700">{order.delivery_partner_name || 'НЕДОДЕЛЕНА'}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2 text-xs text-slate-600 mb-4">
+                          <MapPin size={14} className="text-slate-400" />
+                          {order.delivery_address}
+                        </div>
+
+                        <div className="pt-3 border-t border-indigo-100">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Префрли на друг член:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {[partner, ...team].filter(m => m.id !== order.delivery_partner_id).map(member => (
+                              <button
+                                key={member.id}
+                                onClick={() => handleAssignOrder(order.id, member.id, member.name)}
+                                className="px-3 py-1 bg-white border border-indigo-200 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-600 hover:text-white transition-all"
+                              >
+                                {member.id === partner.id ? 'Мене' : member.name.split(' ')[0]}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {teamOrders.length === 0 && (
+                      <p className="text-center py-8 text-slate-400 text-sm italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        Нема активни нарачки во тимот.
+                      </p>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
         ) : (
           <>
             {/* Active Delivery Section */}
@@ -545,7 +865,17 @@ export default function Delivery() {
               <Package className="text-emerald-500" size={20} />
               Нови барања
             </h2>
-            <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg text-xs font-bold">{newOrders.length}</span>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={createTestOrder}
+                disabled={creatingTest}
+                className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1 disabled:opacity-50"
+              >
+                {creatingTest ? <Loader2 size={12} className="animate-spin" /> : <Package size={12} />}
+                Тест Нарачка
+              </button>
+              <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg text-xs font-bold">{newOrders.length}</span>
+            </div>
           </div>
           
           {newOrders.length === 0 ? (
