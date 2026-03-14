@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign, Users, Users2, UserPlus, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign, Users, Users2, UserPlus, ChevronRight, BarChart2 } from 'lucide-react';
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
 import { io } from 'socket.io-client';
 
@@ -46,7 +47,10 @@ function Countdown({ targetTime }: { targetTime: string }) {
     return () => clearInterval(interval);
   }, [targetTime]);
 
-  return <span>{timeLeft}</span>;
+  const minutes = parseInt(timeLeft.split(':')[0]);
+  const isUrgent = minutes < 5;
+
+  return <span className={`font-mono font-black ${isUrgent ? 'text-red-600 animate-pulse' : ''}`}>{timeLeft}</span>;
 }
 
 export default function Delivery() {
@@ -55,7 +59,9 @@ export default function Delivery() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'orders' | 'settings' | 'team' | 'analytics'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'settings' | 'team' | 'analytics' | 'earnings'>('orders');
+  const [earnings, setEarnings] = useState<any[]>([]);
+  const [loadingEarnings, setLoadingEarnings] = useState(false);
   const [availableRestaurants, setAvailableRestaurants] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [team, setTeam] = useState<any[]>([]);
@@ -78,6 +84,12 @@ export default function Delivery() {
   }, [partner]);
 
   useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
     const saved = localStorage.getItem('delivery_auth');
     if (saved) {
       const p = JSON.parse(saved);
@@ -96,11 +108,42 @@ export default function Delivery() {
       }
       
       const socket = io();
-      socket.emit('join_delivery');
+      socket.emit('join_delivery', { 
+        id: partner.id, 
+        restaurantIds: partner.preferred_restaurants 
+      });
 
       socket.on('new_available_order', () => {
         console.log('New available order notification received');
         fetchOrders();
+        
+        // Play sound
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+        audio.play().catch(e => console.log('Audio play failed:', e));
+
+        // Browser notification
+        if (Notification.permission === 'granted') {
+          new Notification('Нова достапна нарачка!', {
+            body: 'Има нова нарачка која чека доставувач. Проверете ја листата!',
+            icon: '/logo.png'
+          });
+        }
+      });
+
+      socket.on('order_preparing', (data) => {
+        console.log('Order preparing notification received:', data);
+        fetchOrders();
+        
+        if (Notification.permission === 'granted') {
+          const message = data.status === 'preparing' 
+            ? `Нарачката #${data.orderId} се подготвува. Очекувано време: ${new Date(data.targetTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
+            : `Нарачката #${data.orderId} е прифатена и се подготвува.`;
+            
+          new Notification('Подготовка на нарачка', {
+            body: message,
+            icon: '/logo.png'
+          });
+        }
       });
 
       socket.on('stale_order_reminder', (data) => {
@@ -110,12 +153,56 @@ export default function Delivery() {
 
       const interval = setInterval(fetchOrders, 30000); // Fallback
       
+      // Real-time location tracking
+      let locationInterval: NodeJS.Timeout;
+      if ("geolocation" in navigator) {
+        locationInterval = setInterval(() => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              fetch('/api/delivery/location', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  partnerId: partner.id,
+                  lat: latitude,
+                  lng: longitude
+                })
+              }).catch(console.error);
+            },
+            (error) => console.error('Geolocation error:', error),
+            { enableHighAccuracy: true }
+          );
+        }, 10000); // Update every 10 seconds
+      }
+
       return () => {
-        socket.disconnect();
         clearInterval(interval);
+        if (locationInterval) clearInterval(locationInterval);
+        socket.disconnect();
       };
     }
   }, [partner]);
+
+  const fetchEarnings = async () => {
+    if (!partner) return;
+    setLoadingEarnings(true);
+    try {
+      const res = await fetch(`/api/delivery/earnings/${partner.id}`);
+      const data = await res.json();
+      setEarnings(data);
+    } catch (e) {
+      console.error('Failed to fetch earnings', e);
+    } finally {
+      setLoadingEarnings(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'earnings') {
+      fetchEarnings();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === 'team') {
@@ -290,6 +377,10 @@ export default function Delivery() {
       });
       const data = await res.json();
       if (res.ok) {
+        if (data.partner.has_signed_contract !== 1) {
+          setError('Ве молиме прво потпишете го договорот кој ви беше испратен на е-маил.');
+          return;
+        }
         setPartner(data.partner);
         localStorage.setItem('delivery_auth', JSON.stringify(data.partner));
       } else {
@@ -397,15 +488,30 @@ export default function Delivery() {
   const currentDay = days[now.getDay()];
   const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   
-  // Try both exact match and lowercase match since the keys might be saved differently
+  const timeToMinutes = (t: string) => {
+    if (!t) return 0;
+    const [h, m] = t.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
   const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
   
-  // STRICT: Must be explicitly configured and active
-  const isWorking = todayHours && todayHours.active !== false && 
-                   currentTime >= (todayHours.start || '08:00') && 
-                   currentTime <= (todayHours.end || '22:00');
+  // Default to active if no hours are set for today
+  let isWorking = true;
+  if (todayHours) {
+    if (todayHours.active === false) {
+      isWorking = false;
+    } else {
+      const currentMin = timeToMinutes(currentTime);
+      const startMin = timeToMinutes(todayHours.start || '00:00');
+      const endMin = timeToMinutes(todayHours.end || '23:59');
+      isWorking = currentMin >= startMin && currentMin <= endMin;
+    }
+  }
+  
+  console.log(`[Delivery] Day: ${currentDay}, Time: ${currentTime}, isWorking: ${isWorking}`, todayHours);
 
-  const newOrders = orders.filter(o => o.status === 'accepted' || o.status === 'ready');
+  const newOrders = orders.filter(o => o.status === 'preparing' || o.status === 'accepted' || o.status === 'ready');
   const activeDelivery = orders.find(o => o.status === 'delivering');
 
   return (
@@ -421,13 +527,20 @@ export default function Delivery() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setActiveTab(activeTab === 'earnings' ? 'orders' : 'earnings')}
+            className={`p-2 rounded-full transition-colors ${activeTab === 'earnings' ? 'bg-amber-100 text-amber-600' : 'hover:bg-emerald-50 text-slate-400'}`}
+            title="Заработка"
+          >
+            <DollarSign size={20} />
+          </button>
           {partner.role === 'lead' && (
             <button 
               onClick={() => setActiveTab(activeTab === 'analytics' ? 'orders' : 'analytics')}
               className={`p-2 rounded-full transition-colors ${activeTab === 'analytics' ? 'bg-amber-100 text-amber-600' : 'hover:bg-emerald-50 text-slate-400'}`}
               title="Аналитика"
             >
-              <DollarSign size={20} />
+              <BarChart2 size={20} />
             </button>
           )}
           {partner.role === 'lead' && (
@@ -452,8 +565,8 @@ export default function Delivery() {
           >
             Одјава
           </button>
-          <div className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 ${isWorking ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-            <span className={`w-2 h-2 rounded-full ${isWorking ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+          <div className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-sm border transition-all ${isWorking ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-slate-200 text-slate-600 border-slate-300'}`}>
+            <span className={`w-2.5 h-2.5 rounded-full border-2 border-white/30 ${isWorking ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></span>
             {isWorking ? 'Активен' : 'Неактивен'}
           </div>
         </div>
@@ -574,6 +687,54 @@ export default function Delivery() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'earnings' ? (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 p-6">
+              <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <DollarSign className="text-amber-500" size={20} />
+                Вашата заработка
+              </h2>
+
+              {loadingEarnings ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="animate-spin text-emerald-500" />
+                </div>
+              ) : earnings.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <p>Сè уште немате остварено заработка.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-1">Вкупно достава</span>
+                      <span className="text-2xl font-black text-emerald-900">{earnings.reduce((acc, curr) => acc + curr.total_deliveries, 0)}</span>
+                    </div>
+                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
+                      <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block mb-1">Вкупно заработено</span>
+                      <span className="text-2xl font-black text-amber-900">{earnings.reduce((acc, curr) => acc + curr.total_earned, 0)} ден.</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {earnings.map((day, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <div>
+                          <span className="text-sm font-bold text-slate-800 block">{new Date(day.date).toLocaleDateString('mk-MK')}</span>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold">{day.total_deliveries} достава</span>
+                        </div>
+                        <span className="text-lg font-black text-emerald-600">+{day.total_earned} ден.</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
         ) : activeTab === 'analytics' ? (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
             <div className="bg-white rounded-3xl shadow-xl border border-amber-100 overflow-hidden">
@@ -693,10 +854,11 @@ export default function Delivery() {
                               <h4 className="font-bold text-slate-800">Нарачка #{order.id}</h4>
                               <span className={`px-2 py-0.5 rounded-full text-[8px] font-bold uppercase ${
                                 order.status === 'ready' ? 'bg-amber-100 text-amber-700' : 
+                                order.status === 'preparing' ? 'bg-orange-100 text-orange-700' :
                                 order.status === 'accepted' ? 'bg-blue-100 text-blue-700' : 
                                 'bg-emerald-100 text-emerald-700'
                               }`}>
-                                {order.status === 'ready' ? 'Подготвена' : order.status === 'accepted' ? 'Прифатена' : 'Во достава'}
+                                {order.status === 'ready' ? 'Подготвена' : order.status === 'preparing' ? 'Се подготвува' : order.status === 'accepted' ? 'Прифатена' : 'Во достава'}
                               </span>
                             </div>
                             <p className="text-[10px] text-indigo-600 font-bold uppercase">{order.restaurant_name}</p>
@@ -889,7 +1051,13 @@ export default function Delivery() {
                   <div className="flex justify-between items-start mb-3">
                     <h4 className="font-bold text-slate-800">Нарачка #{order.id}</h4>
                     <div className="flex flex-col items-end gap-1">
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Подготвена</span>
+                      <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md ${
+                        order.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 
+                        (order.status === 'preparing' || order.status === 'accepted') ? 'bg-orange-100 text-orange-700' : 
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {order.status === 'ready' ? 'Подготвена' : (order.status === 'preparing' || order.status === 'accepted') ? 'Се подготвува' : 'Прифатена'}
+                      </span>
                       {order.spare_2 && (
                         <div className="px-2 py-1 rounded-md text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
                           <Clock size={10} />

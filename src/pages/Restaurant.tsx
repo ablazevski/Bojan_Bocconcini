@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { io } from 'socket.io-client';
@@ -40,6 +40,7 @@ interface Order {
   delivery_code: string;
   tracking_token?: string;
   delivery_partner_name?: string;
+  delivery_partner_methods?: string;
   created_at: string;
   spare_2?: string;
   ready_at?: string;
@@ -115,19 +116,25 @@ function Countdown({ targetTime, onExpire }: { targetTime: string, onExpire?: ()
 }
 
 function FreshnessTimer({ readyAt }: { readyAt: string }) {
-  const [elapsed, setElapsed] = useState('');
+  const [timeLeft, setTimeLeft] = useState('');
 
   useEffect(() => {
     const start = new Date(readyAt).getTime();
+    const deadline = start + (25 * 60 * 1000); // 25 minutes deadline
     
     const updateTimer = () => {
       const now = new Date().getTime();
-      const difference = now - start;
+      const difference = deadline - now;
+      
+      if (difference <= 0) {
+        setTimeLeft('00:00');
+        return;
+      }
       
       const minutes = Math.floor(difference / (1000 * 60));
       const seconds = Math.floor((difference % (1000 * 60)) / 1000);
       
-      setElapsed(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      setTimeLeft(`${minutes}:${seconds.toString().padStart(2, '0')}`);
     };
 
     updateTimer();
@@ -135,15 +142,15 @@ function FreshnessTimer({ readyAt }: { readyAt: string }) {
     return () => clearInterval(interval);
   }, [readyAt]);
 
-  const minutes = parseInt(elapsed.split(':')[0]);
+  const minutes = parseInt(timeLeft.split(':')[0]);
   let colorClass = "text-emerald-600";
-  if (minutes >= 30) colorClass = "text-red-600 animate-bounce font-black";
-  else if (minutes >= 15) colorClass = "text-orange-600 font-bold";
+  if (minutes < 5) colorClass = "text-red-600 animate-pulse font-black";
+  else if (minutes < 10) colorClass = "text-orange-600 font-bold";
 
   return (
     <div className={`flex items-center gap-1 ${colorClass}`}>
       <Clock size={14} />
-      <span className="text-sm font-mono">{elapsed}</span>
+      <span className="text-sm font-mono font-bold">{timeLeft}</span>
     </div>
   );
 }
@@ -369,6 +376,11 @@ export default function Restaurant() {
         setHasNewOrders(true);
         playNotificationSound();
         sendBrowserNotification(data.id);
+        fetchOrders(true);
+      });
+
+      socket.on('order_preparing', (data) => {
+        console.log('Order preparing signal received:', data);
         fetchOrders(true);
       });
 
@@ -1344,7 +1356,14 @@ export default function Restaurant() {
                                         {items.map((item: any, i: number) => (
                                           <div key={i} className="p-3 bg-white rounded-xl border border-slate-100 shadow-sm space-y-1">
                                             <div className="flex justify-between font-black text-slate-800 text-sm">
-                                              <span>{item.quantity || 1}x {item.name}</span>
+                                              <div className="flex items-center gap-2">
+                                                <span>{item.quantity || 1}x {item.name}</span>
+                                                {item.user_name && (
+                                                  <span className="bg-indigo-100 text-indigo-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                    {item.user_name}
+                                                  </span>
+                                                )}
+                                              </div>
                                               <span>{item.finalPrice} ден.</span>
                                             </div>
                                             {item.selectedModifiers && Object.keys(item.selectedModifiers).length > 0 && (
@@ -1399,6 +1418,45 @@ export default function Restaurant() {
                                       </div>
                                       
                                       <div className="flex flex-col gap-2 pt-2">
+                                        {order.delivery_partner_name && (
+                                          <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100 mb-2">
+                                            <div className="flex items-center gap-2">
+                                              <div className="p-2 bg-white rounded-lg shadow-sm">
+                                                {(() => {
+                                                  try {
+                                                    const methods = JSON.parse(order.delivery_partner_methods || '[]');
+                                                    if (methods.includes('bicycle')) return <Bike size={16} className="text-indigo-600" />;
+                                                    if (methods.includes('motorcycle')) return <Bike size={16} className="text-indigo-600 opacity-70" />;
+                                                    if (methods.includes('car')) return <Car size={16} className="text-indigo-600" />;
+                                                    return <User size={16} className="text-indigo-600" />;
+                                                  } catch (e) {
+                                                    return <User size={16} className="text-indigo-600" />;
+                                                  }
+                                                })()}
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] font-bold text-indigo-400 uppercase">Доставувач:</p>
+                                                <p className="text-xs font-bold text-indigo-900">{order.delivery_partner_name}</p>
+                                              </div>
+                                            </div>
+                                            <div className="text-right">
+                                              <p className="text-[10px] font-bold text-indigo-400 uppercase">Метод:</p>
+                                              <p className="text-xs font-bold text-indigo-900 capitalize">
+                                                {(() => {
+                                                  try {
+                                                    const methods = JSON.parse(order.delivery_partner_methods || '[]');
+                                                    if (methods.includes('bicycle')) return 'Велосипед';
+                                                    if (methods.includes('motorcycle')) return 'Мотор';
+                                                    if (methods.includes('car')) return 'Автомобил';
+                                                    return 'Пешки';
+                                                  } catch (e) {
+                                                    return 'Непознато';
+                                                  }
+                                                })()}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        )}
                                         <button 
                                           onClick={(e) => { e.stopPropagation(); window.open(`/track/${order.tracking_token}`, '_blank'); }}
                                           className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"

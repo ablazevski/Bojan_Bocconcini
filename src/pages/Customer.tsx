@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users } from 'lucide-react';
+import { motion } from 'motion/react';
 import LocationPickerMap from '../components/LocationPickerMap';
 
 interface ModifierOption {
@@ -56,6 +57,13 @@ export default function Customer() {
   const [trackCode, setTrackCode] = useState('');
   const [trackingError, setTrackingError] = useState('');
   
+  const [groupOrderCode, setGroupOrderCode] = useState<string | null>(null);
+  const [groupOrderData, setGroupOrderData] = useState<any>(null);
+  const [isGroupOrderCreator, setIsGroupOrderCreator] = useState(false);
+  const [groupOrderUserName, setGroupOrderUserName] = useState('');
+  const [joiningGroup, setJoiningGroup] = useState(false);
+  const [groupCodeInput, setGroupCodeInput] = useState('');
+
   const [checkoutForm, setCheckoutForm] = useState({
     firstName: '',
     lastName: '',
@@ -143,6 +151,112 @@ export default function Customer() {
     } catch (err) {
       setTrackingError('Грешка при пребарување');
     }
+  };
+
+  useEffect(() => {
+    if (groupOrderCode) {
+      fetchGroupOrder();
+      const interval = setInterval(fetchGroupOrder, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [groupOrderCode]);
+
+  const fetchGroupOrder = async () => {
+    if (!groupOrderCode) return;
+    try {
+      const res = await fetch(`/api/group-orders/${groupOrderCode}`);
+      const data = await res.json();
+      if (data.error) {
+        setGroupOrderCode(null);
+        setError(data.error);
+      } else {
+        setGroupOrderData(data);
+        if (data.status === 'placed' && data.trackingToken) {
+          // Redirect to success or tracking
+          window.location.href = `/track/${data.trackingToken}`;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const startGroupOrder = async () => {
+    if (!selectedRestaurantId || !groupOrderUserName) return;
+    try {
+      const res = await fetch('/api/group-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurant_id: selectedRestaurantId,
+          creator_name: groupOrderUserName,
+          creator_email: user?.email || ''
+        })
+      });
+      const data = await res.json();
+      setGroupOrderCode(data.code);
+      setIsGroupOrderCreator(true);
+      setStep('menu');
+    } catch (e) {
+      setError('Failed to start group order');
+    }
+  };
+
+  const joinGroupOrder = async () => {
+    if (!groupCodeInput || !groupOrderUserName) return;
+    try {
+      const res = await fetch(`/api/group-orders/${groupCodeInput}`);
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setGroupOrderCode(data.code);
+        setSelectedRestaurantId(data.restaurant_id);
+        setIsGroupOrderCreator(false);
+        setStep('menu');
+        setJoiningGroup(false);
+      }
+    } catch (e) {
+      setError('Failed to join group order');
+    }
+  };
+
+  const addGroupItem = async (item: MenuItem, modifiers: any, price: number) => {
+    if (!groupOrderCode || !groupOrderUserName) return;
+    try {
+      await fetch(`/api/group-orders/${groupOrderCode}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_name: groupOrderUserName,
+          item_id: item.id,
+          item_name: item.name,
+          price: price,
+          quantity: 1,
+          modifiers
+        })
+      });
+      fetchGroupOrder();
+    } catch (e) {
+      setError('Failed to add item to group order');
+    }
+  };
+
+  const removeGroupItem = async (itemId: number) => {
+    if (!groupOrderCode) return;
+    try {
+      await fetch(`/api/group-orders/${groupOrderCode}/items/${itemId}`, {
+        method: 'DELETE'
+      });
+      fetchGroupOrder();
+    } catch (e) {
+      setError('Failed to remove item');
+    }
+  };
+
+  const finalizeGroupOrder = async () => {
+    if (!groupOrderCode || !isGroupOrderCreator) return;
+    setStep('checkout');
   };
 
   const fetchSettings = async () => {
@@ -311,11 +425,19 @@ export default function Customer() {
   const addToCart = () => {
     if (!selectedItem) return;
     
+    const finalPrice = calculateFinalPrice();
+
+    if (groupOrderCode) {
+      addGroupItem(selectedItem, selectedModifiers, finalPrice);
+      setSelectedItem(null);
+      return;
+    }
+    
     const cartItem: CartItem = {
       ...selectedItem,
       cartId: Math.random().toString(36).substr(2, 9),
       selectedModifiers,
-      finalPrice: calculateFinalPrice()
+      finalPrice: finalPrice
     };
     
     setCart([...cart, cartItem]);
@@ -383,6 +505,32 @@ export default function Customer() {
     e.preventDefault();
     if (!isLocationValid()) return;
     
+    if (groupOrderCode && isGroupOrderCreator) {
+      const res = await fetch(`/api/group-orders/${groupOrderCode}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_phone: checkoutForm.phone,
+          delivery_address: checkoutForm.address,
+          delivery_lat: location![0],
+          delivery_lng: location![1]
+        })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setLastOrderTrackingTokens(data.trackingTokens || {});
+        setCart([]);
+        setGroupOrderCode(null);
+        setGroupOrderData(null);
+        setStep('success');
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Настана грешка при финализирање на групната нарачка.');
+      }
+      return;
+    }
+
     const res = await fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -452,7 +600,11 @@ export default function Customer() {
       <div className="relative z-10">
         <header className="bg-white/90 backdrop-blur-md border-b border-orange-100 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-extrabold text-orange-600 tracking-tight">PizzaTime</h1>
+            {globalSettings.company_logo_url ? (
+              <img src={globalSettings.company_logo_url} alt="Logo" className="h-8 object-contain" />
+            ) : (
+              <h1 className="text-xl font-extrabold text-orange-600 tracking-tight">{globalSettings.company_name || 'PizzaTime'}</h1>
+            )}
           </div>
           
           {step !== 'city' && step !== 'success' && (
@@ -467,6 +619,24 @@ export default function Customer() {
           )}
 
           <div className="flex items-center gap-4">
+            {step === 'menu' && !groupOrderCode && (
+              <button 
+                onClick={() => setJoiningGroup(true)}
+                className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors"
+              >
+                <Users size={18} />
+                Приклучи се на група
+              </button>
+            )}
+            {groupOrderCode && (
+              <div className="hidden md:flex items-center gap-3 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">
+                <div className="flex flex-col items-start leading-tight">
+                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Групна нарачка</span>
+                  <span className="text-sm font-black text-indigo-700">{groupOrderCode}</span>
+                </div>
+                <Users size={18} className="text-indigo-500" />
+              </div>
+            )}
             {step === 'menu' && (
               <button onClick={() => setStep('cart')} className="p-2 text-slate-600 hover:bg-slate-100 rounded-full relative">
                 <ShoppingBag size={24} />
@@ -481,6 +651,95 @@ export default function Customer() {
         </header>
         
         <main className="max-w-5xl mx-auto p-6">
+          {joiningGroup && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+              >
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-slate-800">Приклучи се на група</h3>
+                  <button onClick={() => setJoiningGroup(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Вашето име</label>
+                    <input 
+                      type="text" 
+                      value={groupOrderUserName}
+                      onChange={e => setGroupOrderUserName(e.target.value)}
+                      placeholder="Внесете име..."
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Код за група</label>
+                    <input 
+                      type="text" 
+                      value={groupCodeInput}
+                      onChange={e => setGroupCodeInput(e.target.value.toUpperCase())}
+                      placeholder="Внесете код (напр. ABC123)"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <button 
+                    onClick={joinGroupOrder}
+                    disabled={!groupOrderUserName || !groupCodeInput}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50"
+                  >
+                    Приклучи се
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {groupOrderCode && groupOrderData && (
+            <div className="mb-8 bg-indigo-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-600/20">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
+                    <Users size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Групна нарачка во {availableRestaurants.find(r => r.id === groupOrderData.restaurant_id)?.name}</h3>
+                    <p className="text-indigo-100 text-sm">Споделете го кодот <span className="font-black text-white">{groupOrderCode}</span> со вашите пријатели</p>
+                  </div>
+                </div>
+                {isGroupOrderCreator && (
+                  <button 
+                    onClick={finalizeGroupOrder}
+                    className="bg-white text-indigo-600 hover:bg-indigo-50 px-6 py-3 rounded-xl font-bold transition-colors shadow-lg"
+                  >
+                    Финализирај нарачка ({groupOrderData.items?.length || 0} производи)
+                  </button>
+                )}
+              </div>
+              
+              {groupOrderData.items?.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-white/10">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-indigo-200 mb-4">Кој што нарача:</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(
+                      groupOrderData.items.reduce((acc: any, item: any) => {
+                        if (!acc[item.user_name]) acc[item.user_name] = 0;
+                        acc[item.user_name]++;
+                        return acc;
+                      }, {})
+                    ).map(([name, count]: [any, any]) => (
+                      <div key={name} className="bg-white/10 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        {name} ({count})
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         {step === 'city' && (
           <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-3xl shadow-sm border border-orange-100 text-center">
             <div className="w-16 h-16 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -647,6 +906,24 @@ export default function Customer() {
                     </button>
                   ))}
                 </div>
+
+                {selectedRestaurantId && !groupOrderCode && (
+                  <div className="mt-4 flex justify-center">
+                    <button 
+                      onClick={() => {
+                        const name = prompt('Внесете го вашето име за групната нарачка:');
+                        if (name) {
+                          setGroupOrderUserName(name);
+                          startGroupOrder();
+                        }
+                      }}
+                      className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all"
+                    >
+                      <Users size={20} />
+                      Започни групна нарачка
+                    </button>
+                  </div>
+                )}
 
                 <button 
                   onClick={() => scrollSlider('right')}
@@ -1162,11 +1439,65 @@ export default function Customer() {
           </div>
         )}
       </main>
-      <footer className="mt-12 pt-8 border-t border-orange-100 text-center relative z-10 pb-8">
-        <p className="text-slate-400 text-sm mb-4">© 2024 PizzaTime. Сите права се задржани.</p>
-        <Link to="/portal" className="text-xs text-slate-300 hover:text-orange-300 transition-colors">
-          Портал за соработници
-        </Link>
+      <footer className="mt-12 pt-12 border-t border-orange-100 relative z-10 pb-12">
+        <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-10">
+          <div className="space-y-4">
+            {globalSettings.company_logo_url ? (
+              <img src={globalSettings.company_logo_url} alt="Logo" className="h-10 object-contain" />
+            ) : (
+              <h2 className="font-black text-xl text-slate-900 tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h2>
+            )}
+            <p className="text-slate-500 text-sm max-w-xs">
+              {globalSettings.company_address || 'Вашиот омилен сервис за нарачка на храна.'}
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="font-bold text-slate-800 uppercase text-xs tracking-widest">Контакт</h4>
+            <div className="space-y-2 text-sm text-slate-500">
+              {globalSettings.company_phone && <p>Тел: {globalSettings.company_phone}</p>}
+              {globalSettings.company_website && (
+                <a href={globalSettings.company_website} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 transition-colors block">
+                  {globalSettings.company_website.replace(/^https?:\/\//, '')}
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4 md:text-right">
+            <h4 className="font-bold text-slate-800 uppercase text-xs tracking-widest">Следете не</h4>
+            <div className="flex gap-4 md:justify-end">
+              {globalSettings.company_facebook && (
+                <a href={globalSettings.company_facebook} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-blue-600 transition-colors">
+                  <Facebook size={18} />
+                </a>
+              )}
+              {globalSettings.company_instagram && (
+                <a href={globalSettings.company_instagram} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-pink-600 transition-colors">
+                  <Instagram size={18} />
+                </a>
+              )}
+              {globalSettings.company_twitter && (
+                <a href={globalSettings.company_twitter} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-blue-400 transition-colors">
+                  <Twitter size={18} />
+                </a>
+              )}
+              {globalSettings.company_linkedin && (
+                <a href={globalSettings.company_linkedin} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-blue-700 transition-colors">
+                  <Linkedin size={18} />
+                </a>
+              )}
+            </div>
+            <div className="pt-4">
+              <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-2">
+                © {new Date().getFullYear()} {globalSettings.company_name || 'PizzaTime'}. Сите права се задржани.
+              </p>
+              <Link to="/portal" className="text-[10px] text-slate-300 hover:text-orange-300 transition-colors uppercase font-bold tracking-widest">
+                Портал за соработници
+              </Link>
+            </div>
+          </div>
+        </div>
       </footer>
       </div>
 

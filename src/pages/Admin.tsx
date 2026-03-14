@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { io } from 'socket.io-client';
 
@@ -38,6 +38,7 @@ interface DeliveryPartner {
   working_hours: string;
   preferred_restaurants: string;
   status: string;
+  has_signed_contract?: number;
   username?: string;
   role?: 'rider' | 'lead';
   fleet_manager_id?: number;
@@ -62,7 +63,7 @@ const DAYS_MAP: Record<string, string> = {
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
@@ -103,6 +104,7 @@ export default function Admin() {
   const [selectedDeliveryForRole, setSelectedDeliveryForRole] = useState<DeliveryPartner | null>(null);
   const [codeFormat, setCodeFormat] = useState('--- -- ---');
   const [contractPercentage, setContractPercentage] = useState<number>(15);
+  const [hasSignedContract, setHasSignedContract] = useState(false);
   
   const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
   const [emailLogs, setEmailLogs] = useState<any[]>([]);
@@ -148,6 +150,14 @@ export default function Admin() {
         if (prev.some(a => a.orderId === alert.orderId)) return prev;
         return [...prev, { ...alert, id: Date.now() }];
       });
+    });
+
+    socket.on('new_order', () => {
+      fetchOrders();
+    });
+
+    socket.on('order_status_changed', () => {
+      fetchOrders();
     });
 
     return () => {
@@ -360,6 +370,7 @@ export default function Admin() {
 
   const openDeliveryApprovalModal = (partner: DeliveryPartner) => {
     setSelectedDelivery(partner);
+    setHasSignedContract(false);
     setCredentials({
       username: `del_${partner.id}_${Math.random().toString(36).substring(2, 6)}`,
       password: Math.random().toString(36).substring(2, 8)
@@ -423,7 +434,8 @@ export default function Admin() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         username: credentials.username,
-        password: credentials.password
+        password: credentials.password,
+        has_signed_contract: hasSignedContract ? 1 : 0
       })
     });
     
@@ -436,6 +448,13 @@ export default function Admin() {
 
   const toggleDeliveryStatus = async (id: number) => {
     const res = await fetch(`/api/admin/delivery/${id}/toggle-status`, { method: 'POST' });
+    if (res.ok) {
+      fetchData();
+    }
+  };
+
+  const toggleDeliveryContract = async (id: number) => {
+    const res = await fetch(`/api/admin/delivery/${id}/toggle-contract`, { method: 'POST' });
     if (res.ok) {
       fetchData();
     }
@@ -661,6 +680,13 @@ export default function Admin() {
               className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               Дашборд
+            </button>
+            <button 
+              onClick={() => setActiveTab('restaurants')}
+              className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'restaurants' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Store size={16} />
+              Ресторани
               {pendingRestaurants.length > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-50">
                   {pendingRestaurants.length}
@@ -789,7 +815,126 @@ export default function Admin() {
             ))}
           </div>
         )}
-        {activeTab === 'database' ? (
+        {activeTab === 'dashboard' ? (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Активни нарачки</p>
+                <h3 className="text-3xl font-bold text-slate-800">
+                  {orders.filter(o => ['pending', 'accepted', 'delivering'].includes(o.status)).length}
+                </h3>
+              </div>
+              <div 
+                onClick={() => {
+                  if (pendingRestaurants.length > 0) setActiveTab('restaurants');
+                  else if (pendingDelivery.length > 0) setActiveTab('delivery');
+                }}
+                className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:border-blue-300 transition-colors"
+              >
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Чекаат одобрување</p>
+                <h3 className="text-3xl font-bold text-slate-800">
+                  {pendingRestaurants.length + pendingDelivery.length}
+                </h3>
+              </div>
+              <div 
+                onClick={() => setActiveTab('restaurants')}
+                className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:border-blue-300 transition-colors"
+              >
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Вкупно ресторани</p>
+                <h3 className="text-3xl font-bold text-slate-800">{approvedRestaurants.length}</h3>
+              </div>
+              <div 
+                onClick={() => setActiveTab('delivery')}
+                className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:border-blue-300 transition-colors"
+              >
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Вкупно доставувачи</p>
+                <h3 className="text-3xl font-bold text-slate-800">{approvedDelivery.length}</h3>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <Clock className="text-blue-500" size={20} />
+                  Активни нарачки во реално време
+                </h3>
+                <span className="text-xs font-bold text-slate-400 uppercase">Во живо</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">ID</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Ресторан</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Клиент</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Статус</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Доставувач</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Вкупно</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Акција</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {orders.filter(o => ['pending', 'accepted', 'delivering'].includes(o.status)).map(order => (
+                      <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4 text-sm font-bold text-slate-800">#{order.id}</td>
+                        <td className="p-4 text-sm text-slate-600">
+                          {approvedRestaurants.find(r => r.id === order.restaurant_id)?.name || `ID: ${order.restaurant_id}`}
+                        </td>
+                        <td className="p-4">
+                          <p className="text-sm font-bold text-slate-800">{order.customer_name}</p>
+                          <p className="text-xs text-slate-500 truncate max-w-[200px]">{order.delivery_address}</p>
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
+                            order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                            order.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                            order.status === 'delivering' ? 'bg-purple-100 text-purple-700' :
+                            'bg-slate-100 text-slate-700'
+                          }`}>
+                            {order.status === 'pending' ? 'Чека одобрување' :
+                             order.status === 'accepted' ? 'Се подготвува' :
+                             order.status === 'delivering' ? 'Во достава' : order.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-sm text-slate-600">
+                          {order.delivery_partner_name || <span className="text-slate-300 italic">Не е доделен</span>}
+                        </td>
+                        <td className="p-4 text-sm font-bold text-slate-800">{order.total_price} ден.</td>
+                        <td className="p-4">
+                          <Link 
+                            to={`/track/${order.tracking_token}`} 
+                            target="_blank"
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors inline-block"
+                            title="Следи во живо"
+                          >
+                            <Target size={18} />
+                          </Link>
+                          <button 
+                            onClick={() => {
+                              const rest = approvedRestaurants.find(r => r.id === order.restaurant_id);
+                              if (rest) loginAsOwner(rest);
+                            }}
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors inline-block ml-2"
+                            title="Најави се како ресторан"
+                          >
+                            <LogIn size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {orders.filter(o => ['pending', 'accepted', 'delivering'].includes(o.status)).length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="p-12 text-center text-slate-400">
+                          Моментално нема активни нарачки.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'database' ? (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 max-w-2xl mx-auto mt-8">
             <div className="text-center mb-8">
               <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1351,15 +1496,25 @@ export default function Admin() {
                           <div className="flex flex-wrap gap-4 text-sm text-slate-500">
                             <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
                             <span>👤 {partner.username}</span>
+                            {partner.has_signed_contract === 1 && <span className="text-emerald-600 font-medium flex items-center gap-1"><CheckCircle size={14} /> Потпишан договор</span>}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => toggleDeliveryContract(partner.id)}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${partner.has_signed_contract === 1 ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            title={partner.has_signed_contract === 1 ? 'Договорот е потпишан' : 'Означи како потпишан договор'}
+                          >
+                            <FileText size={16} />
+                            {partner.has_signed_contract === 1 ? 'Потпишан' : 'Потпиши'}
+                          </button>
                           <button 
                             onClick={() => {
                               setSelectedDeliveryForRole(partner);
                               setIsDeliveryRoleModalOpen(true);
                             }}
                             className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-2"
+                            title="Управувај со улога"
                           >
                             <Settings2 size={16} /> Управувај
                           </button>
@@ -1400,14 +1555,25 @@ export default function Admin() {
                           <div className="flex flex-wrap gap-4 text-sm text-slate-500">
                             <span className="flex items-center gap-1"><MapPin size={14} /> {partner.address}, {partner.city}</span>
                             <span>👤 {partner.username}</span>
+                            {partner.has_signed_contract === 1 && <span className="text-emerald-600 font-medium flex items-center gap-1"><CheckCircle size={14} /> Потпишан договор</span>}
                           </div>
                         </div>
-                        <button 
-                          onClick={() => toggleDeliveryStatus(partner.id)}
-                          className="px-4 py-2 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
-                        >
-                          Активирај
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => toggleDeliveryContract(partner.id)}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${partner.has_signed_contract === 1 ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            title={partner.has_signed_contract === 1 ? 'Договорот е потпишан' : 'Означи како потпишан договор'}
+                          >
+                            <FileText size={16} />
+                            {partner.has_signed_contract === 1 ? 'Потпишан' : 'Потпиши'}
+                          </button>
+                          <button 
+                            onClick={() => toggleDeliveryStatus(partner.id)}
+                            className="px-4 py-2 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+                          >
+                            Активирај
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1831,7 +1997,7 @@ export default function Admin() {
                     <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
                       <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-2">Достапни променливи</h4>
                       <div className="flex flex-wrap gap-2">
-                        {['customer_name', 'order_id', 'total_price', 'restaurant_name', 'partner_name'].map(v => (
+                        {['customer_name', 'order_id', 'total_price', 'restaurant_name', 'partner_name', 'tracking_url'].map(v => (
                           <code key={v} className="bg-white px-2 py-1 rounded border border-amber-200 text-xs text-amber-700">{'{{' + v + '}}'}</code>
                         ))}
                       </div>
@@ -1906,6 +2072,136 @@ export default function Admin() {
             </h2>
             
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <Store size={20} className="text-blue-500" />
+                Поставки за Компанијата
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Назив на компанија</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_name || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_name: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="Назив..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Лого на компанија (URL)</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={globalSettings.company_logo_url || ''} 
+                        onChange={e => setGlobalSettings({...globalSettings, company_logo_url: e.target.value})} 
+                        className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                        placeholder="https://..." 
+                      />
+                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                        <Upload size={18} />
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleGlobalFileUpload(e, 'company_logo_url')} />
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Адреса</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_address || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_address: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="Адреса..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Телефон</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_phone || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_phone: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="Телефон..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Интернет страница</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_website || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_website: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://..." 
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Социјални медиуми</h4>
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1">
+                      <Facebook size={16} className="text-blue-600" /> Facebook
+                    </label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_facebook || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_facebook: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://facebook.com/..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1">
+                      <Instagram size={16} className="text-pink-600" /> Instagram
+                    </label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_instagram || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_instagram: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://instagram.com/..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1">
+                      <Twitter size={16} className="text-blue-400" /> Twitter
+                    </label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_twitter || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_twitter: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://twitter.com/..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1">
+                      <Linkedin size={16} className="text-blue-700" /> LinkedIn
+                    </label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.company_linkedin || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, company_linkedin: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://linkedin.com/..." 
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-8 pt-6 border-t border-slate-100">
+                <button 
+                  onClick={saveGlobalSettings}
+                  disabled={isSavingSettings}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 px-8 rounded-xl transition-colors flex items-center gap-2"
+                >
+                  <Save size={18} />
+                  {isSavingSettings ? 'Се зачувува...' : 'Зачувај поставки за компанија'}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
               <h3 className="text-lg font-bold text-slate-800 mb-4">Изглед на апликацијата</h3>
               <div className="space-y-4 max-w-2xl">
                 <div>
@@ -1974,7 +2270,7 @@ export default function Admin() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'restaurants' ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
@@ -2086,6 +2382,10 @@ export default function Admin() {
           )}
         </div>
         </>
+      ) : (
+        <div className="flex items-center justify-center min-h-[400px] text-slate-400">
+          Изберете таб за да прегледате содржина.
+        </div>
       )}
     </main>
 
@@ -2111,6 +2411,28 @@ export default function Admin() {
                   <div><span className="text-slate-500 text-sm block">Град</span><span className="font-medium">{selectedRestaurant.city}</span></div>
                   <div><span className="text-slate-500 text-sm block">Поштенски број</span><span className="font-medium">{selectedRestaurant.spare_3 || 'Нема'}</span></div>
                   <div className="md:col-span-2"><span className="text-slate-500 text-sm block">Адреса</span><span className="font-medium">{selectedRestaurant.address}</span></div>
+                  <div>
+                    <span className="text-slate-500 text-sm block">Географска ширина (Lat)</span>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={selectedRestaurant.lat || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, lat: Number(e.target.value)})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="41.1234"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-slate-500 text-sm block">Географска должина (Lng)</span>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={selectedRestaurant.lng || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, lng: Number(e.target.value)})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="21.1234"
+                    />
+                  </div>
                   <div><span className="text-slate-500 text-sm block">Е-маил</span><span className="font-medium">{selectedRestaurant.email}</span></div>
                   <div><span className="text-slate-500 text-sm block">Телефон</span><span className="font-medium">{selectedRestaurant.phone}</span></div>
                   <div className="md:col-span-2"><span className="text-slate-500 text-sm block">Жиро сметка</span><span className="font-medium font-mono">{selectedRestaurant.bank_account}</span></div>
@@ -2578,6 +2900,15 @@ export default function Admin() {
                       className="w-full p-3 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
                     />
                   </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${hasSignedContract ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-emerald-200 group-hover:border-emerald-400'}`} onClick={() => setHasSignedContract(!hasSignedContract)}>
+                      {hasSignedContract && <Check size={16} className="text-white" />}
+                    </div>
+                    <span className="text-sm font-medium text-emerald-900">Доставувачот има потпишано договор</span>
+                  </label>
                 </div>
 
                 <div className="flex justify-end gap-2">

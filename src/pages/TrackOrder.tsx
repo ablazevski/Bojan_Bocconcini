@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck, Star } from 'lucide-react';
+import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck, Star, Facebook, Instagram, Twitter, Linkedin, Globe, Navigation } from 'lucide-react';
 import { motion } from 'motion/react';
 import SEO from '../components/SEO';
 import QRCode from 'qrcode';
 import { io } from 'socket.io-client';
+import DeliveryRouteMap from '../components/DeliveryRouteMap';
 
 export default function TrackOrder() {
   const { token } = useParams<{ token: string }>();
@@ -16,11 +17,14 @@ export default function TrackOrder() {
   const [review, setReview] = useState({ rating: 5, comment: '' });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
+  const [partnerLocation, setPartnerLocation] = useState<[number, number] | null>(null);
 
   useEffect(() => {
     fetchOrder();
     generateQR();
     checkDeliveryPickup();
+    fetchSettings();
 
     const socket = io();
     socket.emit('join_order', token);
@@ -28,6 +32,11 @@ export default function TrackOrder() {
     socket.on('status_updated', (data) => {
       console.log('Order status updated via socket:', data);
       fetchOrder();
+    });
+
+    socket.on('location_updated', (data) => {
+      console.log('Partner location updated:', data);
+      setPartnerLocation([data.lat, data.lng]);
     });
 
     socket.on('order_stale_reminder', () => {
@@ -52,6 +61,16 @@ export default function TrackOrder() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      setGlobalSettings(data);
+    } catch (err) {
+      console.error('Failed to fetch settings', err);
     }
   };
 
@@ -194,7 +213,11 @@ export default function TrackOrder() {
             <ArrowLeft size={24} className="text-slate-800" />
           </Link>
           <div className="text-center">
-            <h1 className="font-black text-xl text-slate-900 tracking-tight">PIZZA TIME</h1>
+            {globalSettings.company_logo_url ? (
+              <img src={globalSettings.company_logo_url} alt="Logo" className="h-8 object-contain mx-auto" />
+            ) : (
+              <h1 className="font-black text-xl text-slate-900 tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h1>
+            )}
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold">Tracking Service</p>
           </div>
           <div className="w-10"></div>
@@ -219,6 +242,16 @@ export default function TrackOrder() {
 
             <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tighter">#{order.id}</h2>
             
+            {order.eta_minutes && order.status !== 'completed' && order.status !== 'cancelled' && (
+              <div className="mb-8 flex flex-col items-center">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold mb-1">Проценето време</span>
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <Clock size={20} />
+                  <span className="text-3xl font-black tracking-tighter">~{order.eta_minutes} мин.</span>
+                </div>
+              </div>
+            )}
+            
             {order.status === 'cancelled' && (
               <div className="bg-red-50 text-red-600 p-6 rounded-3xl mb-8 font-sans font-bold">
                 Кујната е презафатена. Вашата нарачка не може да биде прифатена во овој момент.
@@ -226,6 +259,22 @@ export default function TrackOrder() {
             )}
 
             <p className="text-slate-400 font-sans text-sm mb-12">Нарачано на {new Date(order.created_at).toLocaleString('mk-MK')}</p>
+
+            {order.status === 'delivering' && (
+              <div className="mb-12">
+                <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-4 flex items-center justify-center gap-2">
+                  <Navigation size={14} className="animate-pulse" />
+                  Следење во живо
+                </h3>
+                <DeliveryRouteMap 
+                  restaurantCoords={[order.restaurant_lat || 41.9981, order.restaurant_lng || 21.4254]}
+                  customerCoords={[order.delivery_lat || 41.9981, order.delivery_lng || 21.4254]}
+                  partnerCoords={partnerLocation || undefined}
+                  restaurantName={order.restaurant_name}
+                  customerAddress={order.delivery_address}
+                />
+              </div>
+            )}
 
             {/* Visual Stepper */}
             <div className="max-w-md mx-auto mb-12 px-4">
@@ -361,7 +410,14 @@ export default function TrackOrder() {
                 {items.map((item: any, idx: number) => (
                   <div key={idx} className="flex justify-between items-start">
                     <div>
-                      <p className="font-sans text-lg font-black text-slate-900">{item.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-sans text-lg font-black text-slate-900">{item.name}</p>
+                        {item.user_name && (
+                          <span className="bg-indigo-100 text-indigo-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                            {item.user_name}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">
                         {Object.entries(item.selectedModifiers || {}).map(([key, val]: any) => 
                           `${key}: ${Array.isArray(val) ? val.join(', ') : val}`
@@ -435,9 +491,71 @@ export default function TrackOrder() {
                 Повикај сега
               </a>
             </div>
+
+            {globalSettings.company_phone && (
+              <div className="p-8 bg-slate-900 rounded-[32px] text-white shadow-xl shadow-slate-900/20">
+                <h4 className="font-sans font-black text-[10px] uppercase tracking-widest opacity-60 mb-4">Поддршка</h4>
+                <p className="font-sans text-lg leading-tight mb-6">Потребна ви е помош од {globalSettings.company_name || 'платформата'}?</p>
+                <a 
+                  href={`tel:${globalSettings.company_phone}`}
+                  className="inline-flex items-center gap-2 font-sans font-black text-xs uppercase tracking-widest bg-white/10 hover:bg-white/20 px-6 py-3 rounded-full transition-all"
+                >
+                  <Phone size={16} />
+                  Контактирај не
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </main>
+
+      <footer className="max-w-4xl mx-auto p-10 mt-10 border-t border-slate-200">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+          <div className="space-y-4">
+            {globalSettings.company_logo_url ? (
+              <img src={globalSettings.company_logo_url} alt="Logo" className="h-10 object-contain" />
+            ) : (
+              <h2 className="font-black text-xl text-slate-900 tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h2>
+            )}
+            <p className="text-slate-500 text-sm max-w-xs">
+              {globalSettings.company_address || 'Вашиот омилен сервис за нарачка на храна.'}
+            </p>
+          </div>
+          
+          <div className="flex flex-col md:items-end gap-6">
+            <div className="flex gap-4">
+              {globalSettings.company_facebook && (
+                <a href={globalSettings.company_facebook} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-blue-600 transition-colors">
+                  <Facebook size={20} />
+                </a>
+              )}
+              {globalSettings.company_instagram && (
+                <a href={globalSettings.company_instagram} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-pink-600 transition-colors">
+                  <Instagram size={20} />
+                </a>
+              )}
+              {globalSettings.company_twitter && (
+                <a href={globalSettings.company_twitter} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-blue-400 transition-colors">
+                  <Twitter size={20} />
+                </a>
+              )}
+              {globalSettings.company_linkedin && (
+                <a href={globalSettings.company_linkedin} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-blue-700 transition-colors">
+                  <Linkedin size={20} />
+                </a>
+              )}
+              {globalSettings.company_website && (
+                <a href={globalSettings.company_website} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-indigo-600 transition-colors">
+                  <Globe size={20} />
+                </a>
+              )}
+            </div>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">
+              © {new Date().getFullYear()} {globalSettings.company_name || 'PizzaTime'}. Сите права се задржани.
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

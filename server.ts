@@ -70,6 +70,10 @@ db.exec(`
     spare_2 TEXT,
     spare_3 TEXT,
     tracking_token TEXT,
+    user_id INTEGER,
+    payment_method TEXT,
+    selected_fees TEXT,
+    delivery_fee REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -94,6 +98,8 @@ db.exec(`
     bank_account TEXT,
     has_own_delivery INTEGER,
     delivery_zones TEXT,
+    lat REAL,
+    lng REAL,
     spare_1 TEXT,
     spare_2 TEXT,
     spare_3 TEXT,
@@ -141,6 +147,7 @@ db.exec(`
     fleet_manager_id INTEGER,
     username TEXT,
     password TEXT,
+    has_signed_contract INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -176,6 +183,28 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS group_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    restaurant_id INTEGER,
+    creator_name TEXT,
+    creator_email TEXT,
+    code TEXT UNIQUE,
+    status TEXT DEFAULT 'open',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS group_order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_order_id INTEGER,
+    user_name TEXT,
+    item_id INTEGER,
+    item_name TEXT,
+    price REAL,
+    quantity INTEGER,
+    modifiers TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS campaign_codes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     campaign_id INTEGER,
@@ -190,6 +219,12 @@ db.exec(`
 // Migration for subcategory and modifiers
 try { db.exec('ALTER TABLE menu_items ADD COLUMN subcategory TEXT DEFAULT "Општо"'); } catch (e) {}
 try { db.exec('ALTER TABLE menu_items ADD COLUMN modifiers TEXT DEFAULT "[]"'); } catch (e) {}
+
+// Migration for orders table
+try { db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN payment_method TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN selected_fees TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN delivery_fee REAL'); } catch (e) {}
 try { db.exec('ALTER TABLE menu_items ADD COLUMN is_available INTEGER DEFAULT 1'); } catch (e) {}
 
 // Migration for orders
@@ -212,6 +247,14 @@ try { db.exec('ALTER TABLE restaurants ADD COLUMN spare_4 TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN logo_url TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN cover_url TEXT'); } catch (e) {}
 try { db.exec('ALTER TABLE restaurants ADD COLUMN payment_config TEXT DEFAULT \'{"methods":["cash"],"fees":[]}\''); } catch (e) {}
+
+// Migration for delivery partners
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN has_signed_contract INTEGER DEFAULT 0'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN role TEXT DEFAULT "rider"'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN fleet_manager_id INTEGER'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN username TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN password TEXT'); } catch (e) {}
+try { db.exec("UPDATE delivery_partners SET has_signed_contract = 1 WHERE spare_4 = 'signed'"); } catch (e) {}
 
 // Migration for campaigns
 try { db.exec('ALTER TABLE campaigns ADD COLUMN is_visible INTEGER DEFAULT 1'); } catch (e) {}
@@ -327,11 +370,33 @@ const seedTemplates = [
     subject: 'Успешна апликација за доставувач: {{partner_name}}',
     body: '<h1>Здраво,</h1><p>Вашата апликација за доставувач е успешно примена.</p><p>Нашиот тим ќе ве контактира за понатамошни чекори.</p>',
     description: 'Се испраќа до доставувачот по аплицирање'
+  },
+  {
+    name: 'order_delivering',
+    subject: 'Вашата нарачка #{{order_id}} е на пат!',
+    body: '<h1>Здраво {{customer_name}},</h1><p>Вашата нарачка од {{restaurant_name}} е преземена и е на пат кон вас.</p><p>Можете да ја следите во реално време на овој линк: <a href="{{tracking_url}}">Следи нарачка</a></p><p>Благодариме што нарачувате преку PizzaTime!</p>',
+    description: 'Се испраќа до купувачот кога нарачката ќе тргне во достава'
+  },
+  {
+    name: 'order_completed',
+    subject: 'Вашата нарачка #{{order_id}} е доставена!',
+    body: '<h1>Здраво {{customer_name}},</h1><p>Вашата нарачка е успешно доставена. Се надеваме дека ќе уживате во храната!</p><p>Ве молиме оставете рецензија за вашето искуство: <a href="{{tracking_url}}">Остави рецензија</a></p><p>Благодариме што нарачувате преку PizzaTime!</p>',
+    description: 'Се испраќа до купувачот по успешна достава'
+  },
+  {
+    name: 'delivery_approval',
+    subject: 'Вашата апликација за доставувач е ОДОБРЕНА!',
+    body: '<h1>Честитки {{partner_name}}!</h1><p>Вашата апликација за доставувач е одобрена од нашиот тим.</p><p>Вашите податоци за најава се:</p><ul><li>Корисничко име: {{username}}</li><li>Лозинка: {{password}}</li></ul><p>Ве молиме прочитајте го и потпишете го договорот за соработка на следниот линк: <a href="{{contract_url}}">Договор за соработка</a></p><p>По потпишувањето, ќе можете да започнете со достава.</p><p>Добредојдовте во тимот!</p>',
+    description: 'Се испраќа до доставувачот по одобрување од админ'
   }
 ];
 
 const insertTemplate = db.prepare('INSERT OR IGNORE INTO email_templates (name, subject, body, description) VALUES (?, ?, ?, ?)');
 seedTemplates.forEach(t => insertTemplate.run(t.name, t.subject, t.body, t.description));
+
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN current_lat REAL'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN current_lng REAL'); } catch (e) {}
+try { db.exec('ALTER TABLE delivery_partners ADD COLUMN last_location_update DATETIME'); } catch (e) {}
 
 // Seed data if empty
 const count = db.prepare('SELECT COUNT(*) as count FROM menu_items').get() as {count: number};
@@ -399,9 +464,19 @@ if (restCount.count === 0) {
         console.log(`Socket ${socket.id} joined order_${token}`);
       });
 
-      socket.on("join_delivery", () => {
+      socket.on("join_delivery", (data) => {
         socket.join("delivery_partners");
-        console.log(`Socket ${socket.id} joined delivery_partners`);
+        if (data && typeof data === 'object') {
+          if (data.id) socket.join(`delivery_${data.id}`);
+          if (Array.isArray(data.restaurantIds)) {
+            data.restaurantIds.forEach((rid: number) => {
+              socket.join(`delivery_restaurant_${rid}`);
+            });
+          }
+        } else if (data) {
+          socket.join(`delivery_${data}`);
+        }
+        console.log(`Socket ${socket.id} joined delivery rooms`);
       });
 
       socket.on("join_admin", () => {
@@ -527,9 +602,140 @@ if (restCount.count === 0) {
     });
 
     // Tracking Endpoints
-    app.get("/api/orders/track/:token", (req, res) => {
+    // Group Orders API
+app.post("/api/group-orders", (req, res) => {
+  const { restaurant_id, creator_name, creator_email } = req.body;
+  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+  
+  try {
+    const result = db.prepare(`
+      INSERT INTO group_orders (restaurant_id, creator_name, creator_email, code)
+      VALUES (?, ?, ?, ?)
+    `).run(restaurant_id, creator_name, creator_email, code);
+    
+    res.json({ id: result.lastInsertRowid, code });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create group order" });
+  }
+});
+
+app.get("/api/group-orders/:code", (req, res) => {
+  const { code } = req.params;
+  
+  const groupOrder = db.prepare("SELECT * FROM group_orders WHERE code = ?").get(code);
+  if (!groupOrder) return res.status(404).json({ error: "Group order not found" });
+  
+  const items = db.prepare("SELECT * FROM group_order_items WHERE group_order_id = ?").all(groupOrder.id);
+  
+  res.json({ ...groupOrder, items });
+});
+
+app.post("/api/group-orders/:code/items", (req, res) => {
+  const { code } = req.params;
+  const { user_name, item_id, item_name, price, quantity, modifiers } = req.body;
+  
+  const groupOrder = db.prepare("SELECT id, status FROM group_orders WHERE code = ?").get(code);
+  if (!groupOrder) return res.status(404).json({ error: "Group order not found" });
+  if (groupOrder.status !== 'open') return res.status(400).json({ error: "Group order is closed" });
+  
+  try {
+    db.prepare(`
+      INSERT INTO group_order_items (group_order_id, user_name, item_id, item_name, price, quantity, modifiers)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(groupOrder.id, user_name, item_id, item_name, price, quantity, JSON.stringify(modifiers));
+    
+    // Notify participants via socket
+    io.to(`group_${code}`).emit('group_order_updated');
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to add item" });
+  }
+});
+
+app.delete("/api/group-orders/:code/items/:itemId", (req, res) => {
+  const { code, itemId } = req.params;
+  
+  const groupOrder = db.prepare("SELECT id, status FROM group_orders WHERE code = ?").get(code);
+  if (!groupOrder) return res.status(404).json({ error: "Group order not found" });
+  if (groupOrder.status !== 'open') return res.status(400).json({ error: "Group order is closed" });
+  
+  try {
+    db.prepare("DELETE FROM group_order_items WHERE id = ? AND group_order_id = ?").run(itemId, groupOrder.id);
+    
+    io.to(`group_${code}`).emit('group_order_updated');
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to remove item" });
+  }
+});
+
+app.post("/api/group-orders/:code/finalize", (req, res) => {
+  const { code } = req.params;
+  const { customer_phone, delivery_address, delivery_lat, delivery_lng } = req.body;
+  
+  const groupOrder = db.prepare("SELECT * FROM group_orders WHERE code = ?").get(code);
+  if (!groupOrder) return res.status(404).json({ error: "Group order not found" });
+  if (groupOrder.status !== 'open') return res.status(400).json({ error: "Group order already finalized" });
+  
+  const items = db.prepare("SELECT * FROM group_order_items WHERE group_order_id = ?").all(groupOrder.id);
+  if (items.length === 0) return res.status(400).json({ error: "No items in group order" });
+  
+  try {
+    // Calculate total price
+    const totalPrice = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    
+    // Create the actual order
+    const trackingToken = crypto.randomBytes(16).toString('hex');
+    const deliveryCode = Math.floor(1000 + Math.random() * 9000).toString();
+    
+    const deliveryFeeSetting = db.prepare("SELECT value FROM global_settings WHERE key = 'delivery_fee'").get() as any;
+    const deliveryFee = deliveryFeeSetting ? Number(deliveryFeeSetting.value) : 0;
+    
+    const orderResult = db.prepare(`
+      INSERT INTO orders (
+        restaurant_id, customer_name, customer_email, customer_phone, 
+        delivery_address, delivery_lat, delivery_lng, items, total_price, 
+        tracking_token, delivery_code, spare_1, delivery_fee
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      groupOrder.restaurant_id, 
+      groupOrder.creator_name, 
+      groupOrder.creator_email, 
+      customer_phone,
+      delivery_address,
+      delivery_lat,
+      delivery_lng,
+      JSON.stringify(items.map(i => ({
+        id: i.item_id,
+        name: i.item_name,
+        price: i.price,
+        quantity: i.quantity,
+        modifiers: JSON.parse(i.modifiers),
+        user_name: i.user_name // Keep track of who ordered what
+      }))),
+      totalPrice + deliveryFee,
+      trackingToken,
+      deliveryCode,
+      'group', // Mark as group order
+      deliveryFee
+    );
+    
+    // Update group order status
+    db.prepare("UPDATE group_orders SET status = 'placed' WHERE id = ?").run(groupOrder.id);
+    
+    io.to(`group_${code}`).emit('group_order_finalized', { trackingToken });
+    
+    res.json({ success: true, trackingToken });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to finalize group order" });
+  }
+});
+
+app.get("/api/orders/track/:token", (req, res) => {
       const order = db.prepare(`
-        SELECT o.*, r.name as restaurant_name, r.phone as restaurant_phone, r.address as restaurant_address
+        SELECT o.*, r.name as restaurant_name, r.phone as restaurant_phone, r.address as restaurant_address, r.lat as restaurant_lat, r.lng as restaurant_lng
         FROM orders o
         JOIN restaurants r ON o.restaurant_id = r.id
         WHERE o.tracking_token = ?
@@ -537,6 +743,27 @@ if (restCount.count === 0) {
       
       if (!order) {
         return res.status(404).json({ error: "Нарачката не е пронајдена" });
+      }
+
+      // Calculate ETA if order is in delivery
+      if (order.status === 'delivering' && order.restaurant_lat && order.restaurant_lng && order.delivery_lat && order.delivery_lng) {
+        // Simple distance calculation (Haversine)
+        const R = 6371; // Earth radius in km
+        const dLat = (order.delivery_lat - order.restaurant_lat) * Math.PI / 180;
+        const dLon = (order.delivery_lng - order.restaurant_lng) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(order.restaurant_lat * Math.PI / 180) * Math.cos(order.delivery_lat * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const distance = R * c;
+
+        // Assume average speed 30km/h
+        const travelTimeMinutes = Math.round((distance / 30) * 60);
+        // Add some buffer for traffic
+        order.eta_minutes = travelTimeMinutes + 5;
+      } else if (order.status === 'accepted' || order.status === 'preparing') {
+        // Assume 20 mins preparation time
+        order.eta_minutes = 20;
       }
       
       res.json(order);
@@ -1093,10 +1320,34 @@ if (restCount.count === 0) {
     }
   });
 
+  app.post("/api/admin/delivery/:id/toggle-contract", (req, res) => {
+    const id = req.params.id;
+    const partner = db.prepare("SELECT has_signed_contract FROM delivery_partners WHERE id = ?").get(id) as any;
+    if (partner) {
+      const newValue = partner.has_signed_contract === 1 ? 0 : 1;
+      db.prepare("UPDATE delivery_partners SET has_signed_contract = ? WHERE id = ?").run(newValue, id);
+      res.json({ success: true, has_signed_contract: newValue });
+    } else {
+      res.status(404).json({ success: false, message: "Не е пронајден доставувач" });
+    }
+  });
+
   app.post("/api/admin/delivery/:id/approve", (req, res) => {
     const id = req.params.id;
-    const { username, password } = req.body;
-    db.prepare("UPDATE delivery_partners SET status = 'approved', username = ?, password = ? WHERE id = ?").run(username, password, id);
+    const { username, password, has_signed_contract } = req.body;
+    db.prepare("UPDATE delivery_partners SET status = 'approved', username = ?, password = ?, has_signed_contract = ? WHERE id = ?").run(username, password, has_signed_contract || 0, id);
+    
+    // Send approval email
+    const partner = db.prepare("SELECT name, email FROM delivery_partners WHERE id = ?").get(id) as any;
+    if (partner) {
+      sendEmail('delivery_approval', partner.email, {
+        partner_name: partner.name,
+        username,
+        password,
+        contract_url: `${process.env.APP_URL}/delivery/contract`
+      }).catch(console.error);
+    }
+    
     res.json({ success: true, username, password });
   });
 
@@ -1113,6 +1364,17 @@ if (restCount.count === 0) {
     } else {
       res.status(401).json({ success: false, message: "Невалидно корисничко име или лозинка" });
     }
+  });
+
+  app.get("/api/delivery/partner/:id", (req, res) => {
+    const partner = db.prepare("SELECT id, name, email, has_signed_contract FROM delivery_partners WHERE id = ?").get(req.params.id);
+    if (!partner) return res.status(404).json({ error: "Доставувачот не е пронајден" });
+    res.json(partner);
+  });
+
+  app.post("/api/delivery/partner/:id/sign", (req, res) => {
+    db.prepare("UPDATE delivery_partners SET has_signed_contract = 1 WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
   });
 
   app.get("/api/restaurants/by-city/:city", (req, res) => {
@@ -1318,9 +1580,12 @@ if (restCount.count === 0) {
     }, {});
 
     const insert = db.prepare(`
-      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token, payment_method, selected_fees)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token, payment_method, selected_fees, delivery_fee)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+
+    const deliveryFeeSetting = db.prepare("SELECT value FROM global_settings WHERE key = 'delivery_fee'").get() as any;
+    const deliveryFee = deliveryFeeSetting ? Number(deliveryFeeSetting.value) : 0;
 
     const orderIds = [];
     const trackingTokens: Record<number, string> = {};
@@ -1446,18 +1711,20 @@ if (restCount.count === 0) {
 
       const trackingToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const info = insert.run(
-        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees)
+        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees), deliveryFee
       );
       orderIds.push(info.lastInsertRowid);
       trackingTokens[Number(info.lastInsertRowid)] = trackingToken;
 
       // Send confirmation emails
       if (customer_email) {
+        const trackingUrl = `${process.env.APP_URL || 'http://localhost:3000'}/track/${trackingToken}`;
         sendEmail('order_confirmation', customer_email, {
           order_id: info.lastInsertRowid,
           customer_name: customer_name,
           total_price: totalPrice,
-          restaurant_name: restaurant.name
+          restaurant_name: restaurant.name,
+          tracking_url: trackingUrl
         }).catch(console.error);
       }
 
@@ -1473,13 +1740,21 @@ if (restCount.count === 0) {
       io.to(`restaurant_${restaurantId}`).emit("new_order", { id: info.lastInsertRowid });
       // Notify delivery partners
       io.to("delivery_partners").emit("new_available_order");
+      // Notify admin
+      io.to("admin_room").emit("new_order", { id: info.lastInsertRowid, restaurantId });
     }
 
     res.json({ success: true, orderIds, trackingTokens });
   });
 
   app.get("/api/orders/:restaurantId", (req, res) => {
-    const orders = db.prepare("SELECT * FROM orders WHERE restaurant_id = ? ORDER BY created_at DESC").all(req.params.restaurantId);
+    const orders = db.prepare(`
+      SELECT o.*, dp.name as delivery_partner_name, dp.delivery_methods as delivery_partner_methods
+      FROM orders o
+      LEFT JOIN delivery_partners dp ON o.delivery_partner_id = dp.id
+      WHERE o.restaurant_id = ?
+      ORDER BY o.created_at DESC
+    `).all(req.params.restaurantId);
     res.json(orders);
   });
 
@@ -1488,15 +1763,43 @@ if (restCount.count === 0) {
     const { orderId } = req.params;
     
     const targetTime = new Date(Date.now() + delayMinutes * 60000).toISOString();
-    db.prepare("UPDATE orders SET spare_2 = ? WHERE id = ?").run(targetTime, orderId);
+    
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    
+    const restaurant = db.prepare("SELECT * FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
+    
+    const codeData = {
+      customer: order.customer_name,
+      address: order.delivery_address,
+      restaurant_name: restaurant.name,
+      spare_1: restaurant.spare_1 || '',
+      spare_2: restaurant.spare_2 || '',
+      spare_3: restaurant.spare_3 || '',
+      spare_4: restaurant.spare_4 || '',
+      campaign_code: order.spare_1 || ''
+    };
+    const delivery_code = JSON.stringify(codeData);
+    
+    db.prepare("UPDATE orders SET status = 'accepted', spare_2 = ?, delivery_code = ? WHERE id = ?").run(targetTime, delivery_code, orderId);
     
     // Notify customer
-    const order = db.prepare("SELECT tracking_token FROM orders WHERE id = ?").get(orderId) as any;
-    if (order) {
-      io.to(`order_${order.tracking_token}`).emit("status_updated", { status: 'accepted', targetTime });
-    }
+    io.to(`order_${order.tracking_token}`).emit("status_updated", { status: 'accepted', targetTime });
+    
+    // Notify restaurant staff (chef) and delivery partners
+    io.to(`restaurant_${order.restaurant_id}`).emit("order_preparing", { orderId, status: 'accepted', targetTime });
+    io.to(`delivery_restaurant_${order.restaurant_id}`).emit("order_preparing", { orderId, status: 'accepted', targetTime });
+    
+    // Notify all delivery partners
+    io.to("delivery_partners").emit("new_available_order");
 
-    res.json({ success: true, targetTime });
+    sendPushNotification(null, {
+      title: 'Нарачката е прифатена!',
+      body: `Вашата нарачка #${orderId} е прифатена од ресторанот и се подготвува.`,
+      url: `/track/${order.tracking_token}`
+    }, Number(orderId)).catch(console.error);
+
+    res.json({ success: true, targetTime, delivery_code });
   });
 
   app.put("/api/orders/:orderId/status", (req, res) => {
@@ -1507,7 +1810,8 @@ if (restCount.count === 0) {
     let delivery_partner_name = null;
     
     if (status === 'ready') {
-      db.prepare("UPDATE orders SET status = ?, ready_at = CURRENT_TIMESTAMP WHERE id = ?").run(status, orderId);
+      const pickupDeadline = new Date(Date.now() + 25 * 60000).toISOString();
+      db.prepare("UPDATE orders SET status = ?, ready_at = CURRENT_TIMESTAMP, spare_2 = ? WHERE id = ?").run(status, pickupDeadline, orderId);
       const order = db.prepare("SELECT tracking_token, restaurant_id FROM orders WHERE id = ?").get(orderId) as any;
       if (order) {
         io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
@@ -1546,6 +1850,10 @@ if (restCount.count === 0) {
       
       // Notify customer
       io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
+      
+      // Notify restaurant staff (chef) and delivery partners
+      io.to(`restaurant_${order.restaurant_id}`).emit("order_preparing", { orderId, status: 'accepted' });
+      io.to(`delivery_restaurant_${order.restaurant_id}`).emit("order_preparing", { orderId, status: 'accepted' });
       
       sendPushNotification(null, {
         title: 'Нарачката е прифатена!',
@@ -1593,6 +1901,20 @@ if (restCount.count === 0) {
           body: `Вашата нарачка #${orderId} ${statusText}.`,
           url: `/track/${order.tracking_token}`
         }, Number(orderId)).catch(console.error);
+
+        // Send email notification
+        if (order.customer_email) {
+          const restaurant = db.prepare("SELECT name FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
+          const templateName = status === 'delivering' ? 'order_delivering' : 'order_completed';
+          const trackingUrl = `${process.env.APP_URL || ''}/track/${order.tracking_token}`;
+          
+          sendEmail(templateName, order.customer_email, {
+            order_id: orderId,
+            customer_name: order.customer_name,
+            restaurant_name: restaurant?.name || 'Ресторанот',
+            tracking_url: trackingUrl
+          }).catch(console.error);
+        }
       }
     } else {
       db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
@@ -1646,10 +1968,24 @@ if (restCount.count === 0) {
     
     const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
     
-    // STRICT: Must be explicitly configured and active
-    const isWorking = todayHours && todayHours.active !== false && 
-                     currentTime >= (todayHours.start || '08:00') && 
-                     currentTime <= (todayHours.end || '22:00');
+    const timeToMinutes = (t: string) => {
+      if (!t) return 0;
+      const [h, m] = t.split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
+
+    // Default to active if no hours are set for today
+    let isWorking = true;
+    if (todayHours) {
+      if (todayHours.active === false) {
+        isWorking = false;
+      } else {
+        const currentMin = timeToMinutes(currentTime);
+        const startMin = timeToMinutes(todayHours.start || '00:00');
+        const endMin = timeToMinutes(todayHours.end || '23:59');
+        isWorking = currentMin >= startMin && currentMin <= endMin;
+      }
+    }
 
     let query = `
       SELECT o.*, r.name as restaurant_name, r.city as restaurant_city 
@@ -1669,12 +2005,12 @@ if (restCount.count === 0) {
       params.push(partner.city);
     }
 
-    query += `AND (`;
-    if (isWorking) {
-      query += `o.status IN ('accepted', 'ready') OR `;
-    }
-    query += `(o.status = 'delivering' AND o.delivery_partner_id = ?)) 
+    query += `AND (
+      (o.status IN ('preparing', 'accepted', 'ready') AND o.delivery_partner_id IS NULL AND ?)
+      OR (o.delivery_partner_id = ? AND o.status IN ('preparing', 'accepted', 'ready', 'delivering'))
+    ) 
     ORDER BY o.created_at DESC`;
+    params.push(isWorking ? 1 : 0);
     params.push(partnerId);
 
     try {
@@ -1684,6 +2020,39 @@ if (restCount.count === 0) {
       console.error("Error fetching delivery orders:", e);
       res.json([]);
     }
+  });
+
+  app.post("/api/delivery/location", (req, res) => {
+    const { partnerId, lat, lng } = req.body;
+    if (!partnerId || lat === undefined || lng === undefined) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    db.prepare("UPDATE delivery_partners SET current_lat = ?, current_lng = ?, last_location_update = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(lat, lng, partnerId);
+
+    // Find active orders for this partner and notify customers
+    const activeOrders = db.prepare("SELECT tracking_token FROM orders WHERE delivery_partner_id = ? AND status = 'delivering'").all(partnerId) as any[];
+    activeOrders.forEach(order => {
+      io.to(`order_${order.tracking_token}`).emit("location_updated", { lat, lng });
+    });
+
+    res.json({ success: true });
+  });
+
+  app.get("/api/delivery/earnings/:partnerId", (req, res) => {
+    const { partnerId } = req.params;
+    const earnings = db.prepare(`
+      SELECT 
+        COUNT(*) as total_deliveries,
+        SUM(delivery_fee) as total_earned,
+        DATE(created_at) as date
+      FROM orders
+      WHERE delivery_partner_id = ? AND status = 'completed'
+      GROUP BY DATE(created_at)
+      ORDER BY date DESC
+    `).all(partnerId);
+    res.json(earnings);
   });
 
   app.get("/api/admin/delivery/all", (req, res) => {
@@ -1712,8 +2081,8 @@ if (restCount.count === 0) {
       SELECT o.*, r.name as restaurant_name 
       FROM orders o 
       JOIN restaurants r ON o.restaurant_id = r.id 
-      WHERE (o.delivery_partner_id IN (${ids}) AND o.status = 'delivering') 
-         OR (o.status IN ('accepted', 'ready') AND o.delivery_partner_id IS NULL AND r.city = (SELECT city FROM delivery_partners WHERE id = ?))
+      WHERE (o.delivery_partner_id IN (${ids}) AND o.status IN ('preparing', 'accepted', 'ready', 'delivering')) 
+         OR (o.status IN ('preparing', 'accepted', 'ready') AND o.delivery_partner_id IS NULL AND r.city = (SELECT city FROM delivery_partners WHERE id = ?))
       ORDER BY o.created_at DESC
     `).all(req.params.leadId);
     res.json(orders);

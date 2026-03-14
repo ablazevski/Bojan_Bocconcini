@@ -11,6 +11,7 @@ import RegisterDelivery from './pages/RegisterDelivery';
 import Marketing from './pages/Marketing';
 import RestaurantProfile from './pages/RestaurantProfile';
 import TrackOrder from './pages/TrackOrder';
+import Contract from './pages/Contract';
 
 export default function App() {
   useEffect(() => {
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="/marketing/*" element={<Marketing />} />
         <Route path="/r/:username" element={<RestaurantProfile />} />
         <Route path="/track/:token" element={<TrackOrder />} />
+        <Route path="/contract/:id" element={<Contract />} />
       </Routes>
       </BrowserRouter>
     </HelmetProvider>

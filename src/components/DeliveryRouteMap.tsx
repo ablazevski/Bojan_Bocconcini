@@ -29,22 +29,32 @@ const customCustomerIcon = new L.Icon({
   shadowSize: [41, 41]
 });
 
+const customPartnerIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
 interface DeliveryRouteMapProps {
   restaurantCoords: [number, number];
   customerCoords: [number, number];
+  partnerCoords?: [number, number];
   restaurantName: string;
   customerAddress: string;
 }
 
-export default function DeliveryRouteMap({ restaurantCoords, customerCoords, restaurantName, customerAddress }: DeliveryRouteMapProps) {
-  const center: [number, number] = [
+export default function DeliveryRouteMap({ restaurantCoords, customerCoords, partnerCoords, restaurantName, customerAddress }: DeliveryRouteMapProps) {
+  const center: [number, number] = partnerCoords || [
     (restaurantCoords[0] + customerCoords[0]) / 2,
     (restaurantCoords[1] + customerCoords[1]) / 2
   ];
 
   return (
     <div className="relative w-full h-64 rounded-2xl overflow-hidden border border-slate-300 shadow-inner z-0">
-      <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+      <MapContainer center={center} zoom={14} style={{ height: '100%', width: '100%', zIndex: 0 }}>
         <TileLayer 
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
@@ -61,6 +71,14 @@ export default function DeliveryRouteMap({ restaurantCoords, customerCoords, res
             Нарачател
           </Popup>
         </Marker>
+        {partnerCoords && (
+          <Marker position={partnerCoords} icon={customPartnerIcon}>
+            <Popup>
+              <strong>Доставувач</strong><br/>
+              Моментална локација
+            </Popup>
+          </Marker>
+        )}
         <Polyline positions={[restaurantCoords, customerCoords]} color="#10b981" weight={4} dashArray="10, 10" />
       </MapContainer>
     </div>
