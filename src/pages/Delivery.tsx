@@ -19,6 +19,7 @@ interface Order {
   total_price: number;
   payment_method: string;
   selected_fees: string;
+  restaurant_name?: string;
 }
 
 function Countdown({ targetTime }: { targetTime: string }) {
@@ -511,8 +512,14 @@ export default function Delivery() {
   
   console.log(`[Delivery] Day: ${currentDay}, Time: ${currentTime}, isWorking: ${isWorking}`, todayHours);
 
-  const newOrders = orders.filter(o => o.status === 'preparing' || o.status === 'accepted' || o.status === 'ready');
-  const activeDelivery = orders.find(o => o.status === 'delivering');
+  const newOrders = orders.filter(o => 
+    (o.status === 'preparing' || 
+    o.status === 'accepted' || 
+    o.status === 'ready' ||
+    (o.status === 'pending' && o.spare_2)) &&
+    !o.delivery_partner_id
+  );
+  const activeDelivery = orders.find(o => o.delivery_partner_id === partner?.id && o.status !== 'completed');
 
   return (
     <div className="min-h-screen bg-emerald-50/30">
@@ -909,8 +916,21 @@ export default function Delivery() {
             <div className="bg-white rounded-2xl shadow-lg border border-emerald-200 p-6 animate-in fade-in zoom-in-95">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md uppercase tracking-wider mb-2 inline-block">Во тек</span>
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md uppercase tracking-wider mb-2 inline-block">
+                    {activeDelivery.status === 'pending' ? 'Резервирана (На чекање)' : 'Во тек'}
+                  </span>
                   <h4 className="text-xl font-bold text-slate-800">Нарачка #{activeDelivery.id}</h4>
+                  {activeDelivery.status === 'pending' && activeDelivery.spare_2 && (
+                    <div className="mt-2 px-3 py-2 bg-orange-50 border border-orange-100 rounded-xl flex items-center gap-2 text-orange-700">
+                      <Clock size={16} className="animate-pulse" />
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold uppercase tracking-wider leading-none">Подготовката започнува за:</span>
+                        <div className="text-lg font-black">
+                          <Countdown targetTime={activeDelivery.spare_2} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <Navigation className="text-emerald-500 animate-bounce" />
               </div>
@@ -1003,11 +1023,38 @@ export default function Delivery() {
               )}
 
               <button 
-                onClick={() => updateStatus(activeDelivery.id, 'completed')}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2"
+                onClick={() => {
+                  if (activeDelivery.status === 'delivering') {
+                    updateStatus(activeDelivery.id, 'completed');
+                  } else if (activeDelivery.status === 'ready') {
+                    updateStatus(activeDelivery.id, 'delivering');
+                  }
+                }}
+                disabled={activeDelivery.status !== 'ready' && activeDelivery.status !== 'delivering'}
+                className={`w-full font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${
+                  activeDelivery.status === 'delivering' 
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20' 
+                    : activeDelivery.status === 'ready'
+                    ? 'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-600/20'
+                    : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                }`}
               >
-                <CheckCircle2 size={20} />
-                Означи како доставена
+                {activeDelivery.status === 'delivering' ? (
+                  <>
+                    <CheckCircle2 size={20} />
+                    Означи како доставена
+                  </>
+                ) : activeDelivery.status === 'ready' ? (
+                  <>
+                    <Bike size={20} />
+                    Подигни и започни достава
+                  </>
+                ) : (
+                  <>
+                    <Loader2 size={20} className="animate-spin" />
+                    Се подготвува во ресторан...
+                  </>
+                )}
               </button>
             </div>
           ) : (
@@ -1047,35 +1094,54 @@ export default function Delivery() {
           ) : (
             <div className="space-y-4">
               {newOrders.map(order => (
-                <div key={order.id} className="p-4 border border-slate-100 rounded-xl bg-slate-50 hover:border-emerald-200 transition-colors">
+                <div key={order.id} className={`p-4 border rounded-xl transition-colors ${
+                  order.status === 'pending' && order.spare_2 ? 'bg-orange-50 border-orange-100 hover:border-orange-200' : 'bg-slate-50 border-slate-100 hover:border-emerald-200'
+                }`}>
                   <div className="flex justify-between items-start mb-3">
-                    <h4 className="font-bold text-slate-800">Нарачка #{order.id}</h4>
+                    <div>
+                      <h4 className="font-bold text-slate-800">Нарачка #{order.id}</h4>
+                      <p className="text-xs font-bold text-emerald-600 flex items-center gap-1 mt-0.5">
+                        <Package size={12} />
+                        {order.restaurant_name}
+                      </p>
+                    </div>
                     <div className="flex flex-col items-end gap-1">
                       <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md ${
                         order.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 
                         (order.status === 'preparing' || order.status === 'accepted') ? 'bg-orange-100 text-orange-700' : 
+                        order.status === 'pending' && order.spare_2 ? 'bg-amber-100 text-amber-700' :
                         'bg-blue-100 text-blue-700'
                       }`}>
-                        {order.status === 'ready' ? 'Подготвена' : (order.status === 'preparing' || order.status === 'accepted') ? 'Се подготвува' : 'Прифатена'}
+                        {order.status === 'ready' ? 'Подготвена' : 
+                         (order.status === 'preparing' || order.status === 'accepted') ? 'Се подготвува' : 
+                         order.status === 'pending' && order.spare_2 ? 'На чекање' :
+                         'Прифатена'}
                       </span>
                       {order.spare_2 && (
-                        <div className="px-2 py-1 rounded-md text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
-                          <Clock size={10} />
+                        <div className="px-2 py-1 rounded-md text-[10px] font-bold bg-white text-orange-700 border border-orange-200 flex items-center gap-1 shadow-sm">
+                          <Clock size={10} className="animate-pulse" />
+                          <span className="mr-1">Почеток за:</span>
                           <Countdown targetTime={order.spare_2} />
                         </div>
                       )}
                     </div>
                   </div>
-                  <p className="text-sm text-slate-600 mb-4 flex items-center gap-2">
-                    <MapPin size={14} className="text-slate-400" />
-                    {order.delivery_address}
-                  </p>
+                  <div className="space-y-2 mb-4">
+                    <p className="text-sm text-slate-600 flex items-center gap-2">
+                      <MapPin size={14} className="text-slate-400" />
+                      {order.delivery_address}
+                    </p>
+                  </div>
                   <button 
                     onClick={() => updateStatus(order.id, 'delivering')}
                     disabled={!!activeDelivery}
-                    className="w-full bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed font-bold py-2 rounded-lg text-sm transition-colors"
+                    className={`w-full font-bold py-2 rounded-lg text-sm transition-colors border ${
+                      order.status === 'pending' && order.spare_2 
+                        ? 'bg-orange-600 text-white border-orange-500 hover:bg-orange-700' 
+                        : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
-                    Прифати достава
+                    {order.status === 'pending' && order.spare_2 ? 'Прифати (на чекање)' : 'Прифати достава'}
                   </button>
                 </div>
               ))}

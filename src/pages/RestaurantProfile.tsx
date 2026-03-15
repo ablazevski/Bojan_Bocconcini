@@ -163,8 +163,8 @@ export default function RestaurantProfile() {
       />
       {/* Cover Image */}
       <div className="h-64 md:h-80 w-full relative bg-slate-800">
-        {restaurant.cover_url ? (
-          <img src={restaurant.cover_url} alt="Cover" className="w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
+        {restaurant.header_image || restaurant.cover_url ? (
+          <img src={restaurant.header_image || restaurant.cover_url} alt="Cover" className="w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
         ) : (
           <div className="w-full h-full bg-gradient-to-r from-orange-400 to-red-500 opacity-80"></div>
         )}

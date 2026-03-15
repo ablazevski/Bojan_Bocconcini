@@ -76,7 +76,9 @@ db.exec(`
     delivery_fee REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+`);
 
+  db.exec(`
   CREATE TABLE IF NOT EXISTS reviews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER,
@@ -87,30 +89,41 @@ db.exec(`
     is_visible INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+`);
 
-  CREATE TABLE IF NOT EXISTS restaurants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    city TEXT,
-    address TEXT,
-    email TEXT,
-    phone TEXT,
-    bank_account TEXT,
-    has_own_delivery INTEGER,
-    delivery_zones TEXT,
-    lat REAL,
-    lng REAL,
-    spare_1 TEXT,
-    spare_2 TEXT,
-    spare_3 TEXT,
-    spare_4 TEXT,
-    status TEXT DEFAULT 'pending',
-    username TEXT,
-    password TEXT,
-    contract_percentage REAL DEFAULT 0,
-    working_hours TEXT DEFAULT '{}'
-  );
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS restaurants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      city TEXT,
+      address TEXT,
+      email TEXT,
+      phone TEXT,
+      bank_account TEXT,
+      has_own_delivery INTEGER,
+      delivery_zones TEXT,
+      lat REAL,
+      lng REAL,
+      spare_1 TEXT,
+      spare_2 TEXT,
+      spare_3 TEXT,
+      spare_4 TEXT,
+      header_image TEXT,
+      status TEXT DEFAULT 'pending',
+      username TEXT,
+      password TEXT,
+      contract_percentage REAL DEFAULT 0,
+      working_hours TEXT DEFAULT '{}'
+    );
+  `);
 
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN header_image TEXT");
+  } catch (e) {
+    // Column might already exist
+  }
+
+  db.exec(`
   CREATE TABLE IF NOT EXISTS email_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -1243,13 +1256,16 @@ app.get("/api/orders/track/:token", (req, res) => {
 
   app.post("/api/admin/restaurants/:id/approve", (req, res) => {
     const id = req.params.id;
-    const { contract_percentage, username, password, payment_config } = req.body;
+    const { contract_percentage, username, password, payment_config, logo_url, cover_url, header_image } = req.body;
     
-    db.prepare("UPDATE restaurants SET status = 'approved', username = ?, password = ?, contract_percentage = ?, payment_config = ? WHERE id = ?").run(
+    db.prepare("UPDATE restaurants SET status = 'approved', username = ?, password = ?, contract_percentage = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ? WHERE id = ?").run(
       username, 
       password, 
       contract_percentage || 0, 
       payment_config || '{"methods":["cash"],"fees":[]}',
+      logo_url || null,
+      cover_url || null,
+      header_image || null,
       id
     );
     
@@ -1258,13 +1274,17 @@ app.get("/api/orders/track/:token", (req, res) => {
 
   app.put("/api/admin/restaurants/:id", (req, res) => {
     const id = req.params.id;
-    const { contract_percentage, username, password, payment_config } = req.body;
+    const { contract_percentage, username, password, payment_config, logo_url, cover_url, header_image, status } = req.body;
     
-    db.prepare("UPDATE restaurants SET username = ?, password = ?, contract_percentage = ?, payment_config = ? WHERE id = ?").run(
-      username, 
-      password, 
-      contract_percentage || 0, 
+    db.prepare("UPDATE restaurants SET username = ?, password = ?, contract_percentage = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ?, status = ? WHERE id = ?").run(
+      username,
+      password,
+      contract_percentage || 0,
       payment_config || '{"methods":["cash"],"fees":[]}',
+      logo_url || null,
+      cover_url || null,
+      header_image || null,
+      status || 'approved',
       id
     );
     
@@ -1401,16 +1421,18 @@ app.get("/api/orders/track/:token", (req, res) => {
     for (const p of partners) {
       try {
         const preferred = JSON.parse(p.preferred_restaurants || '[]');
-        if (preferred.includes(restaurantId) || preferred.includes(restaurantId.toString())) {
+        const isPreferred = preferred.length === 0 || preferred.includes(restaurantId) || preferred.includes(restaurantId.toString());
+        
+        if (isPreferred) {
           const workingHours = JSON.parse(p.working_hours || '{}');
           const todayHours = workingHours[currentDay] || workingHours[currentDay.toLowerCase()];
           
           let isWorking = false;
           if (todayHours && todayHours.active !== undefined) {
-            isWorking = todayHours.active && currentTime >= (todayHours.start || '08:00') && currentTime <= (todayHours.end || '22:00');
+            isWorking = todayHours.active && currentTime >= (todayHours.start || '00:00') && currentTime <= (todayHours.end || '23:59');
           } else {
             // Default if not explicitly set
-            isWorking = currentTime >= '08:00' && currentTime <= '22:00';
+            isWorking = currentTime >= '00:00' && currentTime <= '23:59';
           }
             
           if (isWorking) {
@@ -1446,9 +1468,9 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.put("/api/restaurants/:id/settings", (req, res) => {
-    const { password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
-    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ?, working_hours = ? WHERE id = ?")
-      .run(password, phone, bank_account, logo_url, cover_url, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, req.params.id);
+    const { password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
+    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, header_image = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ?, working_hours = ? WHERE id = ?")
+      .run(password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, req.params.id);
     res.json({ success: true });
   });
 
@@ -1459,7 +1481,7 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.get("/api/customer/restaurant/:username", (req, res) => {
-    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, has_own_delivery, working_hours, payment_config FROM restaurants WHERE username = ? AND status = 'approved'").get(req.params.username) as any;
+    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, header_image, has_own_delivery, working_hours, payment_config FROM restaurants WHERE username = ? AND status = 'approved'").get(req.params.username) as any;
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
@@ -1767,39 +1789,29 @@ app.get("/api/orders/track/:token", (req, res) => {
     const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     
-    const restaurant = db.prepare("SELECT * FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
-    
-    const codeData = {
-      customer: order.customer_name,
-      address: order.delivery_address,
-      restaurant_name: restaurant.name,
-      spare_1: restaurant.spare_1 || '',
-      spare_2: restaurant.spare_2 || '',
-      spare_3: restaurant.spare_3 || '',
-      spare_4: restaurant.spare_4 || '',
-      campaign_code: order.spare_1 || ''
-    };
-    const delivery_code = JSON.stringify(codeData);
-    
-    db.prepare("UPDATE orders SET status = 'accepted', spare_2 = ?, delivery_code = ? WHERE id = ?").run(targetTime, delivery_code, orderId);
+    // Update spare_2 but keep current status
+    db.prepare("UPDATE orders SET spare_2 = ? WHERE id = ?").run(targetTime, orderId);
     
     // Notify customer
-    io.to(`order_${order.tracking_token}`).emit("status_updated", { status: 'accepted', targetTime });
+    io.to(`order_${order.tracking_token}`).emit("status_updated", { 
+      status: order.status, 
+      targetTime,
+      message: `Вашата нарачка ќе влезе во подготовка за ${delayMinutes} минути.`
+    });
     
-    // Notify restaurant staff (chef) and delivery partners
-    io.to(`restaurant_${order.restaurant_id}`).emit("order_preparing", { orderId, status: 'accepted', targetTime });
-    io.to(`delivery_restaurant_${order.restaurant_id}`).emit("order_preparing", { orderId, status: 'accepted', targetTime });
-    
-    // Notify all delivery partners
-    io.to("delivery_partners").emit("new_available_order");
+    // Notify restaurant staff
+    io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
+
+    // Notify drivers
+    io.emit("new_available_order", { ...order, spare_2: targetTime });
 
     sendPushNotification(null, {
-      title: 'Нарачката е прифатена!',
-      body: `Вашата нарачка #${orderId} е прифатена од ресторанот и се подготвува.`,
+      title: 'Нарачката е на чекање',
+      body: `Вашата нарачка #${orderId} ќе влезе во подготовка за ${delayMinutes} минути.`,
       url: `/track/${order.tracking_token}`
     }, Number(orderId)).catch(console.error);
 
-    res.json({ success: true, targetTime, delivery_code });
+    res.json({ success: true, targetTime });
   });
 
   app.put("/api/orders/:orderId/status", (req, res) => {
@@ -2006,7 +2018,7 @@ app.get("/api/orders/track/:token", (req, res) => {
     }
 
     query += `AND (
-      (o.status IN ('preparing', 'accepted', 'ready') AND o.delivery_partner_id IS NULL AND ?)
+      ((o.status IN ('preparing', 'accepted', 'ready') OR (o.status = 'pending' AND o.spare_2 IS NOT NULL)) AND o.delivery_partner_id IS NULL AND ?)
       OR (o.delivery_partner_id = ? AND o.status IN ('preparing', 'accepted', 'ready', 'delivering'))
     ) 
     ORDER BY o.created_at DESC`;
@@ -2139,30 +2151,54 @@ app.get("/api/orders/track/:token", (req, res) => {
     const { status, partnerId, partnerName } = req.body;
     const { orderId } = req.params;
 
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
     if (status === 'delivering' && partnerId && partnerName) {
-      // Update order with partner info and update delivery code to include partner name in spare_1
-      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
-      if (order && order.delivery_code) {
+      // If the order is not ready yet, we just assign the partner but keep the current status
+      const shouldActuallyStartDelivery = order.status === 'ready';
+      const finalStatus = shouldActuallyStartDelivery ? 'delivering' : order.status;
+
+      // Update order with partner info
+      if (order.delivery_code) {
         try {
           const codeData = JSON.parse(order.delivery_code);
-          // Use spare_1 for delivery partner name as requested
           codeData.spare_1 = partnerName;
-          codeData.delivery_partner = partnerName; // Also keep this for clarity
+          codeData.delivery_partner = partnerName;
           
           const updatedCode = JSON.stringify(codeData);
           db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ?, delivery_code = ? WHERE id = ?")
-            .run(status, partnerId, partnerName, updatedCode, orderId);
+            .run(finalStatus, partnerId, partnerName, updatedCode, orderId);
         } catch (e) {
           db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ? WHERE id = ?")
-            .run(status, partnerId, partnerName, orderId);
+            .run(finalStatus, partnerId, partnerName, orderId);
         }
       } else {
         db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ? WHERE id = ?")
-          .run(status, partnerId, partnerName, orderId);
+          .run(finalStatus, partnerId, partnerName, orderId);
+      }
+
+      // ONLY notify customer if delivery actually started
+      if (shouldActuallyStartDelivery) {
+        io.to(`order_${order.tracking_token}`).emit("status_updated", { status: 'delivering' });
+        
+        sendPushNotification(null, {
+          title: 'Нарачката е на пат!',
+          body: `Вашата нарачка #${orderId} е преземена од доставувачот и е на пат кон вас.`,
+          url: `/track/${order.tracking_token}`
+        }, Number(orderId)).catch(console.error);
+      } else {
+        // Just notify that a driver was assigned (optional, but good for restaurant UI)
+        io.to(`order_${order.tracking_token}`).emit("driver_assigned", { partnerName });
       }
     } else {
       db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+      io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
     }
+
+    // Notify restaurant
+    io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
+    
     res.json({ success: true });
   });
 

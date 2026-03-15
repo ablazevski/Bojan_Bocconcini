@@ -13,6 +13,8 @@ interface PendingRestaurant {
   phone: string;
   bank_account: string;
   logo_url?: string;
+  cover_url?: string;
+  header_image?: string;
   has_own_delivery: number;
   status: string;
   working_hours: string;
@@ -126,6 +128,7 @@ export default function Admin() {
   const [isSyncingAcelle, setIsSyncingAcelle] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
+  const [restaurantImages, setRestaurantImages] = useState({ logo_url: '', cover_url: '', header_image: '' });
   const [paymentConfig, setPaymentConfig] = useState<{
     methods: string[], 
     fees: {name: string, amount: number}[],
@@ -350,6 +353,11 @@ export default function Admin() {
       username: rest.username || `rest_${rest.id}_${Math.random().toString(36).substring(2, 6)}`,
       password: rest.password || Math.random().toString(36).substring(2, 8)
     });
+    setRestaurantImages({
+      logo_url: rest.logo_url || '',
+      cover_url: rest.cover_url || '',
+      header_image: rest.header_image || ''
+    });
 
     if (rest.payment_config) {
       try {
@@ -411,7 +419,11 @@ export default function Admin() {
         contract_percentage: contractPercentage,
         username: credentials.username,
         password: credentials.password,
-        payment_config: JSON.stringify(paymentConfig)
+        payment_config: JSON.stringify(paymentConfig),
+        logo_url: restaurantImages.logo_url,
+        cover_url: restaurantImages.cover_url,
+        header_image: restaurantImages.header_image,
+        status: selectedRestaurant.status
       })
     });
     
@@ -2621,6 +2633,39 @@ export default function Admin() {
                       value={contractPercentage} 
                       onChange={e => setContractPercentage(Number(e.target.value))}
                       className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-orange-900 mb-2">Лого URL</label>
+                    <input 
+                      type="text" 
+                      value={restaurantImages.logo_url} 
+                      onChange={e => setRestaurantImages({...restaurantImages, logo_url: e.target.value})}
+                      className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                      placeholder="https://..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-orange-900 mb-2">Cover URL</label>
+                    <input 
+                      type="text" 
+                      value={restaurantImages.cover_url} 
+                      onChange={e => setRestaurantImages({...restaurantImages, cover_url: e.target.value})}
+                      className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                      placeholder="https://..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-orange-900 mb-2">HEADER PHOTO URL</label>
+                    <input 
+                      type="text" 
+                      value={restaurantImages.header_image} 
+                      onChange={e => setRestaurantImages({...restaurantImages, header_image: e.target.value})}
+                      className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                      placeholder="https://..."
                     />
                   </div>
                 </div>

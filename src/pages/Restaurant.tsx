@@ -256,6 +256,7 @@ export default function Restaurant() {
     bank_account: '',
     logo_url: '',
     cover_url: '',
+    header_image: '',
     city: '',
     address: '',
     spare_1: '',
@@ -273,6 +274,7 @@ export default function Restaurant() {
         bank_account: loggedInRestaurant.bank_account || '',
         logo_url: loggedInRestaurant.logo_url || '',
         cover_url: loggedInRestaurant.cover_url || '',
+        header_image: loggedInRestaurant.header_image || '',
         city: loggedInRestaurant.city || '',
         address: loggedInRestaurant.address || '',
         spare_1: loggedInRestaurant.spare_1 || '',
@@ -304,7 +306,7 @@ export default function Restaurant() {
     setIsSavingSettings(false);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logo_url' | 'cover_url') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logo_url' | 'cover_url' | 'header_image') => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     const formData = new FormData();
@@ -783,8 +785,20 @@ export default function Restaurant() {
 
   return (
     <div className="min-h-screen bg-red-50/30">
-      <header className="bg-white border-b border-red-100 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-4">
+      <header className="bg-white border-b border-red-100 sticky top-0 z-10">
+        {loggedInRestaurant.header_image && (
+          <div className="h-32 w-full relative overflow-hidden">
+            <img 
+              src={loggedInRestaurant.header_image} 
+              alt="Header" 
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
+          </div>
+        )}
+        <div className="px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
           <Link to="/" className="p-2 hover:bg-red-50 rounded-full text-red-500 transition-colors">
             <ArrowLeft size={20} />
           </Link>
@@ -853,7 +867,8 @@ export default function Restaurant() {
             <span className="hidden sm:inline">Одјави се</span>
           </button>
         </div>
-      </header>
+      </div>
+    </header>
       
       {/* Mobile Tabs */}
       <div className="md:hidden bg-white border-b border-red-100 p-2 flex gap-2">
@@ -1553,6 +1568,16 @@ export default function Restaurant() {
                       <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
                         <Upload size={18} />
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'cover_url')} />
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">HEADER PHOTO</label>
+                    <div className="flex gap-2">
+                      <input type="text" value={settingsForm.header_image} onChange={e => setSettingsForm({...settingsForm, header_image: e.target.value})} className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
+                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                        <Upload size={18} />
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'header_image')} />
                       </label>
                     </div>
                   </div>
