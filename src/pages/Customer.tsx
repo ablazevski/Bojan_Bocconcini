@@ -62,6 +62,7 @@ export default function Customer() {
   const [isGroupOrderCreator, setIsGroupOrderCreator] = useState(false);
   const [groupOrderUserName, setGroupOrderUserName] = useState('');
   const [joiningGroup, setJoiningGroup] = useState(false);
+  const [isStartingGroup, setIsStartingGroup] = useState(false);
   const [groupCodeInput, setGroupCodeInput] = useState('');
 
   const [checkoutForm, setCheckoutForm] = useState({
@@ -181,21 +182,23 @@ export default function Customer() {
     }
   };
 
-  const startGroupOrder = async () => {
-    if (!selectedRestaurantId || !groupOrderUserName) return;
+  const startGroupOrder = async (nameOverride?: string) => {
+    const name = nameOverride || groupOrderUserName;
+    if (!selectedRestaurantId || !name) return;
     try {
       const res = await fetch('/api/group-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurant_id: selectedRestaurantId,
-          creator_name: groupOrderUserName,
+          creator_name: name,
           creator_email: user?.email || ''
         })
       });
       const data = await res.json();
       setGroupOrderCode(data.code);
       setIsGroupOrderCreator(true);
+      setIsStartingGroup(false);
       setStep('menu');
     } catch (e) {
       setError('Failed to start group order');
@@ -909,19 +912,48 @@ export default function Customer() {
 
                 {selectedRestaurantId && !groupOrderCode && (
                   <div className="mt-4 flex justify-center">
-                    <button 
-                      onClick={() => {
-                        const name = prompt('Внесете го вашето име за групната нарачка:');
-                        if (name) {
-                          setGroupOrderUserName(name);
-                          startGroupOrder();
-                        }
-                      }}
-                      className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all"
-                    >
-                      <Users size={20} />
-                      Започни групна нарачка
-                    </button>
+                    {!isStartingGroup ? (
+                      <button 
+                        onClick={() => {
+                          if (user?.name) {
+                            setGroupOrderUserName(user.name);
+                            startGroupOrder(user.name);
+                          } else {
+                            setIsStartingGroup(true);
+                          }
+                        }}
+                        className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all"
+                      >
+                        <Users size={20} />
+                        Започни групна нарачка
+                      </button>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2 rounded-2xl border border-indigo-100 shadow-xl animate-in slide-in-from-bottom-2">
+                        <input 
+                          type="text"
+                          placeholder="Вашето име..."
+                          value={groupOrderUserName}
+                          onChange={(e) => setGroupOrderUserName(e.target.value)}
+                          className="px-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium"
+                          autoFocus
+                        />
+                        <div className="flex gap-1">
+                          <button 
+                            onClick={() => startGroupOrder()}
+                            disabled={!groupOrderUserName.trim()}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Започни
+                          </button>
+                          <button 
+                            onClick={() => setIsStartingGroup(false)}
+                            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                          >
+                            <X size={20} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
