@@ -74,6 +74,8 @@ db.exec(`
     payment_method TEXT,
     selected_fees TEXT,
     delivery_fee REAL,
+    payment_status TEXT DEFAULT 'pending',
+    payment_transaction_id TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
@@ -252,6 +254,8 @@ try { db.exec('ALTER TABLE orders ADD COLUMN tracking_token TEXT'); } catch (e) 
 try { db.exec('ALTER TABLE orders ADD COLUMN ready_at DATETIME'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT "cash"'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN selected_fees TEXT DEFAULT "[]"'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT "pending"'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN payment_transaction_id TEXT'); } catch (e) {}
 
 // Migration for restaurants
 try { db.exec('ALTER TABLE restaurants ADD COLUMN contract_percentage REAL DEFAULT 0'); } catch (e) {}
@@ -503,6 +507,7 @@ if (restCount.count === 0) {
     });
   
     app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ extended: true }));
     app.use(session({
       secret: process.env.SESSION_SECRET || 'pizza-loyalty-secret',
       resave: false,
@@ -1602,8 +1607,8 @@ app.get("/api/orders/track/:token", (req, res) => {
     }, {});
 
     const insert = db.prepare(`
-      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token, payment_method, selected_fees, delivery_fee)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token, payment_method, selected_fees, delivery_fee, payment_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const deliveryFeeSetting = db.prepare("SELECT value FROM global_settings WHERE key = 'delivery_fee'").get() as any;
@@ -1733,7 +1738,7 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       const trackingToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const info = insert.run(
-        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees), deliveryFee
+        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees), deliveryFee, payment_method === 'card' ? 'pending' : 'paid'
       );
       orderIds.push(info.lastInsertRowid);
       trackingTokens[Number(info.lastInsertRowid)] = trackingToken;
@@ -1768,6 +1773,167 @@ app.get("/api/orders/track/:token", (req, res) => {
 
     res.json({ success: true, orderIds, trackingTokens });
   });
+
+  // --- PAYTEN PAYMENT GATEWAY ---
+  app.post("/api/payment/payten/request", (req, res) => {
+    const { orderId } = req.body;
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    const settings = db.prepare("SELECT * FROM global_settings").all();
+    const s = settings.reduce((acc: any, curr: any) => {
+      acc[curr.key] = curr.value;
+      return acc;
+    }, {});
+
+    if (s.payten_enabled !== 'true') {
+      return res.status(400).json({ error: "Payment gateway is disabled" });
+    }
+
+    const clientId = s.payten_client_id;
+    const storeKey = s.payten_store_key;
+    const mode = s.payten_mode || 'test';
+    const storetype = s.payten_store_type || '3D_PAY';
+    const currency = s.payten_currency || '807';
+    let baseUrl = process.env.APP_URL || `https://${req.get('host')}`;
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+    const rnd = crypto.randomBytes(16).toString('hex');
+    const oid = order.id.toString();
+    const amount = order.total_price.toFixed(2);
+    const okUrl = `${baseUrl}/api/payment/payten/callback`;
+    const failUrl = `${baseUrl}/api/payment/payten/callback`;
+    const trantype = "Auth";
+
+    const params: any = {
+      clientid: clientId,
+      oid: oid,
+      amount: amount,
+      okUrl: okUrl,
+      failUrl: failUrl,
+      trantype: trantype,
+      currency: currency,
+      rnd: rnd,
+      storetype: storetype,
+      hashAlgorithm: "ver3",
+      lang: "mk",
+      encoding: "utf-8"
+    };
+
+    if (s.payten_username) {
+      params.userid = s.payten_username;
+    }
+
+    // Hash Version 3 Calculation
+    const sortedKeys = Object.keys(params).filter(k => k !== 'hash' && k !== 'encoding').sort();
+    const escape = (val: string) => (val || "").toString().replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+    let plaintext = sortedKeys.map(k => escape(params[k])).join('|');
+    plaintext += '|' + escape(storeKey);
+
+    const hash = crypto.createHash('sha512').update(plaintext, 'utf-8').digest('base64');
+    params.hash = hash;
+
+    let gateUrl = s.payten_3d_url;
+    if (!gateUrl) {
+      gateUrl = mode === 'test' 
+        ? "https://entest.asseco-see.com.tr/fis/test/index.jsp" 
+        : "https://payment.payten.com.mk/gateway";
+    }
+
+    console.log(`Initiating Payten payment for Order ${oid}. Amount: ${amount}. okUrl: ${okUrl}`);
+
+    res.json({
+      url: gateUrl,
+      params: params
+    });
+  });
+
+  const paytenCallbackHandler = (req: any, res: any) => {
+    console.log(`Payten Callback Received (${req.method}):`, req.method === 'POST' ? req.body : req.query);
+    const params = req.method === 'POST' ? req.body : req.query;
+    
+    if (!params || Object.keys(params).length === 0) {
+      console.warn("Payten callback received empty parameters");
+      return res.status(400).send("Empty callback parameters");
+    }
+
+    const hashReceived = params.HASH;
+    const oid = params.oid;
+    const response = params.Response; // "Approved" or "Error"
+    
+    const settings = db.prepare("SELECT * FROM global_settings").all();
+    const s = settings.reduce((acc: any, curr: any) => {
+      acc[curr.key] = curr.value;
+      return acc;
+    }, {});
+    const storeKey = s.payten_store_key;
+
+    // Verify Hash
+    let plaintext = "";
+    if (params.HASHPARAMS && params.HASHPARAMSVAL) {
+      plaintext = params.HASHPARAMSVAL + "|" + storeKey;
+    } else {
+      const sortedKeys = Object.keys(params).filter(k => k !== 'HASH' && k !== 'encoding').sort();
+      const escape = (val: string) => (val || "").toString().replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+      plaintext = sortedKeys.map(k => escape(params[k])).join('|');
+      plaintext += '|' + escape(storeKey);
+    }
+    
+    const hashCalculated = crypto.createHash('sha512').update(plaintext, 'utf-8').digest('base64');
+    const isHashValid = hashReceived === hashCalculated;
+    
+    console.log(`Order ${oid} Callback. Response: ${response}. Hash Match: ${isHashValid}`);
+    
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(oid) as any;
+    if (!order) {
+      console.error(`Order ${oid} not found in callback`);
+      return res.status(404).send("Order not found");
+    }
+
+    if (response === "Approved") {
+      db.prepare("UPDATE orders SET payment_status = 'paid', payment_transaction_id = ? WHERE id = ?")
+        .run(params.TransId || '', oid);
+      
+      console.log(`Order ${oid} marked as PAID. TransId: ${params.TransId}`);
+
+      res.send(`
+        <html>
+          <head><meta charset="utf-8"></head>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h2>Плаќањето е успешно!</h2>
+            <p>Ве пренасочуваме кон вашата нарачка...</p>
+            <script>
+              setTimeout(() => {
+                window.location.href = "/track/${order.tracking_token}?payment=success";
+              }, 2000);
+            </script>
+          </body>
+        </html>
+      `);
+    } else {
+      db.prepare("UPDATE orders SET payment_status = 'failed' WHERE id = ?").run(oid);
+      console.log(`Order ${oid} payment FAILED. Error: ${params.ErrMsg}`);
+
+      res.send(`
+        <html>
+          <head><meta charset="utf-8"></head>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h2 style="color: red;">Плаќањето не успеа</h2>
+            <p>Грешка: ${params.ErrMsg || 'Непозната грешка'}</p>
+            <p>Ве враќаме назад...</p>
+            <script>
+              setTimeout(() => {
+                window.location.href = "/track/${order.tracking_token}?payment=failed&error=${encodeURIComponent(params.ErrMsg || 'Payment failed')}";
+              }, 3000);
+            </script>
+          </body>
+        </html>
+      `);
+    }
+  };
+
+  app.post("/api/payment/payten/callback", paytenCallbackHandler);
+  app.get("/api/payment/payten/callback", paytenCallbackHandler);
 
   app.get("/api/orders/:restaurantId", (req, res) => {
     const orders = db.prepare(`

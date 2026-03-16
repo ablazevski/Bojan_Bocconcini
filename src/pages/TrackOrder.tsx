@@ -232,13 +232,53 @@ export default function TrackOrder() {
           className="bg-white rounded-[40px] shadow-2xl shadow-slate-200/50 overflow-hidden border border-white"
         >
           <div className="p-10 text-center">
-            <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mb-8 font-sans ${statusColors[order.status] || 'bg-slate-100'}`}>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
-              </span>
-              {statusLabels[order.status] || order.status}
+            <div className="flex flex-wrap justify-center gap-2 mb-8">
+              <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${statusColors[order.status] || 'bg-slate-100'}`}>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
+                </span>
+                {statusLabels[order.status] || order.status}
+              </div>
+
+              {order.payment_method === 'card' && (
+                <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${
+                  order.payment_status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 
+                  order.payment_status === 'failed' ? 'bg-red-100 text-red-700' : 
+                  'bg-amber-100 text-amber-700'
+                }`}>
+                  <ShieldCheck size={12} />
+                  {order.payment_status === 'paid' ? 'Платено' : 
+                   order.payment_status === 'failed' ? 'Плаќањето не успеа' : 
+                   'Се чека плаќање'}
+                </div>
+              )}
             </div>
+
+            {new URLSearchParams(window.location.search).get('payment') === 'success' && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-emerald-50 text-emerald-700 p-6 rounded-3xl mb-8 font-sans font-bold flex items-center justify-center gap-3"
+              >
+                <CheckCircle size={24} />
+                Плаќањето е успешно процесирано!
+              </motion.div>
+            )}
+
+            {new URLSearchParams(window.location.search).get('payment') === 'failed' && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-red-50 text-red-700 p-6 rounded-3xl mb-8 font-sans font-bold flex flex-col items-center gap-2"
+              >
+                <div className="flex items-center gap-3">
+                  <Package size={24} />
+                  Плаќањето не успеа
+                </div>
+                <p className="text-sm opacity-80">{new URLSearchParams(window.location.search).get('error')}</p>
+              </motion.div>
+            )}
 
             <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tighter">#{order.id}</h2>
             

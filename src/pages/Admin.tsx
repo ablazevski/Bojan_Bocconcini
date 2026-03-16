@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { io } from 'socket.io-client';
 
@@ -2200,8 +2200,126 @@ export default function Admin() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="mt-8 pt-6 border-t border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <CreditCard size={20} className="text-emerald-500" />
+                  Payten NestPay® Поставки
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div className="flex items-center gap-2 mb-2 col-span-2">
+                    <input 
+                      type="checkbox" 
+                      id="payten_enabled"
+                      checked={globalSettings.payten_enabled === 'true'} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_enabled: e.target.checked ? 'true' : 'false'})} 
+                      className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                    />
+                    <label htmlFor="payten_enabled" className="text-sm font-bold text-slate-700">Овозможи плаќање со картичка (Payten)</label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Client ID</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_client_id || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_client_id: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="100200..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Username (Merchant)</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_username || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_username: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="username" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Password (Merchant)</label>
+                    <input 
+                      type="password" 
+                      value={globalSettings.payten_password || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_password: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="••••••••" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Store Key</label>
+                    <input 
+                      type="password" 
+                      value={globalSettings.payten_store_key || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_store_key: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="••••••••" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Terminal ID</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_terminal_id || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_terminal_id: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="3D..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Store Type</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_store_type || '3D_PAY'} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_store_type: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="3D_PAY" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Currency Code</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_currency || '807'} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_currency: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="807" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">3D Post URL</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_3d_url || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_3d_url: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">API Post URL</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_api_url || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_api_url: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="https://..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Режим на работа</label>
+                    <select 
+                      value={globalSettings.payten_mode || 'test'} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_mode: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="test">Тест (Sandbox)</option>
+                      <option value="prod">Продукција (Live)</option>
+                    </select>
+                  </div>
+                </div>
+                
                 <button 
                   onClick={saveGlobalSettings}
                   disabled={isSavingSettings}

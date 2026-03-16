@@ -506,60 +506,117 @@ export default function Customer() {
 
   const handleCheckoutSubmit = async (e: any) => {
     e.preventDefault();
-    if (!isLocationValid()) return;
+    console.log("handleCheckoutSubmit triggered");
     
-    if (groupOrderCode && isGroupOrderCreator) {
-      const res = await fetch(`/api/group-orders/${groupOrderCode}/finalize`, {
+    if (!isLocationValid()) {
+      console.log("Location invalid, aborting checkout");
+      setError("Ве молиме изберете валидна локација за достава во рамките на дозволените зони.");
+      return;
+    }
+    
+    try {
+      if (groupOrderCode && isGroupOrderCreator) {
+        console.log("Finalizing group order:", groupOrderCode);
+        const res = await fetch(`/api/group-orders/${groupOrderCode}/finalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_phone: checkoutForm.phone,
+            delivery_address: checkoutForm.address,
+            delivery_lat: location![0],
+            delivery_lng: location![1]
+          })
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          setLastOrderTrackingTokens(data.trackingTokens || {});
+          setCart([]);
+          setGroupOrderCode(null);
+          setGroupOrderData(null);
+          setStep('success');
+        } else {
+          const data = await res.json();
+          setError(data.error || 'Настана грешка при финализирање на групната нарачка.');
+        }
+        return;
+      }
+
+      console.log("Creating regular order with payment method:", paymentMethod);
+      const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          customer_name: `${checkoutForm.firstName} ${checkoutForm.lastName}`,
+          customer_email: checkoutForm.email,
           customer_phone: checkoutForm.phone,
           delivery_address: checkoutForm.address,
           delivery_lat: location![0],
-          delivery_lng: location![1]
+          delivery_lng: location![1],
+          items: cart,
+          campaign_id: selectedCampaignId,
+          user_id: user?.id,
+          payment_method: paymentMethod,
+          selected_fees: JSON.stringify(selectedFees)
         })
       });
       
       if (res.ok) {
         const data = await res.json();
+        console.log("Order created successfully:", data);
+        
+        if (paymentMethod === 'card') {
+          const orderId = data.orderIds[0];
+          console.log("Initiating Payten payment for order:", orderId);
+          try {
+            const payRes = await fetch('/api/payment/payten/request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderId })
+            });
+            
+            if (payRes.ok) {
+              const payData = await payRes.json();
+              console.log("Payten request data received, redirecting...");
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = payData.url;
+              
+              Object.entries(payData.params).forEach(([key, value]) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = value as string;
+                form.appendChild(input);
+              });
+              
+              document.body.appendChild(form);
+              form.submit();
+              return;
+            } else {
+              const payErr = await payRes.json();
+              console.error("Payten request failed:", payErr);
+              setError(payErr.error || 'Грешка при иницијализација на плаќањето.');
+              return;
+            }
+          } catch (err) {
+            console.error("Payten connection error:", err);
+            setError('Настана грешка при поврзување со порталот за плаќање.');
+            return;
+          }
+        }
+
         setLastOrderTrackingTokens(data.trackingTokens || {});
         setCart([]);
-        setGroupOrderCode(null);
-        setGroupOrderData(null);
         setStep('success');
       } else {
         const data = await res.json();
-        setError(data.error || 'Настана грешка при финализирање на групната нарачка.');
+        console.error("Order creation failed:", data);
+        setError(data.error || 'Настана грешка при процесирање на нарачката.');
       }
-      return;
-    }
-
-    const res = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer_name: `${checkoutForm.firstName} ${checkoutForm.lastName}`,
-        customer_email: checkoutForm.email,
-        customer_phone: checkoutForm.phone,
-        delivery_address: checkoutForm.address,
-        delivery_lat: location![0],
-        delivery_lng: location![1],
-        items: cart,
-        campaign_id: selectedCampaignId,
-        user_id: user?.id,
-        payment_method: paymentMethod,
-        selected_fees: JSON.stringify(selectedFees)
-      })
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      setLastOrderTrackingTokens(data.trackingTokens || {});
-      setCart([]);
-      setStep('success');
-    } else {
-      const data = await res.json();
-      setError(data.error || 'Настана грешка при процесирање на нарачката.');
+    } catch (err) {
+      console.error("Checkout submit error:", err);
+      setError("Настана неочекувана грешка. Ве молиме обидете се повторно.");
     }
   };
 
@@ -1282,7 +1339,12 @@ export default function Customer() {
                           return acc.length === 0 ? ['cash'] : acc;
                         }, [] as string[]);
 
-                        const methods = (allowedMethods as string[]).length > 0 ? allowedMethods : ['cash'];
+                        const methods: string[] = (allowedMethods as string[]).length > 0 ? [...(allowedMethods as string[])] : ['cash'];
+                        
+                        // Add card if Payten is enabled globally
+                        if (globalSettings.payten_enabled === 'true' && !methods.includes('card')) {
+                          methods.push('card');
+                        }
 
                         return (methods as string[]).map(method => (
                           <label key={method} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${paymentMethod === method ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
