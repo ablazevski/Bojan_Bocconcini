@@ -55,7 +55,7 @@ export default function LocationPickerMap({ location, setLocation, city, allowed
   }
 
   return (
-    <div className="relative w-full h-96 rounded-2xl overflow-hidden border border-slate-300 shadow-inner z-0">
+    <div className="relative w-full h-96 rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700 shadow-inner z-0">
       <MapContainer center={location || center} zoom={13} style={{ height: '100%', width: '100%', zIndex: 0 }}>
         <TileLayer 
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -73,7 +73,7 @@ export default function LocationPickerMap({ location, setLocation, city, allowed
       </MapContainer>
 
       <div className="absolute bottom-4 left-4 right-4 z-[1000] pointer-events-none flex justify-center">
-        <div className="bg-white/95 backdrop-blur-sm px-4 py-2 rounded-xl shadow-lg border border-slate-100 text-sm font-medium text-slate-700 text-center">
+        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm px-4 py-2 rounded-xl shadow-lg border border-slate-100 dark:border-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 text-center transition-colors">
           {location 
             ? 'Локацијата е избрана. Кликнете "Потврди" за да продолжите.' 
             : 'Кликнете на мапата за да ја одберете вашата локација за достава.'}

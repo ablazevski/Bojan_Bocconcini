@@ -1,6 +1,57 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { ThemeProvider } from './context/ThemeContext';
+
+declare global {
+  interface Window {
+    dataLayer: any[];
+    gtag: (...args: any[]) => void;
+  }
+}
+
+function GoogleAnalytics() {
+  const location = useLocation();
+  const [gaId, setGaId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(settings => {
+        if (settings.google_analytics_id) {
+          setGaId(settings.google_analytics_id);
+        }
+      })
+      .catch(err => console.error('Failed to fetch GA settings', err));
+  }, []);
+
+  useEffect(() => {
+    if (gaId) {
+      if (!window.gtag) {
+        const script1 = document.createElement('script');
+        script1.async = true;
+        script1.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
+        document.head.appendChild(script1);
+
+        const script2 = document.createElement('script');
+        script2.innerHTML = `
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          window.gtag = gtag;
+          gtag('js', new Date());
+          gtag('config', '${gaId}');
+        `;
+        document.head.appendChild(script2);
+      } else {
+        window.gtag('config', gaId, {
+          page_path: location.pathname + location.search,
+        });
+      }
+    }
+  }, [gaId, location]);
+
+  return null;
+}
 import Portal from './pages/Portal';
 import Admin from './pages/Admin';
 import Restaurant from './pages/Restaurant';
@@ -61,22 +112,25 @@ export default function App() {
 
   return (
     <HelmetProvider>
-      <BrowserRouter>
-        <Routes>
-        <Route path="/" element={<Customer />} />
-        <Route path="/portal" element={<Portal />} />
-        <Route path="/admin/*" element={<Admin />} />
-        <Route path="/restaurant/*" element={<Restaurant />} />
-        <Route path="/customer/*" element={<Customer />} />
-        <Route path="/delivery/*" element={<Delivery />} />
-        <Route path="/register-restaurant" element={<RegisterRestaurant />} />
-        <Route path="/register-delivery" element={<RegisterDelivery />} />
-        <Route path="/marketing/*" element={<Marketing />} />
-        <Route path="/r/:username" element={<RestaurantProfile />} />
-        <Route path="/track/:token" element={<TrackOrder />} />
-        <Route path="/contract/:id" element={<Contract />} />
-      </Routes>
-      </BrowserRouter>
+      <ThemeProvider>
+        <BrowserRouter>
+          <GoogleAnalytics />
+          <Routes>
+          <Route path="/" element={<Customer />} />
+          <Route path="/portal" element={<Portal />} />
+          <Route path="/admin/*" element={<Admin />} />
+          <Route path="/restaurant/*" element={<Restaurant />} />
+          <Route path="/customer/*" element={<Customer />} />
+          <Route path="/delivery/*" element={<Delivery />} />
+          <Route path="/register-restaurant" element={<RegisterRestaurant />} />
+          <Route path="/register-delivery" element={<RegisterDelivery />} />
+          <Route path="/marketing/*" element={<Marketing />} />
+          <Route path="/r/:username" element={<RestaurantProfile />} />
+          <Route path="/track/:token" element={<TrackOrder />} />
+          <Route path="/contract/:id" element={<Contract />} />
+        </Routes>
+        </BrowserRouter>
+      </ThemeProvider>
     </HelmetProvider>
   );
 }

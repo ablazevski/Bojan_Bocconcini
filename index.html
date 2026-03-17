@@ -7,6 +7,26 @@
     <meta name="description" content="Нарачајте ја вашата омилена храна од најдобрите ресторани во вашиот град. Брза и сигурна достава до вашата врата." />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#ea580c" />
+    <script>
+      // Dynamically update title and meta description from settings
+      fetch('/api/settings')
+        .then(res => res.json())
+        .then(settings => {
+          if (settings.company_name) {
+            document.title = settings.company_name + " - Најбрза достава на храна";
+          }
+          if (settings.app_icon_url) {
+            let link = document.querySelector("link[rel~='icon']");
+            if (!link) {
+              link = document.createElement('link');
+              link.rel = 'icon';
+              document.getElementsByTagName('head')[0].appendChild(link);
+            }
+            link.href = settings.app_icon_url;
+          }
+        })
+        .catch(err => console.error('Failed to fetch settings for title update', err));
+    </script>
   </head>
   <body>
     <div id="root"></div>

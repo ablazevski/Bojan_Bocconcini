@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon } from 'lucide-react';
 import { motion } from 'motion/react';
 import LocationPickerMap from '../components/LocationPickerMap';
+import { useTheme } from '../context/ThemeContext';
 
 interface ModifierOption {
   name: string;
@@ -34,6 +35,7 @@ interface CartItem extends MenuItem {
 }
 
 export default function Customer() {
+  const { theme, toggleTheme } = useTheme();
   const [step, setStep] = useState<'city' | 'location' | 'restaurants' | 'menu' | 'cart' | 'checkout' | 'success'>('city');
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<number | null>(null);
   const [cities, setCities] = useState<string[]>([]);
@@ -650,26 +652,26 @@ export default function Customer() {
 
   return (
     <div 
-      className="min-h-screen bg-orange-50/50 pb-20 bg-cover bg-center bg-fixed relative"
+      className="min-h-screen bg-orange-50/50 dark:bg-slate-950 pb-20 bg-cover bg-center bg-fixed relative transition-colors duration-300"
       style={globalSettings.customer_background_url ? { backgroundImage: `url(${globalSettings.customer_background_url})` } : {}}
     >
       {globalSettings.customer_background_url && (
-        <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-0"></div>
+        <div className="absolute inset-0 bg-white/60 dark:bg-slate-950/80 backdrop-blur-sm z-0"></div>
       )}
       
       <div className="relative z-10">
-        <header className="bg-white/90 backdrop-blur-md border-b border-orange-100 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
+        <header className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-orange-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-20 transition-colors duration-300">
           <div className="flex items-center gap-4">
             {globalSettings.company_logo_url ? (
               <img src={globalSettings.company_logo_url} alt="Logo" className="h-8 object-contain" />
             ) : (
-              <h1 className="text-xl font-extrabold text-orange-600 tracking-tight">{globalSettings.company_name || 'PizzaTime'}</h1>
+              <h1 className="text-xl font-extrabold text-orange-600 dark:text-orange-500 tracking-tight">{globalSettings.company_name || 'PizzaTime'}</h1>
             )}
           </div>
           
           {step !== 'city' && step !== 'success' && (
-            <div className="hidden md:flex flex-col items-center justify-center text-slate-500 text-sm font-medium">
-              <span className="text-orange-600 font-bold capitalize">
+            <div className="hidden md:flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-sm font-medium">
+              <span className="text-orange-600 dark:text-orange-400 font-bold capitalize">
                 {currentTime.toLocaleDateString('mk-MK', { weekday: 'long' })}
               </span>
               <span>
@@ -679,29 +681,36 @@ export default function Customer() {
           )}
 
           <div className="flex items-center gap-4">
+            <button 
+              onClick={toggleTheme}
+              className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+              title={theme === 'light' ? 'Префрли во темен режим' : 'Префрли во светол режим'}
+            >
+              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
             {step === 'menu' && !groupOrderCode && (
               <button 
                 onClick={() => setJoiningGroup(true)}
-                className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors"
+                className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl text-sm font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
               >
                 <Users size={18} />
                 Приклучи се на група
               </button>
             )}
             {groupOrderCode && (
-              <div className="hidden md:flex items-center gap-3 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">
+              <div className="hidden md:flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/30 px-4 py-2 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                 <div className="flex flex-col items-start leading-tight">
-                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Групна нарачка</span>
-                  <span className="text-sm font-black text-indigo-700">{groupOrderCode}</span>
+                  <span className="text-[10px] font-bold text-indigo-400 dark:text-indigo-500 uppercase tracking-wider">Групна нарачка</span>
+                  <span className="text-sm font-black text-indigo-700 dark:text-indigo-300">{groupOrderCode}</span>
                 </div>
-                <Users size={18} className="text-indigo-500" />
+                <Users size={18} className="text-indigo-500 dark:text-indigo-400" />
               </div>
             )}
             {step === 'menu' && (
-              <button onClick={() => setStep('cart')} className="p-2 text-slate-600 hover:bg-slate-100 rounded-full relative">
+              <button onClick={() => setStep('cart')} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full relative transition-colors">
                 <ShoppingBag size={24} />
                 {cart.length > 0 && (
-                  <span className="absolute top-0 right-0 w-5 h-5 bg-orange-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white">
+                  <span className="absolute top-0 right-0 w-5 h-5 bg-orange-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900">
                     {cart.length}
                   </span>
                 )}
@@ -716,33 +725,33 @@ export default function Customer() {
               <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+                className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 dark:border-slate-800 transition-colors"
               >
-                <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                  <h3 className="text-xl font-bold text-slate-800">Приклучи се на група</h3>
-                  <button onClick={() => setJoiningGroup(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-slate-800 dark:text-white">Приклучи се на група</h3>
+                  <button onClick={() => setJoiningGroup(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 dark:text-slate-500 transition-colors">
                     <X size={20} />
                   </button>
                 </div>
                 <div className="p-6 space-y-4">
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Вашето име</label>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Вашето име</label>
                     <input 
                       type="text" 
                       value={groupOrderUserName}
                       onChange={e => setGroupOrderUserName(e.target.value)}
                       placeholder="Внесете име..."
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Код за група</label>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Код за група</label>
                     <input 
                       type="text" 
                       value={groupCodeInput}
                       onChange={e => setGroupCodeInput(e.target.value.toUpperCase())}
                       placeholder="Внесете код (напр. ABC123)"
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     />
                   </div>
                   <button 
@@ -772,7 +781,7 @@ export default function Customer() {
                 {isGroupOrderCreator && (
                   <button 
                     onClick={finalizeGroupOrder}
-                    className="bg-white text-indigo-600 hover:bg-indigo-50 px-6 py-3 rounded-xl font-bold transition-colors shadow-lg"
+                    className="bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 px-6 py-3 rounded-xl font-bold transition-colors shadow-lg"
                   >
                     Финализирај нарачка ({groupOrderData.items?.length || 0} производи)
                   </button>
@@ -801,15 +810,15 @@ export default function Customer() {
             </div>
           )}
         {step === 'city' && (
-          <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-3xl shadow-sm border border-orange-100 text-center">
-            <div className="w-16 h-16 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-6">
+          <div className="max-w-md mx-auto mt-12 bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 text-center transition-colors duration-300">
+            <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 text-orange-500 dark:text-orange-400 rounded-full flex items-center justify-center mx-auto mb-6">
               <MapPin size={32} />
             </div>
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">Изберете град</h2>
-            <p className="text-slate-500 mb-8">За да ви ги прикажеме достапните ресторани во вашата околина, ве молиме изберете го вашиот град.</p>
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Изберете град</h2>
+            <p className="text-slate-500 dark:text-slate-400 mb-8">За да ви ги прикажеме достапните ресторани во вашата околина, ве молиме изберете го вашиот град.</p>
             
             {cities.length === 0 ? (
-              <div className="p-4 bg-slate-50 text-slate-500 rounded-xl border border-slate-200">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl border border-slate-200 dark:border-slate-700">
                 Моментално нема активни ресторани на платформата.
               </div>
             ) : (
@@ -818,54 +827,32 @@ export default function Customer() {
                   <button 
                     key={city}
                     onClick={() => handleCitySelect(city)}
-                    className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:border-orange-500 hover:bg-orange-50 transition-colors text-left"
+                    className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-orange-500 dark:hover:border-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors text-left"
                   >
-                    <span className="font-medium text-slate-800">{city}</span>
-                    <ChevronRight size={20} className="text-slate-400" />
+                    <span className="font-medium text-slate-800 dark:text-slate-200">{city}</span>
+                    <ChevronRight size={20} className="text-slate-400 dark:text-slate-500" />
                   </button>
                 ))}
               </div>
             )}
 
-            <div className="mt-12 pt-8 border-t border-slate-100">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Следи нарачка преку код</h3>
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="Внесете ги последните 4 знаци..." 
-                  className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none uppercase text-center font-mono tracking-widest"
-                  value={trackCode}
-                  onChange={e => setTrackCode(e.target.value.toUpperCase())}
-                  onKeyPress={e => e.key === 'Enter' && handleTrackByCode()}
-                />
-                <button 
-                  onClick={handleTrackByCode}
-                  className="bg-orange-500 text-white px-6 rounded-xl hover:bg-orange-600 transition-colors font-bold"
-                >
-                  Следи
-                </button>
-              </div>
-              {trackingError && <p className="text-red-500 text-xs mt-2 font-bold">{trackingError}</p>}
-              <p className="text-[10px] text-slate-400 mt-4 italic">
-                * Кодот се наоѓа на вашата сметка или во потврдата за нарачка.
-              </p>
-            </div>
+            {/* Tracking section removed as per user request */}
           </div>
         )}
 
         {step === 'location' && (
-          <div className="max-w-2xl mx-auto mt-8 bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100">
+          <div className="max-w-2xl mx-auto mt-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 transition-colors duration-300">
             <div className="flex items-center gap-4 mb-6">
-              <button onClick={() => setStep('city')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
+              <button onClick={() => setStep('city')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 transition-colors">
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h2 className="text-2xl font-bold text-slate-800">Точна локација</h2>
-                <p className="text-slate-500 text-sm">Град: {selectedCity}</p>
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Точна локација</h2>
+                <p className="text-slate-500 dark:text-slate-400 text-sm">Град: {selectedCity}</p>
               </div>
             </div>
             
-            <p className="text-slate-600 mb-6">
+            <p className="text-slate-600 dark:text-slate-300 mb-6">
               Кликнете на мапата за да ја одредите вашата точна локација. Ова ни помага да ви ги прикажеме рестораните кои доставуваат до вас.
             </p>
             
@@ -888,24 +875,24 @@ export default function Customer() {
           <>
             <div className="mb-8">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-                <div className="flex items-center justify-center gap-2 text-slate-600 bg-white p-3 rounded-xl border border-orange-100 shadow-sm cursor-pointer hover:bg-orange-50 transition-colors whitespace-nowrap" onClick={() => setStep('location')}>
+                <div className="flex items-center justify-center gap-2 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-xl border border-orange-100 dark:border-slate-800 shadow-sm cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors whitespace-nowrap" onClick={() => setStep('location')}>
                   <MapPin size={18} className="text-orange-500" />
                   <span className="text-sm font-medium">Локација: {selectedCity} (Промени)</span>
                 </div>
                 
                 <div className="relative flex-1 max-w-2xl mx-auto w-full">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={20} />
                   <input 
                     type="text" 
                     placeholder="Пребарај пица, паста, салата..." 
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 bg-white border border-orange-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-slate-800 text-base"
+                    className="w-full pl-12 pr-4 py-3 bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-800 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-slate-800 dark:text-white text-base transition-colors"
                   />
                 </div>
 
-                <div className="text-sm text-slate-500 bg-white border border-orange-100 shadow-sm px-4 py-3 rounded-xl whitespace-nowrap text-center">
-                  Достапни ресторани: <span className="font-bold text-slate-800">{availableRestaurants.length}</span>
+                <div className="text-sm text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 shadow-sm px-4 py-3 rounded-xl whitespace-nowrap text-center transition-colors">
+                  Достапни ресторани: <span className="font-bold text-slate-800 dark:text-white">{availableRestaurants.length}</span>
                 </div>
               </div>
             </div>
@@ -914,7 +901,7 @@ export default function Customer() {
               <div className="mb-8 relative group">
                 <button 
                   onClick={() => scrollSlider('left')}
-                  className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 bg-white text-orange-500 p-2 rounded-full shadow-md border border-orange-100 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 bg-white dark:bg-slate-800 text-orange-500 p-2 rounded-full shadow-md border border-orange-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
                 >
                   <ChevronLeft size={20} />
                 </button>
@@ -926,7 +913,7 @@ export default function Customer() {
                 >
                   <button 
                     onClick={() => setSelectedRestaurantId(null)}
-                    className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${!selectedRestaurantId ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
+                    className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${!selectedRestaurantId ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-orange-100 dark:border-slate-800 hover:bg-orange-50 dark:hover:bg-orange-900/20'}`}
                   >
                     Сите ресторани
                   </button>
@@ -934,7 +921,7 @@ export default function Customer() {
                     <button 
                       key={rest.id}
                       onClick={() => setSelectedRestaurantId(rest.id)}
-                      className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all flex items-center gap-3 ${selectedRestaurantId === rest.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white text-slate-600 border border-orange-100 hover:bg-orange-50'}`}
+                      className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all flex items-center gap-3 ${selectedRestaurantId === rest.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-orange-100 dark:border-slate-800 hover:bg-orange-50 dark:hover:bg-orange-900/20'}`}
                     >
                       <div className="flex flex-col items-start leading-tight">
                         <div className="flex items-center gap-2">
@@ -953,7 +940,7 @@ export default function Customer() {
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           {rest.is_open ? (
-                            <span className={`text-[10px] font-medium ${selectedRestaurantId === rest.id ? 'text-white/80' : 'opacity-70'}`}>
+                            <span className={`text-[10px] font-medium ${selectedRestaurantId === rest.id ? 'text-white/80' : 'opacity-70 dark:text-slate-400'}`}>
                               {rest.active_orders} нарачки
                             </span>
                           ) : (
@@ -985,13 +972,13 @@ export default function Customer() {
                         Започни групна нарачка
                       </button>
                     ) : (
-                      <div className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2 rounded-2xl border border-indigo-100 shadow-xl animate-in slide-in-from-bottom-2">
+                      <div className="flex flex-col sm:flex-row items-center gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 shadow-xl animate-in slide-in-from-bottom-2">
                         <input 
                           type="text"
                           placeholder="Вашето име..."
                           value={groupOrderUserName}
                           onChange={(e) => setGroupOrderUserName(e.target.value)}
-                          className="px-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium"
+                          className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium dark:text-white"
                           autoFocus
                         />
                         <div className="flex gap-1">
@@ -1004,7 +991,7 @@ export default function Customer() {
                           </button>
                           <button 
                             onClick={() => setIsStartingGroup(false)}
-                            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                            className="p-2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                           >
                             <X size={20} />
                           </button>
@@ -1016,7 +1003,7 @@ export default function Customer() {
 
                 <button 
                   onClick={() => scrollSlider('right')}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 bg-white text-orange-500 p-2 rounded-full shadow-md border border-orange-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 bg-white dark:bg-slate-800 text-orange-500 p-2 rounded-full shadow-md border border-orange-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <ChevronRight size={20} />
                 </button>
@@ -1024,15 +1011,15 @@ export default function Customer() {
             )}
 
             {availableRestaurants.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-3xl border border-orange-100 shadow-sm">
-                <div className="w-20 h-20 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-orange-100 dark:border-slate-800 shadow-sm transition-colors duration-300">
+                <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-full flex items-center justify-center mx-auto mb-4">
                   <MapPin size={40} />
                 </div>
-                <h3 className="text-2xl font-bold text-slate-800 mb-2">Нема достава</h3>
-                <p className="text-slate-500 max-w-md mx-auto mb-6">
+                <h3 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Нема достава</h3>
+                <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-6">
                   За жал, моментално нема ресторани кои вршат достава до вашата избрана локација.
                 </p>
-                <button onClick={() => setStep('location')} className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-6 py-3 rounded-xl font-bold transition-colors">
+                <button onClick={() => setStep('location')} className="bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 px-6 py-3 rounded-xl font-bold transition-colors">
                   Промени локација
                 </button>
               </div>
@@ -1040,12 +1027,12 @@ export default function Customer() {
               <>
                 {Object.entries(groupedItems).map(([category, subcategories]) => (
                   <div key={category} className="mb-12">
-                    <h2 className="text-3xl font-extrabold text-slate-800 mb-6 border-b-2 border-orange-200 pb-2 inline-block">{category}</h2>
+                    <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white mb-6 border-b-2 border-orange-200 dark:border-orange-900/50 pb-2 inline-block transition-colors">{category}</h2>
                     
                     {Object.entries(subcategories).map(([subcategory, items]) => (
                       <div key={subcategory} className="mb-8">
-                        <h3 className="text-xl font-bold text-orange-600 mb-4 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+                        <h3 className="text-xl font-bold text-orange-600 dark:text-orange-500 mb-4 flex items-center gap-2 transition-colors">
+                          <span className="w-2 h-2 rounded-full bg-orange-400 dark:bg-orange-500"></span>
                           {subcategory}
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1054,14 +1041,14 @@ export default function Customer() {
                             return (
                               <div 
                                 key={item.id} 
-                                className={`bg-white rounded-3xl overflow-hidden shadow-sm border border-orange-100 hover:shadow-md transition-all group flex flex-col ${restaurant?.is_open ? 'cursor-pointer' : 'cursor-not-allowed grayscale-[0.5]'}`} 
+                                className={`bg-white dark:bg-slate-900 rounded-3xl overflow-hidden shadow-sm border border-orange-100 dark:border-slate-800 hover:shadow-md transition-all group flex flex-col ${restaurant?.is_open ? 'cursor-pointer' : 'cursor-not-allowed grayscale-[0.5]'}`} 
                                 onClick={() => restaurant?.is_open && openItemModal(item)}
                               >
                                 <div className="h-48 overflow-hidden relative">
                                   <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                   <div className="absolute top-3 left-3 flex flex-col gap-2">
-                                    <div className="bg-white/90 backdrop-blur-sm px-3 py-1 rounded-lg text-xs font-bold text-slate-700 shadow-sm flex items-center gap-1.5">
+                                    <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm px-3 py-1 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 shadow-sm flex items-center gap-1.5 transition-colors">
                                       <div className={`w-1.5 h-1.5 rounded-full ${restaurant?.is_open ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
                                       {restaurant?.name || 'Ресторан'}
                                     </div>
@@ -1069,13 +1056,13 @@ export default function Customer() {
                                 </div>
                                 <div className="p-5 flex-1 flex flex-col">
                                   <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-bold text-lg text-slate-800">{item.name}</h3>
+                                    <h3 className="font-bold text-lg text-slate-800 dark:text-white transition-colors">{item.name}</h3>
                                   </div>
-                                  <p className="text-sm text-slate-500 mb-4 flex-1 line-clamp-2">{item.description}</p>
-                                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-orange-50">
-                                    <span className="font-extrabold text-xl text-slate-800">{item.price} <span className="text-sm text-slate-500 font-medium">ден.</span></span>
+                                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 flex-1 line-clamp-2 transition-colors">{item.description}</p>
+                                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-orange-50 dark:border-slate-800 transition-colors">
+                                    <span className="font-extrabold text-xl text-slate-800 dark:text-white transition-colors">{item.price} <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">ден.</span></span>
                                     <button 
-                                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${restaurant?.is_open ? 'bg-orange-100 text-orange-700 hover:bg-orange-500 hover:text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${restaurant?.is_open ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 hover:bg-orange-500 hover:text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'}`}
                                       disabled={!restaurant?.is_open}
                                     >
                                       {restaurant?.is_open ? (
@@ -1099,7 +1086,7 @@ export default function Customer() {
                 ))}
                 
                 {menuItems.length === 0 && (
-                  <div className="text-center py-12 text-slate-500">
+                  <div className="text-center py-12 text-slate-500 dark:text-slate-400">
                     <p>Избраните ресторани моментално немаат производи во менито.</p>
                   </div>
                 )}
@@ -1109,19 +1096,19 @@ export default function Customer() {
         )}
 
         {step === 'cart' && (
-          <div className="max-w-3xl mx-auto mt-8 bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100">
+          <div className="max-w-3xl mx-auto mt-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 transition-colors duration-300">
             <div className="flex items-center gap-4 mb-8">
-              <button onClick={() => setStep('menu')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
+              <button onClick={() => setStep('menu')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 transition-colors">
                 <ArrowLeft size={20} />
               </button>
-              <h2 className="text-2xl font-bold text-slate-800">Вашата кошничка</h2>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Вашата кошничка</h2>
             </div>
 
             {cart.length === 0 ? (
               <div className="text-center py-12">
-                <ShoppingBag size={48} className="mx-auto text-slate-300 mb-4" />
-                <p className="text-slate-500 text-lg">Кошничката е празна.</p>
-                <button onClick={() => setStep('menu')} className="mt-6 text-orange-600 font-bold hover:underline">
+                <ShoppingBag size={48} className="mx-auto text-slate-300 dark:text-slate-700 mb-4" />
+                <p className="text-slate-500 dark:text-slate-400 text-lg">Кошничката е празна.</p>
+                <button onClick={() => setStep('menu')} className="mt-6 text-orange-600 dark:text-orange-500 font-bold hover:underline">
                   Врати се кон менито
                 </button>
               </div>
@@ -1129,16 +1116,16 @@ export default function Customer() {
               <>
                 <div className="space-y-4 mb-8">
                   {cart.map(item => (
-                    <div key={item.cartId} className="flex gap-4 p-4 border border-slate-100 rounded-2xl bg-slate-50">
+                    <div key={item.cartId} className="flex gap-4 p-4 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50 dark:bg-slate-800/50 transition-colors">
                       <img src={item.image_url} alt={item.name} className="w-20 h-20 object-cover rounded-xl" referrerPolicy="no-referrer" />
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
-                          <h3 className="font-bold text-slate-800">{item.name}</h3>
+                          <h3 className="font-bold text-slate-800 dark:text-white">{item.name}</h3>
                           <button onClick={() => removeFromCart(item.cartId)} className="text-slate-400 hover:text-red-500 transition-colors">
                             <X size={20} />
                           </button>
                         </div>
-                        <div className="text-sm text-slate-500 mt-1 space-y-1">
+                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-1 space-y-1">
                           {Object.entries(item.selectedModifiers).map(([group, selection]) => {
                             if (Array.isArray(selection)) {
                               return selection.length > 0 ? <p key={group}><span className="font-medium">{group}:</span> {selection.join(', ')}</p> : null;
@@ -1146,22 +1133,22 @@ export default function Customer() {
                             return selection ? <p key={group}><span className="font-medium">{group}:</span> {selection}</p> : null;
                           })}
                         </div>
-                        <div className="mt-2 font-bold text-orange-600">{item.finalPrice} ден.</div>
+                        <div className="mt-2 font-bold text-orange-600 dark:text-orange-500">{item.finalPrice} ден.</div>
                       </div>
                     </div>
                   ))}
                 </div>
                 
                 {/* Loyalty & Login Section */}
-                <div className="mb-8 p-6 bg-indigo-50 rounded-3xl border border-indigo-100">
+                <div className="mb-8 p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-900/30 transition-colors">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
                         <Award size={24} />
                       </div>
                       <div>
-                        <h3 className="font-bold text-slate-800">Лојалност и Поени</h3>
-                        <p className="text-xs text-slate-500">Поврзете се за да собирате поени</p>
+                        <h3 className="font-bold text-slate-800 dark:text-white">Лојалност и Поени</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Поврзете се за да собирате поени</p>
                       </div>
                     </div>
                     {user ? (
@@ -1175,28 +1162,28 @@ export default function Customer() {
                     ) : (
                       <button 
                         onClick={handleGoogleLogin}
-                        className="flex items-center gap-2 bg-white text-slate-700 px-4 py-2 rounded-xl border border-slate-200 font-bold text-sm hover:bg-slate-50 transition-all shadow-sm"
+                        className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
                       >
-                        <LogIn size={18} className="text-indigo-600" />
+                        <LogIn size={18} className="text-indigo-600 dark:text-indigo-400" />
                         Најави се со Google
                       </button>
                     )}
                   </div>
 
                   {user && (
-                    <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-indigo-100 shadow-sm">
+                    <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 shadow-sm transition-colors">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold">
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
                           {user.name?.[0] || 'U'}
                         </div>
                         <div>
-                          <p className="text-sm font-bold text-slate-800">{user.name}</p>
-                          <p className="text-[10px] text-slate-500">{user.email}</p>
+                          <p className="text-sm font-bold text-slate-800 dark:text-white">{user.name}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">{user.email}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">Ваши Поени</p>
-                        <p className="text-xl font-black text-indigo-600">{user.loyalty_points || 0}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider">Ваши Поени</p>
+                        <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">{user.loyalty_points || 0}</p>
                       </div>
                     </div>
                   )}
@@ -1210,10 +1197,10 @@ export default function Customer() {
 
                 {activeCampaigns.filter(c => (c.is_visible !== 0 && c.is_visible !== false) && (!c.restaurant_id || (cart.length > 0 ? cart.some(item => item.restaurant_id === c.restaurant_id) : c.restaurant_id === selectedRestaurantId))).length > 0 && (
                   <div className="mb-6">
-                    <h3 className="text-lg font-bold text-slate-800 mb-3">Активни кампањи</h3>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-3">Активни кампањи</h3>
                     <div className="space-y-3">
                       {activeCampaigns.filter(c => (c.is_visible !== 0 && c.is_visible !== false) && (!c.restaurant_id || (cart.length > 0 ? cart.some(item => item.restaurant_id === c.restaurant_id) : c.restaurant_id === selectedRestaurantId))).map(camp => (
-                        <label key={camp.id} className={`flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedCampaignId === camp.id ? 'border-orange-500 bg-orange-50' : 'border-slate-100 bg-white hover:border-orange-200'}`}>
+                        <label key={camp.id} className={`flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedCampaignId === camp.id ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-orange-200 dark:hover:border-orange-700'}`}>
                           <div className="pt-1">
                             <input 
                               type="checkbox" 
@@ -1222,15 +1209,15 @@ export default function Customer() {
                                 if (e.target.checked) setSelectedCampaignId(camp.id);
                                 else setSelectedCampaignId(null);
                               }}
-                              className="w-5 h-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                              className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 text-orange-600 focus:ring-orange-500"
                             />
                           </div>
                           <div className="flex-1">
                             <div className="flex justify-between items-start">
-                              <span className="font-bold text-slate-800">{camp.name}</span>
-                              <span className="font-bold text-orange-600">{camp.budget > 0 ? '+' : ''}{camp.budget} ден.</span>
+                              <span className="font-bold text-slate-800 dark:text-white">{camp.name}</span>
+                              <span className="font-bold text-orange-600 dark:text-orange-500">{camp.budget > 0 ? '+' : ''}{camp.budget} ден.</span>
                             </div>
-                            <p className="text-sm text-slate-500 mt-1">{camp.description}</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{camp.description}</p>
                           </div>
                         </label>
                       ))}
@@ -1238,30 +1225,30 @@ export default function Customer() {
                   </div>
                 )}
 
-                <div className="border-t border-slate-200 pt-6">
+                <div className="border-t border-slate-200 dark:border-slate-800 pt-6">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-slate-500">Вкупно продукти:</span>
-                    <span className="font-bold text-slate-700">{cartTotal} ден.</span>
+                    <span className="text-slate-500 dark:text-slate-400">Вкупно продукти:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{cartTotal} ден.</span>
                   </div>
                   {deliveryFee > 0 && (
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-slate-500">Достава:</span>
-                      <span className="font-bold text-slate-700">{deliveryFee} ден.</span>
+                      <span className="text-slate-500 dark:text-slate-400">Достава:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{deliveryFee} ден.</span>
                     </div>
                   )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
-                    <div className="flex justify-between items-center mb-4 text-orange-600">
+                    <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
                       <span className="font-bold">{selectedCampaign.budget > 0 ? '+' : ''}{selectedCampaign.budget} ден.</span>
                     </div>
                   )}
-                  <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100">
-                    <span className="text-lg text-slate-600">Вкупно за наплата:</span>
-                    <span className="text-3xl font-extrabold text-slate-800">{finalTotal} ден.</span>
+                  <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <span className="text-lg text-slate-600 dark:text-slate-400">Вкупно за наплата:</span>
+                    <span className="text-3xl font-extrabold text-slate-800 dark:text-white">{finalTotal} ден.</span>
                   </div>
                   {feesTotal > 0 && (
-                    <div className="flex justify-between items-center mb-2 text-blue-600 px-1">
-                      <span className="text-sm text-slate-500">Дополнителни опции:</span>
+                    <div className="flex justify-between items-center mb-2 text-blue-600 dark:text-blue-400 px-1">
+                      <span className="text-sm text-slate-500 dark:text-slate-400">Дополнителни опции:</span>
                       <span className="font-bold">+{feesTotal} ден.</span>
                     </div>
                   )}
@@ -1280,44 +1267,44 @@ export default function Customer() {
         {step === 'checkout' && (
           <div className="max-w-4xl mx-auto mt-8">
             <div className="flex items-center gap-4 mb-8">
-              <button onClick={() => setStep('cart')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors bg-white shadow-sm">
+              <button onClick={() => setStep('cart')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 transition-colors bg-white dark:bg-slate-900 shadow-sm">
                 <ArrowLeft size={20} />
               </button>
-              <h2 className="text-2xl font-bold text-slate-800">Детали за достава</h2>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Детали за достава</h2>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <form onSubmit={handleCheckoutSubmit} className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+              <form onSubmit={handleCheckoutSubmit} className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 space-y-6">
+                <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Име</label>
-                    <input required type="text" value={checkoutForm.firstName} onChange={e => setCheckoutForm({...checkoutForm, firstName: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all" />
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Име</label>
+                    <input required type="text" value={checkoutForm.firstName} onChange={e => setCheckoutForm({...checkoutForm, firstName: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Презиме</label>
-                    <input required type="text" value={checkoutForm.lastName} onChange={e => setCheckoutForm({...checkoutForm, lastName: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all" />
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Презиме</label>
+                    <input required type="text" value={checkoutForm.lastName} onChange={e => setCheckoutForm({...checkoutForm, lastName: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
                   </div>
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Е-маил</label>
-                  <input required type="email" value={checkoutForm.email} onChange={e => setCheckoutForm({...checkoutForm, email: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all" />
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Е-маил</label>
+                  <input required type="email" value={checkoutForm.email} onChange={e => setCheckoutForm({...checkoutForm, email: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Телефонски број</label>
-                  <input required type="tel" value={checkoutForm.phone} onChange={e => setCheckoutForm({...checkoutForm, phone: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all" />
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Телефонски број</label>
+                  <input required type="tel" value={checkoutForm.phone} onChange={e => setCheckoutForm({...checkoutForm, phone: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Адреса за достава</label>
-                  <input required type="text" value={checkoutForm.address} onChange={e => setCheckoutForm({...checkoutForm, address: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all" />
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Адреса за достава</label>
+                  <input required type="text" value={checkoutForm.address} onChange={e => setCheckoutForm({...checkoutForm, address: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
                 </div>
 
                 {/* Payment & Extras Section */}
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-6">
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 space-y-6">
                   <div>
-                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
                       <DollarSign size={18} className="text-orange-500" />
                       Начин на плаќање
                     </h3>
@@ -1347,7 +1334,7 @@ export default function Customer() {
                         }
 
                         return (methods as string[]).map(method => (
-                          <label key={method} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${paymentMethod === method ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                          <label key={method} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${paymentMethod === method ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-600'}`}>
                             <div className="flex items-center gap-3">
                               <input 
                                 type="radio" 
@@ -1357,12 +1344,12 @@ export default function Customer() {
                                 onChange={() => setPaymentMethod(method)}
                                 className="w-4 h-4 text-orange-500 focus:ring-orange-500"
                               />
-                              <span className="font-bold text-slate-700">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
                                 {method === 'cash' ? 'Готовина' : method === 'card' ? 'Картичка' : 'Поени'}
                               </span>
                             </div>
                             {method === 'points' && user && (
-                              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">
+                              <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-lg">
                                 {user.loyalty_points || 0} поени
                               </span>
                             )}
@@ -1390,7 +1377,7 @@ export default function Customer() {
 
                     return (
                       <div>
-                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
                           <Plus size={18} className="text-orange-500" />
                           Дополнителни опции
                         </h3>
@@ -1399,7 +1386,7 @@ export default function Customer() {
                             const rest = availableRestaurants.find(r => r.id === restId);
                             const config = JSON.parse(rest.payment_config);
                             return (
-                              <div key={restId} className="bg-white p-4 rounded-xl border border-slate-200">
+                              <div key={restId} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                                 <p className="text-xs font-bold text-slate-400 uppercase mb-3">{rest.name}</p>
                                 <div className="space-y-2">
                                   {config.fees.map((fee: any) => (
@@ -1416,11 +1403,11 @@ export default function Customer() {
                                               setSelectedFees(prev => ({...prev, [restId as any]: current.filter(n => n !== fee.name)}));
                                             }
                                           }}
-                                          className="w-5 h-5 rounded border-slate-300 text-orange-500 focus:ring-orange-500"
+                                          className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 text-orange-500 focus:ring-orange-500"
                                         />
-                                        <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">{fee.name}</span>
+                                        <span className="text-sm text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{fee.name}</span>
                                       </div>
-                                      <span className="text-sm font-bold text-slate-600">+{fee.amount} ден.</span>
+                                      <span className="text-sm font-bold text-slate-600 dark:text-slate-400">+{fee.amount} ден.</span>
                                     </label>
                                   ))}
                                 </div>
@@ -1433,36 +1420,36 @@ export default function Customer() {
                   })()}
                 </div>
 
-                <div className="pt-4 border-t border-slate-100">
+                <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-slate-500">Вкупно продукти:</span>
-                    <span className="font-bold text-slate-700">{cartTotal} ден.</span>
+                    <span className="text-slate-500 dark:text-slate-400">Вкупно продукти:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{cartTotal} ден.</span>
                   </div>
                   {deliveryFee > 0 && (
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-slate-500">Достава:</span>
-                      <span className="font-bold text-slate-700">{deliveryFee} ден.</span>
+                      <span className="text-slate-500 dark:text-slate-400">Достава:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{deliveryFee} ден.</span>
                     </div>
                   )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
-                    <div className="flex justify-between items-center mb-4 text-orange-600">
+                    <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
                       <span className="font-bold">{selectedCampaign.budget > 0 ? '+' : ''}{selectedCampaign.budget} ден.</span>
                     </div>
                   )}
-                  <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100">
-                    <span className="text-lg text-slate-600">Вкупно за наплата:</span>
-                    <span className="text-2xl font-extrabold text-slate-800">{finalTotal} ден.</span>
+                  <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <span className="text-lg text-slate-600 dark:text-slate-400">Вкупно за наплата:</span>
+                    <span className="text-2xl font-extrabold text-slate-800 dark:text-white">{finalTotal} ден.</span>
                   </div>
                   {feesTotal > 0 && (
-                    <div className="flex justify-between items-center mb-2 text-blue-600 px-1">
-                      <span className="text-sm text-slate-500">Дополнителни опции:</span>
+                    <div className="flex justify-between items-center mb-2 text-blue-600 dark:text-blue-400 px-1">
+                      <span className="text-sm text-slate-500 dark:text-slate-400">Дополнителни опции:</span>
                       <span className="font-bold">+{feesTotal} ден.</span>
                     </div>
                   )}
                   
                   {!isLocationValid() && (
-                    <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-xl border border-red-200 text-sm font-medium">
+                    <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl border border-red-200 dark:border-red-800 text-sm font-medium">
                       Доставата се врши согласно избраната локација за пребарување. Ве молиме поместете го пинот во дозволената зона на ресторанот.
                     </div>
                   )}
@@ -1470,16 +1457,16 @@ export default function Customer() {
                   <button 
                     type="submit"
                     disabled={!isLocationValid()}
-                    className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl transition-colors shadow-lg shadow-orange-500/30 text-lg"
+                    className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl transition-colors shadow-lg shadow-orange-500/30 text-lg"
                   >
                     Потврди нарачка
                   </button>
                 </div>
               </form>
 
-              <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 h-fit">
-                <h3 className="font-bold text-slate-800 mb-4">Локација за достава</h3>
-                <p className="text-sm text-slate-500 mb-4">
+              <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 h-fit">
+                <h3 className="font-bold text-slate-800 dark:text-white mb-4">Локација за достава</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
                   Можете да го поместите пинот за попрецизна локација. Пинот мора да биде во рамките на обоените зони (зони на достава на избраните ресторани).
                 </p>
                 <LocationPickerMap 
@@ -1494,23 +1481,23 @@ export default function Customer() {
         )}
 
         {step === 'success' && (
-          <div className="max-w-md mx-auto mt-20 bg-white p-8 rounded-3xl shadow-sm border border-orange-100 text-center">
-            <div className="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
+          <div className="max-w-md mx-auto mt-20 bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 text-center">
+            <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 text-green-500 dark:text-green-400 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle size={40} />
             </div>
-            <h2 className="text-3xl font-bold text-slate-800 mb-4">Успешно ја поставивте вашата нарачка!</h2>
-            <p className="text-slate-500 mb-6">
+            <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-4">Успешно ја поставивте вашата нарачка!</h2>
+            <p className="text-slate-500 dark:text-slate-400 mb-6">
               Вашата нарачка е успешно испратена до ресторанот. Наскоро ќе биде доставена на вашата адреса.
             </p>
 
             {Object.entries(lastOrderTrackingTokens).length > 0 && (
               <div className="mb-8 space-y-3">
-                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Следете ги вашите нарачки:</p>
+                <p className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Следете ги вашите нарачки:</p>
                 {Object.entries(lastOrderTrackingTokens).map(([orderId, token]) => (
                   <Link 
                     key={orderId} 
                     to={`/track/${token}`}
-                    className="flex items-center justify-between p-4 bg-orange-50 border border-orange-100 rounded-2xl text-orange-700 font-bold hover:bg-orange-100 transition-colors"
+                    className="flex items-center justify-between p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-900/30 rounded-2xl text-orange-700 dark:text-orange-400 font-bold hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors"
                   >
                     <span>Нарачка #{orderId}</span>
                     <ExternalLink size={18} />
@@ -1526,32 +1513,32 @@ export default function Customer() {
                 setAvailableRestaurants([]);
                 setMenuItems([]);
               }}
-              className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-8 py-4 rounded-xl font-bold transition-colors w-full"
+              className="bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 px-8 py-4 rounded-xl font-bold transition-colors w-full"
             >
               Нова нарачка
             </button>
           </div>
         )}
       </main>
-      <footer className="mt-12 pt-12 border-t border-orange-100 relative z-10 pb-12">
+      <footer className="mt-12 pt-12 border-t border-orange-100 dark:border-slate-800 relative z-10 pb-12">
         <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-10">
           <div className="space-y-4">
             {globalSettings.company_logo_url ? (
               <img src={globalSettings.company_logo_url} alt="Logo" className="h-10 object-contain" />
             ) : (
-              <h2 className="font-black text-xl text-slate-900 tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h2>
+              <h2 className="font-black text-xl text-slate-900 dark:text-white tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h2>
             )}
-            <p className="text-slate-500 text-sm max-w-xs">
+            <p className="text-slate-500 dark:text-slate-400 text-sm max-w-xs">
               {globalSettings.company_address || 'Вашиот омилен сервис за нарачка на храна.'}
             </p>
           </div>
 
           <div className="space-y-4">
-            <h4 className="font-bold text-slate-800 uppercase text-xs tracking-widest">Контакт</h4>
-            <div className="space-y-2 text-sm text-slate-500">
+            <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase text-xs tracking-widest">Контакт</h4>
+            <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
               {globalSettings.company_phone && <p>Тел: {globalSettings.company_phone}</p>}
               {globalSettings.company_website && (
-                <a href={globalSettings.company_website} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 transition-colors block">
+                <a href={globalSettings.company_website} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">
                   {globalSettings.company_website.replace(/^https?:\/\//, '')}
                 </a>
               )}
@@ -1559,34 +1546,34 @@ export default function Customer() {
           </div>
 
           <div className="space-y-4 md:text-right">
-            <h4 className="font-bold text-slate-800 uppercase text-xs tracking-widest">Следете не</h4>
+            <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase text-xs tracking-widest">Следете не</h4>
             <div className="flex gap-4 md:justify-end">
               {globalSettings.company_facebook && (
-                <a href={globalSettings.company_facebook} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-blue-600 transition-colors">
+                <a href={globalSettings.company_facebook} target="_blank" rel="noopener noreferrer" className="p-2 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-orange-50 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                   <Facebook size={18} />
                 </a>
               )}
               {globalSettings.company_instagram && (
-                <a href={globalSettings.company_instagram} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-pink-600 transition-colors">
+                <a href={globalSettings.company_instagram} target="_blank" rel="noopener noreferrer" className="p-2 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-orange-50 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 transition-colors">
                   <Instagram size={18} />
                 </a>
               )}
               {globalSettings.company_twitter && (
-                <a href={globalSettings.company_twitter} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-blue-400 transition-colors">
+                <a href={globalSettings.company_twitter} target="_blank" rel="noopener noreferrer" className="p-2 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-orange-50 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-blue-400 dark:hover:text-blue-300 transition-colors">
                   <Twitter size={18} />
                 </a>
               )}
               {globalSettings.company_linkedin && (
-                <a href={globalSettings.company_linkedin} target="_blank" rel="noopener noreferrer" className="p-2 bg-white rounded-full shadow-sm border border-orange-50 text-slate-600 hover:text-blue-700 transition-colors">
+                <a href={globalSettings.company_linkedin} target="_blank" rel="noopener noreferrer" className="p-2 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-orange-50 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-500 transition-colors">
                   <Linkedin size={18} />
                 </a>
               )}
             </div>
             <div className="pt-4">
-              <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-2">
+              <p className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-2">
                 © {new Date().getFullYear()} {globalSettings.company_name || 'PizzaTime'}. Сите права се задржани.
               </p>
-              <Link to="/portal" className="text-[10px] text-slate-300 hover:text-orange-300 transition-colors uppercase font-bold tracking-widest">
+              <Link to="/portal" className="text-[10px] text-slate-300 dark:text-slate-600 hover:text-orange-300 dark:hover:text-orange-500 transition-colors uppercase font-bold tracking-widest">
                 Портал за соработници
               </Link>
             </div>
@@ -1597,29 +1584,29 @@ export default function Customer() {
 
       {/* Item Customization Modal */}
       {selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 dark:bg-slate-950/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95">
             <div className="relative h-48 sm:h-64 flex-shrink-0">
               <img src={selectedItem.image_url} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 bg-white/80 backdrop-blur-md p-2 rounded-full text-slate-800 hover:bg-white transition-colors">
+              <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-2 rounded-full text-slate-800 dark:text-white hover:bg-white dark:hover:bg-slate-700 transition-colors">
                 <X size={20} />
               </button>
             </div>
             
             <div className="p-6 overflow-y-auto flex-1">
               <div className="flex justify-between items-start mb-2">
-                <h2 className="text-2xl font-bold text-slate-800">{selectedItem.name}</h2>
-                <span className="text-xl font-bold text-orange-600">{selectedItem.price} ден.</span>
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white">{selectedItem.name}</h2>
+                <span className="text-xl font-bold text-orange-600 dark:text-orange-400">{selectedItem.price} ден.</span>
               </div>
-              <p className="text-slate-500 mb-6">{selectedItem.description}</p>
+              <p className="text-slate-500 dark:text-slate-400 mb-6">{selectedItem.description}</p>
 
               {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
                 <div className="space-y-6">
                   {selectedItem.modifiers.map((group, gIndex) => (
                     <div key={gIndex}>
                       <div className="flex justify-between items-end mb-3">
-                        <h3 className="font-bold text-slate-800">{group.name}</h3>
-                        <span className="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded">
+                        <h3 className="font-bold text-slate-800 dark:text-white">{group.name}</h3>
+                        <span className="text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 py-1 rounded">
                           {group.type === 'single' ? 'Изберете 1' : 'Изберете повеќе'}
                         </span>
                       </div>
@@ -1634,17 +1621,17 @@ export default function Customer() {
                             <div 
                               key={oIndex} 
                               onClick={() => handleModifierChange(group.name, opt.name, group.type)}
-                              className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-colors ${isSelected ? 'border-orange-500 bg-orange-50/50' : 'border-slate-200 hover:border-orange-300'}`}
+                              className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-colors ${isSelected ? 'border-orange-500 bg-orange-50/50 dark:bg-orange-900/20' : 'border-slate-200 dark:border-slate-700 hover:border-orange-300 dark:hover:border-orange-700'}`}
                             >
                               <div className="flex items-center gap-3">
-                                <div className={`flex items-center justify-center ${group.type === 'single' ? 'w-5 h-5 rounded-full border' : 'w-5 h-5 rounded border'} ${isSelected ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-300'}`}>
+                                <div className={`flex items-center justify-center ${group.type === 'single' ? 'w-5 h-5 rounded-full border' : 'w-5 h-5 rounded border'} ${isSelected ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
                                   {isSelected && group.type === 'single' && <div className="w-2 h-2 bg-white rounded-full" />}
                                   {isSelected && group.type === 'multiple' && <CheckCircle size={14} />}
                                 </div>
-                                <span className={`font-medium ${isSelected ? 'text-orange-900' : 'text-slate-700'}`}>{opt.name}</span>
+                                <span className={`font-medium ${isSelected ? 'text-orange-900 dark:text-orange-100' : 'text-slate-700 dark:text-slate-300'}`}>{opt.name}</span>
                               </div>
                               {opt.price > 0 && (
-                                <span className="text-sm text-slate-500">+{opt.price} ден.</span>
+                                <span className="text-sm text-slate-500 dark:text-slate-400">+{opt.price} ден.</span>
                               )}
                             </div>
                           );
@@ -1656,7 +1643,7 @@ export default function Customer() {
               )}
             </div>
             
-            <div className="p-4 border-t border-slate-100 bg-white flex-shrink-0">
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0">
               <button onClick={addToCart} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-2xl flex items-center justify-between px-6 transition-colors shadow-lg shadow-orange-500/30">
                 <span>Додади во кошничка</span>
                 <span>{calculateFinalPrice()} ден.</span>
@@ -1669,18 +1656,18 @@ export default function Customer() {
       {/* Error Modal */}
       {error && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="p-8 text-center">
-              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400 rounded-full flex items-center justify-center mx-auto mb-6">
                 <X size={40} strokeWidth={3} />
               </div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-4">Известување</h3>
-              <p className="text-slate-600 leading-relaxed mb-8">
+              <h3 className="text-2xl font-bold text-slate-800 dark:text-white mb-4">Известување</h3>
+              <p className="text-slate-600 dark:text-slate-400 leading-relaxed mb-8">
                 {error}
               </p>
               <button 
                 onClick={() => setError(null)}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-slate-900/20"
+                className="w-full bg-slate-900 dark:bg-orange-500 hover:bg-slate-800 dark:hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-slate-900/20 dark:shadow-orange-500/20"
               >
                 Разбрав
               </button>

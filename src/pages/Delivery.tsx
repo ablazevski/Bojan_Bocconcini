@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign, Users, Users2, UserPlus, ChevronRight, BarChart2 } from 'lucide-react';
+import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign, Users, Users2, UserPlus, ChevronRight, BarChart2, Moon, Sun } from 'lucide-react';
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
 import { io } from 'socket.io-client';
+import { useTheme } from '../context/ThemeContext';
 
 interface Order {
   id: number;
@@ -55,6 +56,7 @@ function Countdown({ targetTime }: { targetTime: string }) {
 }
 
 export default function Delivery() {
+  const { theme, toggleTheme } = useTheme();
   const [partner, setPartner] = useState<any>(null);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [orders, setOrders] = useState<Order[]>([]);

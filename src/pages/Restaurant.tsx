@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { io } from 'socket.io-client';
 import QRCode from 'qrcode';
+import { useTheme } from '../context/ThemeContext';
 
 interface ModifierOption {
   name: string;
@@ -86,7 +87,15 @@ function Countdown({ targetTime, onExpire }: { targetTime: string, onExpire?: ()
   const expiredRef = useRef(false);
 
   useEffect(() => {
-    const target = new Date(targetTime).getTime();
+    const parseDate = (dateStr: string) => {
+      if (!dateStr) return new Date();
+      if (dateStr.includes(' ') && !dateStr.includes('T')) {
+        return new Date(dateStr.replace(' ', 'T') + 'Z');
+      }
+      return new Date(dateStr);
+    };
+
+    const target = parseDate(targetTime).getTime();
     
     const updateTimer = () => {
       const now = new Date().getTime();
@@ -119,7 +128,17 @@ function FreshnessTimer({ readyAt }: { readyAt: string }) {
   const [timeLeft, setTimeLeft] = useState('');
 
   useEffect(() => {
-    const start = new Date(readyAt).getTime();
+    // SQLite CURRENT_TIMESTAMP is "YYYY-MM-DD HH:MM:SS" (UTC)
+    // We need to ensure it's parsed as UTC by converting to ISO format if needed
+    const parseDate = (dateStr: string) => {
+      if (!dateStr) return new Date();
+      if (dateStr.includes(' ') && !dateStr.includes('T')) {
+        return new Date(dateStr.replace(' ', 'T') + 'Z');
+      }
+      return new Date(dateStr);
+    };
+
+    const start = parseDate(readyAt).getTime();
     const deadline = start + (25 * 60 * 1000); // 25 minutes deadline
     
     const updateTimer = () => {
@@ -156,11 +175,16 @@ function FreshnessTimer({ readyAt }: { readyAt: string }) {
 }
 
 export default function Restaurant() {
+  const { theme, toggleTheme } = useTheme();
   const [loggedInRestaurant, setLoggedInRestaurant] = useState<any>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings' | 'reviews' | 'campaigns'>('orders');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings' | 'reviews' | 'campaigns' | 'invoicing'>('orders');
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [dashboardFilter, setDashboardFilter] = useState<'today' | 'week' | 'month' | 'all'>('today');
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -265,6 +289,57 @@ export default function Restaurant() {
     spare_4: '',
     working_hours: '{}'
   });
+
+  const fetchInvoices = async () => {
+    try {
+      const res = await fetch('/api/restaurant/invoices');
+      if (res.ok) setInvoices(await res.json());
+    } catch (e) {
+      console.error('Failed to fetch invoices', e);
+    }
+  };
+
+  const handleGenerateInvoice = async () => {
+    setIsGeneratingInvoice(true);
+    try {
+      const res = await fetch('/api/restaurant/invoices/generate', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message);
+        fetchInvoices();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to generate invoice');
+      }
+    } catch (e) {
+      console.error('Failed to generate invoice', e);
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  };
+
+  const handleSendInvoice = async (id: number) => {
+    try {
+      const res = await fetch(`/api/invoices/${id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'pending' })
+      });
+      if (res.ok) {
+        fetchInvoices();
+        setIsInvoiceModalOpen(false);
+        setSelectedInvoice(null);
+      }
+    } catch (e) {
+      console.error('Failed to send invoice', e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'invoicing') {
+      fetchInvoices();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (loggedInRestaurant) {
@@ -729,52 +804,52 @@ export default function Restaurant() {
 
   if (!loggedInRestaurant) {
     return (
-      <div className="min-h-screen bg-red-50/30 flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-red-100 p-8">
+      <div className="min-h-screen bg-red-50/30 dark:bg-slate-950 flex flex-col items-center justify-center p-6 transition-colors duration-300">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-red-100 dark:border-slate-800 p-8 transition-colors">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-colors">
               <MenuSquare size={32} />
             </div>
-            <h1 className="text-2xl font-bold text-slate-800">Најава за Ресторани</h1>
-            <p className="text-slate-500 mt-2">Внесете ги податоците добиени од администраторот</p>
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-white transition-colors">Најава за Ресторани</h1>
+            <p className="text-slate-500 dark:text-slate-400 mt-2 transition-colors">Внесете ги податоците добиени од администраторот</p>
           </div>
 
           {loginError && (
-            <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-medium mb-6 border border-red-100 text-center">
+            <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-4 rounded-xl text-sm font-medium mb-6 border border-red-100 dark:border-red-900/30 text-center transition-colors">
               {loginError}
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Корисничко име</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Корисничко име</label>
               <input 
                 required 
                 type="text" 
                 value={loginForm.username} 
                 onChange={e => setLoginForm({...loginForm, username: e.target.value})} 
-                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" 
+                className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" 
                 placeholder="пр. rest_1_a1b2" 
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Лозинка</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Лозинка</label>
               <input 
                 required 
                 type="password" 
                 value={loginForm.password} 
                 onChange={e => setLoginForm({...loginForm, password: e.target.value})} 
-                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" 
+                className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" 
                 placeholder="••••••••" 
               />
             </div>
-            <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors mt-4">
+            <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors mt-4 shadow-lg shadow-red-600/20 dark:shadow-none">
               Најави се
             </button>
           </form>
           
           <div className="mt-6 text-center">
-            <Link to="/" className="text-slate-500 hover:text-slate-800 text-sm font-medium flex items-center justify-center gap-2">
+            <Link to="/" className="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-sm font-medium flex items-center justify-center gap-2 transition-colors">
               <ArrowLeft size={16} /> Назад кон почетна
             </Link>
           </div>
@@ -784,8 +859,8 @@ export default function Restaurant() {
   }
 
   return (
-    <div className="min-h-screen bg-red-50/30">
-      <header className="bg-white border-b border-red-100 sticky top-0 z-10">
+    <div className="min-h-screen bg-red-50/30 dark:bg-slate-950 transition-colors duration-300">
+      <header className="bg-white dark:bg-slate-900 border-b border-red-100 dark:border-slate-800 sticky top-0 z-10 transition-colors">
         {loggedInRestaurant.header_image && (
           <div className="h-32 w-full relative overflow-hidden">
             <img 
@@ -803,15 +878,15 @@ export default function Restaurant() {
             <ArrowLeft size={20} />
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">{loggedInRestaurant.name}</h1>
-            <p className="text-xs text-slate-500">Ресторан Панел</p>
+            <h1 className="text-xl font-bold text-slate-800 dark:text-white">{loggedInRestaurant.name}</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Ресторан Панел</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
+          <div className="hidden md:flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
             <button 
               onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             >
               Дашборд
             </button>
@@ -820,31 +895,37 @@ export default function Restaurant() {
                 setActiveTab('orders');
                 stopNotificationSound();
               }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'} ${hasNewOrders ? 'animate-pulse bg-red-600 text-white shadow-lg shadow-red-200' : ''}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'} ${hasNewOrders ? 'animate-pulse bg-red-600 text-white shadow-lg shadow-red-200' : ''}`}
             >
               Нарачки {hasNewOrders && <span className="ml-1 w-2 h-2 bg-white rounded-full inline-block animate-ping"></span>}
             </button>
             <button 
               onClick={() => setActiveTab('menu')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'menu' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'menu' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             >
               Мени
             </button>
             <button 
               onClick={() => setActiveTab('reviews')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'reviews' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'reviews' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             >
               Рецензии
             </button>
             <button 
               onClick={() => setActiveTab('campaigns')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'campaigns' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'campaigns' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             >
               Промоции
             </button>
             <button 
+              onClick={() => setActiveTab('invoicing')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'invoicing' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            >
+              Фактурирање
+            </button>
+            <button 
               onClick={() => setActiveTab('settings')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             >
               Поставки
             </button>
@@ -858,11 +939,18 @@ export default function Restaurant() {
             } else {
               prompt('Копирајте го линкот рачно:', url);
             }
-          }} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors" title="Сподели линк">
+          }} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-orange-600 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 rounded-lg transition-colors" title="Сподели линк">
             <Share2 size={18} />
             <span className="hidden sm:inline">Сподели</span>
           </button>
-          <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors" title="Одјави се">
+          <button 
+            onClick={toggleTheme}
+            className="p-2 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title={theme === 'light' ? 'Префрли во темен режим' : 'Префрли во светол режим'}
+          >
+            {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+          </button>
+          <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg transition-colors" title="Одјави се">
             <LogOut size={18} />
             <span className="hidden sm:inline">Одјави се</span>
           </button>
@@ -871,10 +959,10 @@ export default function Restaurant() {
     </header>
       
       {/* Mobile Tabs */}
-      <div className="md:hidden bg-white border-b border-red-100 p-2 flex gap-2">
+      <div className="md:hidden bg-white dark:bg-slate-900 border-b border-red-100 dark:border-slate-800 p-2 flex gap-2 transition-colors">
         <button 
           onClick={() => setActiveTab('dashboard')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-50 text-red-600' : 'text-slate-500'}`}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Дашборд
         </button>
@@ -883,19 +971,25 @@ export default function Restaurant() {
             setActiveTab('orders');
             stopNotificationSound();
           }}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-red-50 text-red-600' : 'text-slate-500'} ${hasNewOrders ? 'bg-red-600 text-white animate-pulse' : ''}`}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'} ${hasNewOrders ? 'bg-red-600 text-white animate-pulse' : ''}`}
         >
           Нарачки
         </button>
         <button 
           onClick={() => setActiveTab('menu')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'menu' ? 'bg-red-50 text-red-600' : 'text-slate-500'}`}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'menu' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Мени
         </button>
         <button 
+          onClick={() => setActiveTab('invoicing')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'invoicing' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
+        >
+          Фактури
+        </button>
+        <button 
           onClick={() => setActiveTab('settings')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-50 text-red-600' : 'text-slate-500'}`}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Поставки
         </button>
@@ -905,32 +999,32 @@ export default function Restaurant() {
         {activeTab === 'dashboard' ? (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <TrendingUp className="text-blue-500" />
                 Дашборд
               </h2>
-              <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto overflow-x-auto hide-scrollbar">
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto hide-scrollbar">
                 <button
                   onClick={() => setDashboardFilter('today')}
-                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'today' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'today' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                 >
                   Денес
                 </button>
                 <button
                   onClick={() => setDashboardFilter('week')}
-                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'week' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                 >
                   Оваа недела
                 </button>
                 <button
                   onClick={() => setDashboardFilter('month')}
-                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'month' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'month' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                 >
                   Овој месец
                 </button>
                 <button
                   onClick={() => setDashboardFilter('all')}
-                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${dashboardFilter === 'all' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                 >
                   Вкупно
                 </button>
@@ -960,42 +1054,42 @@ export default function Restaurant() {
                 <>
                   {/* Stats Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
                       <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
                           <DollarSign size={24} />
                         </div>
                         <div>
-                          <p className="text-sm text-slate-500 font-medium">Вкупен Промет</p>
-                          <p className="text-2xl font-bold text-slate-800">
+                          <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Вкупен Промет</p>
+                          <p className="text-2xl font-bold text-slate-800 dark:text-white">
                             {filteredOrders.filter(o => o.status === 'completed').reduce((sum, o) => sum + o.total_price, 0).toLocaleString()} ден.
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
                       <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl">
                           <ShoppingBag size={24} />
                         </div>
                         <div>
-                          <p className="text-sm text-slate-500 font-medium">Вкупно Нарачки</p>
-                          <p className="text-2xl font-bold text-slate-800">
+                          <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Вкупно Нарачки</p>
+                          <p className="text-2xl font-bold text-slate-800 dark:text-white">
                             {filteredOrders.length}
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
                       <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-orange-50 text-orange-600 rounded-xl">
+                        <div className="p-3 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-xl">
                           <TrendingUp size={24} />
                         </div>
                         <div>
-                          <p className="text-sm text-slate-500 font-medium">Просечна Нарачка</p>
-                          <p className="text-2xl font-bold text-slate-800">
+                          <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Просечна Нарачка</p>
+                          <p className="text-2xl font-bold text-slate-800 dark:text-white">
                             {filteredOrders.length > 0 ? Math.round(filteredOrders.reduce((sum, o) => sum + o.total_price, 0) / filteredOrders.length).toLocaleString() : 0} ден.
                           </p>
                         </div>
@@ -1005,8 +1099,8 @@ export default function Restaurant() {
 
                   {/* Charts Section */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                      <h3 className="text-lg font-bold text-slate-800 mb-6">Нарачки по статус</h3>
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Нарачки по статус</h3>
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
@@ -1019,12 +1113,18 @@ export default function Restaurant() {
                             ]}
                             margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                           >
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#f1f5f9'} />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} />
                             <Tooltip 
-                              cursor={{ fill: '#f8fafc' }}
-                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                              cursor={{ fill: theme === 'dark' ? '#1e293b' : '#f8fafc' }}
+                              contentStyle={{ 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                backgroundColor: theme === 'dark' ? '#1e293b' : '#ffffff',
+                                color: theme === 'dark' ? '#ffffff' : '#000000'
+                              }}
                             />
                             <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                           </BarChart>
@@ -1032,8 +1132,8 @@ export default function Restaurant() {
                       </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                      <h3 className="text-lg font-bold text-slate-800 mb-6">Трендови на продажба</h3>
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Трендови на продажба</h3>
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart
@@ -1046,11 +1146,17 @@ export default function Restaurant() {
                               return Object.entries(salesByDay).map(([name, total]) => ({ name, total }));
                             })()}
                           >
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#f1f5f9'} />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} />
                             <Tooltip 
-                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                              contentStyle={{ 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                backgroundColor: theme === 'dark' ? '#1e293b' : '#ffffff',
+                                color: theme === 'dark' ? '#ffffff' : '#000000'
+                              }}
                             />
                             <Line type="monotone" dataKey="total" stroke="#ef4444" strokeWidth={3} dot={{ r: 4, fill: '#ef4444' }} activeDot={{ r: 6 }} />
                           </LineChart>
@@ -1058,8 +1164,8 @@ export default function Restaurant() {
                       </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                      <h3 className="text-lg font-bold text-slate-800 mb-6">Најпопуларни продукти</h3>
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Најпопуларни продукти</h3>
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
@@ -1090,42 +1196,50 @@ export default function Restaurant() {
                                 <Cell key={`cell-${index}`} fill={color} />
                               ))}
                             </Pie>
-                            <Tooltip />
+                            <Tooltip 
+                              contentStyle={{ 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                backgroundColor: theme === 'dark' ? '#1e293b' : '#ffffff',
+                                color: theme === 'dark' ? '#ffffff' : '#000000'
+                              }}
+                            />
                             <Legend verticalAlign="bottom" height={36}/>
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                      <h3 className="text-lg font-bold text-slate-800 mb-6">Брза Статистика</h3>
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Брза Статистика</h3>
                       <div className="space-y-4">
-                        <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
+                        <div className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className="p-2 bg-white rounded-lg shadow-sm">
+                            <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-colors">
                               <DollarSign size={16} className="text-emerald-500" />
                             </div>
-                            <span className="text-sm font-medium text-slate-600">Најголема нарачка:</span>
+                            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Најголема нарачка:</span>
                           </div>
-                          <span className="font-bold text-slate-800">{Math.max(...filteredOrders.map(o => o.total_price), 0).toLocaleString()} ден.</span>
+                          <span className="font-bold text-slate-800 dark:text-white">{Math.max(...filteredOrders.map(o => o.total_price), 0).toLocaleString()} ден.</span>
                         </div>
-                        <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
+                        <div className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className="p-2 bg-white rounded-lg shadow-sm">
+                            <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-colors">
                               <CheckCircle size={16} className="text-blue-500" />
                             </div>
-                            <span className="text-sm font-medium text-slate-600">Завршени нарачки:</span>
+                            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Завршени нарачки:</span>
                           </div>
-                          <span className="font-bold text-slate-800">{filteredOrders.filter(o => o.status === 'completed').length}</span>
+                          <span className="font-bold text-slate-800 dark:text-white">{filteredOrders.filter(o => o.status === 'completed').length}</span>
                         </div>
-                        <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
+                        <div className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className="p-2 bg-white rounded-lg shadow-sm">
+                            <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-colors">
                               <X size={16} className="text-red-500" />
                             </div>
-                            <span className="text-sm font-medium text-slate-600">Откажани:</span>
+                            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Откажани:</span>
                           </div>
-                          <span className="font-bold text-slate-800">{filteredOrders.filter(o => ['rejected', 'cancelled'].includes(o.status)).length}</span>
+                          <span className="font-bold text-slate-800 dark:text-white">{filteredOrders.filter(o => ['rejected', 'cancelled'].includes(o.status)).length}</span>
                         </div>
                       </div>
                     </div>
@@ -1138,7 +1252,7 @@ export default function Restaurant() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <div className="flex items-center gap-4">
-                <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
                   <Clock className="text-orange-500" />
                   Нарачки
                 </h2>
@@ -1152,7 +1266,7 @@ export default function Restaurant() {
                 )}
               </div>
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-4 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100">
+                <div className="flex items-center gap-4 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-lg border border-emerald-100 dark:border-emerald-800 transition-colors">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1160,7 +1274,7 @@ export default function Restaurant() {
                     </span>
                     <span className="text-sm font-bold">Активни: {activeDeliveryPartners}</span>
                   </div>
-                  <div className="h-4 w-px bg-emerald-200 hidden sm:block"></div>
+                  <div className="h-4 w-px bg-emerald-200 dark:bg-emerald-800 hidden sm:block"></div>
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1" title="Велосипед">
                       <Bike size={16} />
@@ -1176,16 +1290,16 @@ export default function Restaurant() {
                     </div>
                   </div>
                 </div>
-                <div className="flex bg-slate-100 p-1 rounded-lg">
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg transition-colors">
                   <button
                     onClick={() => setOrderView('active')}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'active' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                   >
                     Во тек
                   </button>
                   <button
                     onClick={() => setOrderView('completed')}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'completed' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'completed' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                   >
                     Завршени
                   </button>
@@ -1200,25 +1314,25 @@ export default function Restaurant() {
               if (orderView === 'completed') {
                 if (completedOrders.length === 0) {
                   return (
-                    <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-8 text-center">
-                      <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-red-100 dark:border-slate-800 p-8 text-center transition-colors">
+                      <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Pizza size={32} />
                       </div>
-                      <h2 className="text-2xl font-bold text-slate-800 mb-2">Нема завршени нарачки</h2>
+                      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Нема завршени нарачки</h2>
                     </div>
                   );
                 }
                 return (
                   <div className="grid gap-4">
                     {completedOrders.map(order => (
-                      <div key={order.id} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+                      <div key={order.id} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center transition-colors">
                         <div>
-                          <p className="font-bold text-slate-800">#{order.id} - {order.customer_name}</p>
-                          <p className="text-xs text-slate-500">{new Date(order.created_at).toLocaleString()}</p>
+                          <p className="font-bold text-slate-800 dark:text-white">#{order.id} - {order.customer_name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(order.created_at).toLocaleString()}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-slate-800">{order.total_price} ден.</p>
-                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${order.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                          <p className="font-bold text-slate-800 dark:text-white">{order.total_price} ден.</p>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${order.status === 'completed' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'}`}>
                             {order.status === 'completed' ? 'Доставена' : 'Откажана'}
                           </span>
                         </div>
@@ -1244,17 +1358,17 @@ export default function Restaurant() {
                         <div className="flex items-center justify-between px-2">
                           <div className="flex items-center gap-2">
                             <div className={`w-2 h-2 rounded-full ${col.color}`}></div>
-                            <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm flex items-center gap-2">
+                            <h3 className="font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-sm flex items-center gap-2">
                               {col.icon}
                               {col.title}
                             </h3>
                           </div>
-                          <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full text-xs font-bold">
+                          <span className="bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded-full text-xs font-bold transition-colors">
                             {colOrders.length}
                           </span>
                         </div>
                         
-                        <div className="space-y-4 min-h-[500px] bg-slate-100/50 p-3 rounded-2xl border border-slate-200/50">
+                        <div className="space-y-4 min-h-[500px] bg-slate-100/50 dark:bg-slate-900/50 p-3 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 transition-colors">
                           {colOrders.map(order => {
                             const items = JSON.parse(order.items || '[]');
                             const isExpanded = expandedOrders.has(order.id);
@@ -1262,16 +1376,16 @@ export default function Restaurant() {
                             return (
                               <div 
                                 key={order.id} 
-                                className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-md' : 'hover:border-slate-300'}`}
+                                className={`bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden transition-all ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-md' : 'hover:border-slate-300 dark:hover:border-slate-700'}`}
                               >
                                 <div 
                                   className="p-4 cursor-pointer"
                                   onClick={() => toggleOrderExpansion(order.id)}
                                 >
                                   <div className="flex justify-between items-start mb-2">
-                                    <span className="text-xs font-bold text-slate-400">#{order.id}</span>
+                                    <span className="text-xs font-bold text-slate-400 dark:text-slate-500">#{order.id}</span>
                                     <div className="flex flex-col items-end">
-                                      <span className="text-[10px] text-slate-400 font-mono">{new Date(order.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{new Date(order.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                                       {order.status === 'pending' && order.spare_2 && (
                                         <div className="text-lg font-black text-orange-600 animate-pulse">
                                           <Countdown targetTime={order.spare_2} onExpire={() => updateOrderStatus(order.id, 'accepted')} />
@@ -1282,24 +1396,24 @@ export default function Restaurant() {
                                       )}
                                     </div>
                                   </div>
-                                  <h4 className="font-bold text-slate-800 truncate">{order.customer_name}</h4>
-                                  <p className="text-xs text-slate-500 truncate mb-3">{order.delivery_address}</p>
+                                  <h4 className="font-bold text-slate-800 dark:text-white truncate">{order.customer_name}</h4>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mb-3">{order.delivery_address}</p>
                                   
                                     <div className="flex justify-between items-center mb-3">
-                                      <span className="font-bold text-indigo-600 text-sm">{order.total_price} ден.</span>
+                                      <span className="font-bold text-indigo-600 dark:text-indigo-400 text-sm">{order.total_price} ден.</span>
                                       <div className="flex gap-1">
                                         {order.status === 'pending' && (
                                           <div className="flex gap-1">
                                             <button 
                                               onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'accepted'); }}
-                                              className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                                              className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
                                               title="Прифати"
                                             >
                                               <Check size={16} />
                                             </button>
                                             <button 
                                               onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
-                                              className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                                              className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
                                               title="Одбиј"
                                             >
                                               <X size={16} />
@@ -1310,14 +1424,14 @@ export default function Restaurant() {
                                           <div className="flex gap-1">
                                             <button 
                                               onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'ready'); }}
-                                              className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                                              className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
                                               title="Подготвено"
                                             >
                                               <CheckCircle size={16} />
                                             </button>
                                             <button 
                                               onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
-                                              className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                                              className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
                                               title="Откажи"
                                             >
                                               <X size={16} />
@@ -1328,7 +1442,7 @@ export default function Restaurant() {
                                           <div className="flex gap-1">
                                             <button 
                                               onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
-                                              className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"
+                                              className="p-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
                                               title="Во достава"
                                             >
                                               <MapPin size={16} />
@@ -1336,7 +1450,7 @@ export default function Restaurant() {
                                             {activeDeliveryPartners === 0 && (
                                               <button 
                                                 onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
-                                                className="px-2 py-1 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors text-[10px] font-bold flex items-center gap-1"
+                                                className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors text-[10px] font-bold flex items-center gap-1"
                                                 title="Сопствена достава"
                                               >
                                                 <Truck size={12} /> Сопствена
@@ -1347,7 +1461,7 @@ export default function Restaurant() {
                                         {order.status === 'delivering' && (
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'completed'); }}
-                                            className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                                            className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
                                             title="Заврши"
                                           >
                                             <CheckCircle size={16} />
@@ -1358,23 +1472,23 @@ export default function Restaurant() {
 
                                     {order.status === 'pending' && (
                                       <div className="flex gap-1 mt-2">
-                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 5); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100">+5м</button>
-                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 10); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100">+10м</button>
-                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 20); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100">+20м</button>
+                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 5); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">+5м</button>
+                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 10); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">+10м</button>
+                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 20); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">+20м</button>
                                       </div>
                                     )}
                                   </div>
 
                                   {(isExpanded || ['pending', 'accepted', 'ready', 'delivering'].includes(order.status)) && (
-                                    <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2">
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 space-y-4 animate-in fade-in slide-in-from-top-2 transition-colors">
                                       <div className="space-y-2">
                                         {items.map((item: any, i: number) => (
-                                          <div key={i} className="p-3 bg-white rounded-xl border border-slate-100 shadow-sm space-y-1">
-                                            <div className="flex justify-between font-black text-slate-800 text-sm">
+                                          <div key={i} className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-1 transition-colors">
+                                            <div className="flex justify-between font-black text-slate-800 dark:text-white text-sm">
                                               <div className="flex items-center gap-2">
                                                 <span>{item.quantity || 1}x {item.name}</span>
                                                 {item.user_name && (
-                                                  <span className="bg-indigo-100 text-indigo-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                  <span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                                                     {item.user_name}
                                                   </span>
                                                 )}
@@ -1382,7 +1496,7 @@ export default function Restaurant() {
                                               <span>{item.finalPrice} ден.</span>
                                             </div>
                                             {item.selectedModifiers && Object.keys(item.selectedModifiers).length > 0 && (
-                                              <div className="pl-2 border-l-2 border-indigo-100 space-y-1">
+                                              <div className="pl-2 border-l-2 border-indigo-100 dark:border-indigo-900 space-y-1">
                                                 {Object.entries(item.selectedModifiers).map(([group, options]: [string, any]) => {
                                                   let selectedText = '';
                                                   if (Array.isArray(options)) {
@@ -1400,8 +1514,8 @@ export default function Restaurant() {
                                                   
                                                   return (
                                                     <div key={group} className="text-[11px] leading-tight">
-                                                      <span className="font-bold text-slate-500 uppercase text-[9px] block">{group}:</span>
-                                                      <span className="text-slate-700 font-medium italic">{selectedText}</span>
+                                                      <span className="font-bold text-slate-500 dark:text-slate-400 uppercase text-[9px] block">{group}:</span>
+                                                      <span className="text-slate-700 dark:text-slate-300 font-medium italic">{selectedText}</span>
                                                     </div>
                                                   );
                                                 })}
@@ -1412,18 +1526,18 @@ export default function Restaurant() {
                                       </div>
 
                                       {/* Payment & Fees */}
-                                      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
+                                      <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 transition-colors">
                                         <div className="flex justify-between items-center">
-                                          <span className="text-[10px] font-bold text-slate-400 uppercase">Плаќање:</span>
-                                          <span className="text-xs font-bold text-slate-700">
+                                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Плаќање:</span>
+                                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                                             {order.payment_method === 'cash' ? 'Готовина' : order.payment_method === 'card' ? 'Картичка' : 'Поени'}
                                           </span>
                                         </div>
                                         {order.selected_fees && JSON.parse(order.selected_fees).length > 0 && (
-                                          <div className="pt-2 border-t border-slate-100">
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Додатоци:</span>
+                                          <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase block mb-1">Додатоци:</span>
                                             {JSON.parse(order.selected_fees).map((fee: any, idx: number) => (
-                                              <div key={idx} className="flex justify-between text-[10px] text-slate-600">
+                                              <div key={idx} className="flex justify-between text-[10px] text-slate-600 dark:text-slate-400">
                                                 <span>{fee.name}</span>
                                                 <span>+{fee.amount} ден.</span>
                                               </div>
@@ -1434,54 +1548,38 @@ export default function Restaurant() {
                                       
                                       <div className="flex flex-col gap-2 pt-2">
                                         {order.delivery_partner_name && (
-                                          <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100 mb-2">
+                                          <div className="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800 mb-2 transition-colors">
                                             <div className="flex items-center gap-2">
-                                              <div className="p-2 bg-white rounded-lg shadow-sm">
+                                              <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-colors">
                                                 {(() => {
                                                   try {
                                                     const methods = JSON.parse(order.delivery_partner_methods || '[]');
-                                                    if (methods.includes('bicycle')) return <Bike size={16} className="text-indigo-600" />;
-                                                    if (methods.includes('motorcycle')) return <Bike size={16} className="text-indigo-600 opacity-70" />;
-                                                    if (methods.includes('car')) return <Car size={16} className="text-indigo-600" />;
-                                                    return <User size={16} className="text-indigo-600" />;
+                                                    if (methods.includes('bicycle')) return <Bike size={16} className="text-indigo-600 dark:text-indigo-400" />;
+                                                    if (methods.includes('motorcycle')) return <Bike size={16} className="text-indigo-600 dark:text-indigo-400 opacity-70" />;
+                                                    if (methods.includes('car')) return <Car size={16} className="text-indigo-600 dark:text-indigo-400" />;
+                                                    return <User size={16} className="text-indigo-600 dark:text-indigo-400" />;
                                                   } catch (e) {
-                                                    return <User size={16} className="text-indigo-600" />;
+                                                    return <User size={16} className="text-indigo-600 dark:text-indigo-400" />;
                                                   }
                                                 })()}
                                               </div>
                                               <div>
-                                                <p className="text-[10px] font-bold text-indigo-400 uppercase">Доставувач:</p>
-                                                <p className="text-xs font-bold text-indigo-900">{order.delivery_partner_name}</p>
+                                                <p className="text-[10px] font-bold text-indigo-400 dark:text-indigo-500 uppercase">Доставувач:</p>
+                                                <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200">{order.delivery_partner_name}</p>
                                               </div>
-                                            </div>
-                                            <div className="text-right">
-                                              <p className="text-[10px] font-bold text-indigo-400 uppercase">Метод:</p>
-                                              <p className="text-xs font-bold text-indigo-900 capitalize">
-                                                {(() => {
-                                                  try {
-                                                    const methods = JSON.parse(order.delivery_partner_methods || '[]');
-                                                    if (methods.includes('bicycle')) return 'Велосипед';
-                                                    if (methods.includes('motorcycle')) return 'Мотор';
-                                                    if (methods.includes('car')) return 'Автомобил';
-                                                    return 'Пешки';
-                                                  } catch (e) {
-                                                    return 'Непознато';
-                                                  }
-                                                })()}
-                                              </p>
                                             </div>
                                           </div>
                                         )}
                                         <button 
                                           onClick={(e) => { e.stopPropagation(); window.open(`/track/${order.tracking_token}`, '_blank'); }}
-                                          className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2"
                                         >
                                           <Share2 size={14} /> Следење & QR
                                         </button>
                                         {(order.status === 'accepted' || order.status === 'ready') && (
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); handlePrintLabel(order); }}
-                                            className="w-full py-2 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-900 transition-all flex items-center justify-center gap-2"
+                                            className="w-full py-2 bg-slate-800 dark:bg-slate-700 text-white rounded-lg text-xs font-bold hover:bg-slate-900 dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2"
                                           >
                                             <Printer size={14} /> Принт
                                           </button>
@@ -1493,7 +1591,7 @@ export default function Restaurant() {
                             );
                           })}
                           {colOrders.length === 0 && (
-                            <div className="h-24 flex items-center justify-center text-slate-300 text-xs italic">
+                            <div className="h-24 flex items-center justify-center text-slate-300 dark:text-slate-600 text-xs italic">
                               Нема нарачки
                             </div>
                           )}
@@ -1507,15 +1605,15 @@ export default function Restaurant() {
           </div>
         ) : activeTab === 'settings' ? (
           <div className="space-y-6 max-w-4xl mx-auto">
-            <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-6">
-              <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-red-100 dark:border-slate-800 p-6 transition-colors">
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                 <Settings2 className="text-red-500" />
                 Основни поставки
               </h2>
               <form onSubmit={handleSaveSettings} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Град *</label>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Град *</label>
                     <select 
                       required 
                       value={settingsForm.city} 
@@ -1527,7 +1625,7 @@ export default function Restaurant() {
                           spare_3: selectedCity ? selectedCity.zip : settingsForm.spare_3
                         });
                       }} 
-                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white"
+                      className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors"
                     >
                       <option value="" disabled>Изберете град</option>
                       {MACEDONIAN_CITIES.map(city => (
@@ -1536,69 +1634,69 @@ export default function Restaurant() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Адреса *</label>
-                    <input type="text" required value={settingsForm.address} onChange={e => setSettingsForm({...settingsForm, address: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. Ул. Партизанска бр. 10" />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Адреса *</label>
+                    <input type="text" required value={settingsForm.address} onChange={e => setSettingsForm({...settingsForm, address: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="Пр. Ул. Партизанска бр. 10" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Телефонски број</label>
-                    <input type="text" value={settingsForm.phone} onChange={e => setSettingsForm({...settingsForm, phone: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" required />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Телефонски број</label>
+                    <input type="text" value={settingsForm.phone} onChange={e => setSettingsForm({...settingsForm, phone: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" required />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Жиро сметка</label>
-                    <input type="text" value={settingsForm.bank_account} onChange={e => setSettingsForm({...settingsForm, bank_account: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" required />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Жиро сметка</label>
+                    <input type="text" value={settingsForm.bank_account} onChange={e => setSettingsForm({...settingsForm, bank_account: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" required />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Лозинка</label>
-                    <input type="text" value={settingsForm.password} onChange={e => setSettingsForm({...settingsForm, password: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" required />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Лозинка</label>
+                    <input type="text" value={settingsForm.password} onChange={e => setSettingsForm({...settingsForm, password: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" required />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Лого</label>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Лого</label>
                     <div className="flex gap-2">
-                      <input type="text" value={settingsForm.logo_url} onChange={e => setSettingsForm({...settingsForm, logo_url: e.target.value})} className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
-                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                      <input type="text" value={settingsForm.logo_url} onChange={e => setSettingsForm({...settingsForm, logo_url: e.target.value})} className="flex-1 p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="https://..." />
+                      <label className="cursor-pointer bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
                         <Upload size={18} />
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'logo_url')} />
                       </label>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Насловна фотографија (Cover)</label>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Насловна фотографија (Cover)</label>
                     <div className="flex gap-2">
-                      <input type="text" value={settingsForm.cover_url} onChange={e => setSettingsForm({...settingsForm, cover_url: e.target.value})} className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
-                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                      <input type="text" value={settingsForm.cover_url} onChange={e => setSettingsForm({...settingsForm, cover_url: e.target.value})} className="flex-1 p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="https://..." />
+                      <label className="cursor-pointer bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
                         <Upload size={18} />
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'cover_url')} />
                       </label>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">HEADER PHOTO</label>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">HEADER PHOTO</label>
                     <div className="flex gap-2">
-                      <input type="text" value={settingsForm.header_image} onChange={e => setSettingsForm({...settingsForm, header_image: e.target.value})} className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="https://..." />
-                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                      <input type="text" value={settingsForm.header_image} onChange={e => setSettingsForm({...settingsForm, header_image: e.target.value})} className="flex-1 p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="https://..." />
+                      <label className="cursor-pointer bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
                         <Upload size={18} />
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'header_image')} />
                       </label>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Географска ширина (Latitude)</label>
-                    <input type="text" value={settingsForm.spare_1} onChange={e => setSettingsForm({...settingsForm, spare_1: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. 41.9981" />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Географска ширина (Latitude)</label>
+                    <input type="text" value={settingsForm.spare_1} onChange={e => setSettingsForm({...settingsForm, spare_1: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="Пр. 41.9981" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Географска должина (Longitude)</label>
-                    <input type="text" value={settingsForm.spare_2} onChange={e => setSettingsForm({...settingsForm, spare_2: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. 21.4254" />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Географска должина (Longitude)</label>
+                    <input type="text" value={settingsForm.spare_2} onChange={e => setSettingsForm({...settingsForm, spare_2: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="Пр. 21.4254" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Поштенски број</label>
-                    <input type="text" value={settingsForm.spare_3} onChange={e => setSettingsForm({...settingsForm, spare_3: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Пр. 1000" />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Поштенски број</label>
+                    <input type="text" value={settingsForm.spare_3} onChange={e => setSettingsForm({...settingsForm, spare_3: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="Пр. 1000" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Резервно поле 4</label>
-                    <input type="text" value={settingsForm.spare_4} onChange={e => setSettingsForm({...settingsForm, spare_4: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" />
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Резервно поле 4</label>
+                    <input type="text" value={settingsForm.spare_4} onChange={e => setSettingsForm({...settingsForm, spare_4: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
                       <Clock size={18} className="text-red-500" />
                       Работно време
                     </label>
@@ -1637,8 +1735,8 @@ export default function Restaurant() {
                         };
 
                         return (
-                          <div key={day.key} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                            <span className="font-bold text-slate-700 w-32">{day.label}</span>
+                          <div key={day.key} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 transition-colors">
+                            <span className="font-bold text-slate-700 dark:text-slate-300 w-32">{day.label}</span>
                             <div className="flex items-center gap-3">
                               <div className="flex items-center gap-2">
                                 <input 
@@ -1646,22 +1744,22 @@ export default function Restaurant() {
                                   value={hours.open} 
                                   disabled={!hours.active}
                                   onChange={(e) => updateDay({ open: e.target.value })}
-                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none disabled:opacity-50"
+                                  className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none disabled:opacity-50 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors"
                                 />
-                                <span className="text-slate-400">-</span>
+                                <span className="text-slate-400 dark:text-slate-600">-</span>
                                 <input 
                                   type="time" 
                                   value={hours.close} 
                                   disabled={!hours.active}
                                   onChange={(e) => updateDay({ close: e.target.value })}
-                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none disabled:opacity-50"
+                                  className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none disabled:opacity-50 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors"
                                 />
                               </div>
                               <input 
                                 type="checkbox" 
                                 checked={hours.active} 
                                 onChange={(e) => updateDay({ active: e.target.checked })}
-                                className="w-5 h-5 rounded text-red-600 focus:ring-red-500 cursor-pointer"
+                                className="w-5 h-5 rounded text-red-600 focus:ring-red-500 cursor-pointer bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                               />
                             </div>
                           </div>
@@ -1671,7 +1769,7 @@ export default function Restaurant() {
                   </div>
                 </div>
                 <div className="flex justify-end pt-4">
-                  <button type="submit" disabled={isSavingSettings} className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors disabled:opacity-70">
+                  <button type="submit" disabled={isSavingSettings} className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors disabled:opacity-70 shadow-lg shadow-red-200 dark:shadow-none">
                     <Save size={20} />
                     {isSavingSettings ? 'Се зачувува...' : 'Зачувај поставки'}
                   </button>
@@ -1679,15 +1777,15 @@ export default function Restaurant() {
               </form>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-6">
-              <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-red-100 dark:border-slate-800 p-6 transition-colors">
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                 <MapPin className="text-red-500" />
                 Зони на достава
               </h2>
               
               {loggedInRestaurant.has_own_delivery === 1 ? (
                 <>
-                  <p className="text-slate-600 mb-4">
+                  <p className="text-slate-600 dark:text-slate-400 mb-4">
                     Нацртајте ги зоните каде што вршите достава. Можете да додадете повеќе зони (на пример, за различни населби). 
                     Секоја нова зона ќе добие различна боја.
                   </p>
@@ -1703,7 +1801,7 @@ export default function Restaurant() {
                     <button 
                       onClick={handleSaveZones}
                       disabled={isSavingZones}
-                      className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors disabled:opacity-70"
+                      className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors disabled:opacity-70 shadow-lg shadow-red-200 dark:shadow-none"
                     >
                       <Save size={20} />
                       {isSavingZones ? 'Се зачувува...' : 'Зачувај зони'}
@@ -1711,7 +1809,7 @@ export default function Restaurant() {
                   </div>
                 </>
               ) : (
-                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                <div className="text-center py-12 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 transition-colors">
                   <p>Вашиот ресторан не врши сопствена достава. Оваа опција е исклучена.</p>
                 </div>
               )}
@@ -1720,7 +1818,7 @@ export default function Restaurant() {
         ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2 transition-colors">
                 <MenuSquare className="text-red-500" />
                 Управување со Мени
               </h2>
@@ -1734,33 +1832,33 @@ export default function Restaurant() {
                     setIsAdding(true);
                   }
                 }}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 transition-colors"
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-lg shadow-red-200 dark:shadow-none"
               >
                 {isAdding ? 'Откажи' : <><Plus size={20} /> Додади продукт</>}
               </button>
             </div>
 
             {isAdding && (
-              <form onSubmit={handleAddItem} className="bg-white p-6 rounded-2xl shadow-sm border border-red-100 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-4">
+              <form onSubmit={handleAddItem} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-red-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-4 transition-colors">
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Име на продукт</label>
-                    <input required type="text" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="на пр. Капричиоза" />
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Име на продукт</label>
+                    <input required type="text" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="на пр. Капричиоза" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Опис / Состојки</label>
-                    <textarea required value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="на пр. Печурки, кашкавал..." rows={3}></textarea>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Опис / Состојки</label>
+                    <textarea required value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="на пр. Печурки, кашкавал..." rows={3}></textarea>
                   </div>
                 </div>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Цена (ден.)</label>
-                      <input required type="number" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="350" />
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Цена (ден.)</label>
+                      <input required type="number" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="350" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Категорија</label>
-                      <input required type="text" list="categories" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="на пр. Храна" />
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Категорија</label>
+                      <input required type="text" list="categories" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="на пр. Храна" />
                       <datalist id="categories">
                         <option value="Храна" />
                         <option value="Пијалоци" />
@@ -1769,8 +1867,8 @@ export default function Restaurant() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Подкатегорија</label>
-                    <input required type="text" list="subcategories" value={newItem.subcategory} onChange={e => setNewItem({...newItem, subcategory: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="на пр. Пица, Салата, Сосови" />
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Подкатегорија</label>
+                    <input required type="text" list="subcategories" value={newItem.subcategory} onChange={e => setNewItem({...newItem, subcategory: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="на пр. Пица, Салата, Сосови" />
                     <datalist id="subcategories">
                       <option value="Пица" />
                       <option value="Паста" />
@@ -1780,13 +1878,13 @@ export default function Restaurant() {
                     </datalist>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Слика - Опционално</label>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Слика - Опционално</label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
-                        <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                        <input type="text" value={newItem.image_url} onChange={e => setNewItem({...newItem, image_url: e.target.value})} className="w-full pl-10 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none" placeholder="https://..." />
+                        <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={20} />
+                        <input type="text" value={newItem.image_url} onChange={e => setNewItem({...newItem, image_url: e.target.value})} className="w-full pl-10 p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="https://..." />
                       </div>
-                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                      <label className="cursor-pointer bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
                         <Upload size={18} />
                         <input type="file" accept="image/*" className="hidden" onChange={handleItemImageUpload} />
                       </label>
@@ -1794,27 +1892,27 @@ export default function Restaurant() {
                   </div>
                   
                   {/* Modifiers Section */}
-                  <div className="col-span-1 md:col-span-2 border-t border-slate-100 pt-8 mt-4">
+                  <div className="col-span-1 md:col-span-2 border-t border-slate-100 dark:border-slate-800 pt-8 mt-4 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                       <div>
-                        <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2 transition-colors">
                           <Settings2 className="text-red-500" size={24} />
                           Опции и Додатоци
                         </h3>
-                        <p className="text-sm text-slate-500 mt-1">Додадете варијации (пр. Големина) или екстра додатоци (пр. Кашкавал)</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Додадете варијации (пр. Големина) или екстра додатоци (пр. Кашкавал)</p>
                       </div>
-                      <button type="button" onClick={addModifierGroup} className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 whitespace-nowrap">
+                      <button type="button" onClick={addModifierGroup} className="bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 whitespace-nowrap">
                         <Plus size={18} /> Нова Група
                       </button>
                     </div>
                     
                     <div className="space-y-6">
                       {newItem.modifiers.map((group, gIndex) => (
-                        <div key={gIndex} className="bg-white p-5 rounded-2xl border-2 border-slate-100 shadow-sm relative group/group">
+                        <div key={gIndex} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border-2 border-slate-100 dark:border-slate-700 shadow-sm relative group/group transition-colors">
                           <button 
                             type="button" 
                             onClick={() => removeModifierGroup(gIndex)} 
-                            className="absolute -top-3 -right-3 bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 p-1.5 rounded-full transition-all shadow-sm opacity-0 group-hover/group:opacity-100"
+                            className="absolute -top-3 -right-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-red-500 hover:border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded-full transition-all shadow-sm opacity-0 group-hover/group:opacity-100"
                             title="Избриши група"
                           >
                             <X size={16} />
@@ -1822,21 +1920,21 @@ export default function Restaurant() {
                           
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             <div>
-                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Име на група</label>
+                              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 transition-colors">Име на група</label>
                               <input 
                                 type="text" 
                                 value={group.name} 
                                 onChange={e => updateModifierGroup(gIndex, 'name', e.target.value)} 
                                 placeholder="пр. Избор на големина" 
-                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-red-500 outline-none font-medium text-slate-800" 
+                                className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-red-500 outline-none font-medium text-slate-800 dark:text-white transition-colors" 
                               />
                             </div>
                             <div>
-                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Тип на избор</label>
+                              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 transition-colors">Тип на избор</label>
                               <select 
                                 value={group.type} 
                                 onChange={e => updateModifierGroup(gIndex, 'type', e.target.value)} 
-                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-red-500 outline-none font-medium text-slate-800 cursor-pointer"
+                                className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-red-500 outline-none font-medium text-slate-800 dark:text-white cursor-pointer transition-colors"
                               >
                                 <option value="single">Еден избор (Задолжително)</option>
                                 <option value="multiple">Повеќе избори (Опционално)</option>
@@ -1844,38 +1942,38 @@ export default function Restaurant() {
                             </div>
                           </div>
                           
-                          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                          <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-4 border border-slate-100 dark:border-slate-800 transition-colors">
                             <div className="flex items-center justify-between mb-3">
-                              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Опции во оваа група</label>
-                              <span className="text-xs font-medium text-slate-400">{group.options.length} опции</span>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider transition-colors">Опции во оваа група</label>
+                              <span className="text-xs font-medium text-slate-400 dark:text-slate-500 transition-colors">{group.options.length} опции</span>
                             </div>
                             
                             <div className="space-y-3">
                               {group.options.map((opt, oIndex) => (
-                                <div key={oIndex} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-white p-2 rounded-lg border border-slate-200 group/option">
+                                <div key={oIndex} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700 group/option transition-colors">
                                   <div className="flex-1 w-full">
                                     <input 
                                       type="text" 
                                       value={opt.name} 
                                       onChange={e => updateModifierOption(gIndex, oIndex, 'name', e.target.value)} 
                                       placeholder="Име на опција (пр. Мала)" 
-                                      className="w-full p-2 bg-transparent border-none focus:ring-0 outline-none text-sm font-medium text-slate-700 placeholder:font-normal" 
+                                      className="w-full p-2 bg-transparent border-none focus:ring-0 outline-none text-sm font-medium text-slate-700 dark:text-slate-200 placeholder:font-normal transition-colors" 
                                     />
                                   </div>
-                                  <div className="flex items-center gap-2 w-full sm:w-auto pl-2 sm:pl-0 border-t sm:border-t-0 sm:border-l border-slate-100 pt-2 sm:pt-0">
-                                    <span className="text-sm font-bold text-slate-400 pl-2">+</span>
+                                  <div className="flex items-center gap-2 w-full sm:w-auto pl-2 sm:pl-0 border-t sm:border-t-0 sm:border-l border-slate-100 dark:border-slate-700 pt-2 sm:pt-0 transition-colors">
+                                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 pl-2 transition-colors">+</span>
                                     <input 
                                       type="number" 
                                       value={opt.price} 
                                       onChange={e => updateModifierOption(gIndex, oIndex, 'price', parseFloat(e.target.value) || 0)} 
                                       placeholder="0" 
-                                      className="w-20 p-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-red-500 outline-none text-sm font-bold text-slate-700 text-right" 
+                                      className="w-20 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-red-500 outline-none text-sm font-bold text-slate-700 dark:text-white text-right transition-colors" 
                                     />
-                                    <span className="text-sm font-bold text-slate-400 pr-2">ден.</span>
+                                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 pr-2 transition-colors">ден.</span>
                                     <button 
                                       type="button" 
                                       onClick={() => removeModifierOption(gIndex, oIndex)} 
-                                      className="text-slate-300 hover:text-red-500 p-2 rounded-lg transition-colors sm:opacity-0 group-hover/option:opacity-100"
+                                      className="text-slate-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 p-2 rounded-lg transition-colors sm:opacity-0 group-hover/option:opacity-100"
                                       title="Избриши опција"
                                     >
                                       <Trash2 size={18} />
@@ -1887,7 +1985,7 @@ export default function Restaurant() {
                               <button 
                                 type="button" 
                                 onClick={() => addModifierOption(gIndex)} 
-                                className="w-full py-3 border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50 rounded-lg text-sm font-bold text-slate-500 hover:text-red-600 transition-all flex items-center justify-center gap-2"
+                                className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-red-300 dark:hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-all flex items-center justify-center gap-2"
                               >
                                 <Plus size={16} /> Додади нова опција
                               </button>
@@ -1897,14 +1995,14 @@ export default function Restaurant() {
                       ))}
                       
                       {newItem.modifiers.length === 0 && (
-                        <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                          <Settings2 className="mx-auto text-slate-300 mb-3" size={32} />
-                          <p className="text-slate-500 font-medium">Немате додадено опции за овој продукт.</p>
-                          <p className="text-sm text-slate-400 mt-1">Продуктот ќе се продава само по основната цена.</p>
+                        <div className="text-center py-10 bg-slate-50 dark:bg-slate-900 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 transition-colors">
+                          <Settings2 className="mx-auto text-slate-300 dark:text-slate-600 mb-3" size={32} />
+                          <p className="text-slate-500 dark:text-slate-400 font-medium transition-colors">Немате додадено опции за овој продукт.</p>
+                          <p className="text-sm text-slate-400 dark:text-slate-500 mt-1 transition-colors">Продуктот ќе се продава само по основната цена.</p>
                           <button 
                             type="button" 
                             onClick={addModifierGroup} 
-                            className="mt-4 text-red-600 hover:text-red-700 font-bold text-sm flex items-center justify-center gap-1 mx-auto"
+                            className="mt-4 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-bold text-sm flex items-center justify-center gap-1 mx-auto transition-colors"
                           >
                             <Plus size={16} /> Додади прва група на опции
                           </button>
@@ -1913,8 +2011,8 @@ export default function Restaurant() {
                     </div>
                   </div>
 
-                  <div className="col-span-1 md:col-span-2 pt-6 mt-4 border-t border-slate-100">
-                    <button type="submit" disabled={isAddingItem} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-slate-800/20 disabled:opacity-70 text-lg">
+                  <div className="col-span-1 md:col-span-2 pt-6 mt-4 border-t border-slate-100 dark:border-slate-800 transition-colors">
+                    <button type="submit" disabled={isAddingItem} className="w-full bg-slate-800 dark:bg-red-600 hover:bg-slate-900 dark:hover:bg-red-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-slate-800/20 dark:shadow-none disabled:opacity-70 text-lg">
                       {isAddingItem ? 'Се зачувува...' : (editingId ? 'Зачувај промени' : 'Зачувај продукт')}
                     </button>
                   </div>
@@ -1924,42 +2022,42 @@ export default function Restaurant() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {menuItems.map(item => (
-                <div key={item.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 group flex flex-col">
-                  <div className="h-48 overflow-hidden relative">
+                <div key={item.id} className="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-sm border border-slate-100 dark:border-slate-800 group flex flex-col transition-colors">
+                  <div className="h-48 overflow-hidden relative bg-slate-100 dark:bg-slate-800 transition-colors">
                     <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
-                    <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-bold text-slate-800 shadow-sm">
+                    <div className="absolute top-3 right-3 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-bold text-slate-800 dark:text-white shadow-sm transition-colors">
                       {item.price} ден.
                     </div>
                   </div>
                   <div className="p-5 flex-1 flex flex-col">
                     <div className="flex justify-between items-start mb-2">
-                      <h3 className="font-bold text-lg text-slate-800">{item.name}</h3>
-                      <span className="text-xs font-medium bg-slate-100 text-slate-600 px-2 py-1 rounded-md">{item.category} &gt; {item.subcategory}</span>
+                      <h3 className="font-bold text-lg text-slate-800 dark:text-white transition-colors">{item.name}</h3>
+                      <span className="text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-1 rounded-md transition-colors">{item.category} &gt; {item.subcategory}</span>
                     </div>
-                    <p className="text-slate-500 text-sm mb-4 line-clamp-2 flex-1">{item.description}</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 line-clamp-2 flex-1 transition-colors">{item.description}</p>
                     
                     {item.modifiers && item.modifiers.length > 0 && (
                       <div className="mb-4 flex flex-wrap gap-1">
                         {item.modifiers.map((mod, idx) => (
-                          <span key={idx} className="text-[10px] font-medium bg-orange-50 text-orange-700 px-2 py-1 rounded border border-orange-100">
+                          <span key={idx} className="text-[10px] font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 px-2 py-1 rounded border border-orange-100 dark:border-orange-900/30 transition-colors">
                             {mod.name} ({mod.options.length})
                           </span>
                         ))}
                       </div>
                     )}
 
-                    <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-auto">
+                    <div className="flex justify-between items-center border-t border-slate-100 dark:border-slate-800 pt-4 mt-auto transition-colors">
                       <button 
                         onClick={() => handleToggleAvailability(item.id)} 
-                        className={`p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium ${item.is_available === 0 ? 'text-red-500 hover:bg-red-50' : 'text-emerald-500 hover:bg-emerald-50'}`}
+                        className={`p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium ${item.is_available === 0 ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'}`}
                       >
                         {item.is_available === 0 ? <><X size={16} /> Нема на залиха</> : <><Check size={16} /> Достапно</>}
                       </button>
                       <div className="flex gap-2">
-                        <button onClick={() => handleEditItem(item)} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                        <button onClick={() => handleEditItem(item)} className="text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
                           <Pencil size={16} /> Уреди
                         </button>
-                        <button onClick={() => handleDeleteItem(item.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                        <button onClick={() => handleDeleteItem(item.id)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
                           <Trash2 size={16} /> Избриши
                         </button>
                       </div>
@@ -1968,8 +2066,8 @@ export default function Restaurant() {
                 </div>
               ))}
               {menuItems.length === 0 && !isAdding && (
-                <div className="col-span-full text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-500">
-                  <Pizza className="mx-auto mb-3 text-slate-300" size={32} />
+                <div className="col-span-full text-center py-12 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
+                  <Pizza className="mx-auto mb-3 text-slate-300 dark:text-slate-600" size={32} />
                   <p>Вашето мени е празно. Додадете го првиот продукт!</p>
                 </div>
               )}
@@ -1977,47 +2075,131 @@ export default function Restaurant() {
           </div>
         )}
 
+        {activeTab === 'invoicing' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white transition-colors">Фактурирање</h2>
+                <p className="text-slate-500 dark:text-slate-400">Преглед и управување со вашите фактури</p>
+              </div>
+              <button 
+                onClick={handleGenerateInvoice}
+                disabled={isGeneratingInvoice}
+                className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-600/20 disabled:opacity-50"
+              >
+                {isGeneratingInvoice ? <RefreshCw size={20} className="animate-spin" /> : <RefreshCw size={20} />}
+                Генерирај пресметка
+              </button>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden transition-colors">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors">
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Број</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Период</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Вкупно</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Статус</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Акција</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {invoices.length > 0 ? (
+                      invoices.map((invoice) => (
+                        <tr key={invoice.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                          <td className="px-6 py-4 font-mono font-bold text-slate-700 dark:text-slate-300">
+                            {invoice.invoice_number}
+                          </td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                            {new Date(invoice.period_start).toLocaleDateString('mk-MK')} - {new Date(invoice.period_end).toLocaleDateString('mk-MK')}
+                          </td>
+                          <td className="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
+                            {invoice.total_amount.toLocaleString()} ден.
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                              invoice.status === 'Paid' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                              invoice.status === 'Approved' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' :
+                              invoice.status === 'Pending' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' :
+                              'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                            }`}>
+                              {invoice.status === 'Draft' ? 'Предлог' :
+                               invoice.status === 'Pending' ? 'Испратено' :
+                               invoice.status === 'Approved' ? 'Одобрено' :
+                               invoice.status === 'Paid' ? 'Платено' : invoice.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={() => {
+                                setSelectedInvoice(invoice);
+                                setIsInvoiceModalOpen(true);
+                              }}
+                              className="p-2 text-slate-400 hover:text-red-600 transition-colors"
+                            >
+                              <Eye size={20} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-20 text-center">
+                          <Receipt className="mx-auto text-slate-200 dark:text-slate-700 mb-4" size={48} />
+                          <p className="text-slate-500 dark:text-slate-400 font-medium">Сè уште немате генерирано фактури.</p>
+                          <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">Кликнете на копчето погоре за да генерирате нова пресметка.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'reviews' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-slate-800">Рецензии од корисници</h2>
-              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm">
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white transition-colors">Рецензии од корисници</h2>
+              <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm transition-colors">
                 <Star className="text-yellow-400 fill-yellow-400" size={20} />
-                <span className="text-lg font-bold text-slate-800">
+                <span className="text-lg font-bold text-slate-800 dark:text-white transition-colors">
                   {reviews.length > 0 
                     ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) 
                     : '0.0'}
                 </span>
-                <span className="text-slate-400 text-sm">({reviews.length})</span>
+                <span className="text-slate-400 dark:text-slate-500 text-sm transition-colors">({reviews.length})</span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {reviews.map(review => (
-                <div key={review.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div key={review.id} className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
                   <div className="flex justify-between items-start mb-4">
                     <div>
-                      <h3 className="font-bold text-slate-800">{review.customer_name}</h3>
-                      <p className="text-xs text-slate-400">{new Date(review.created_at).toLocaleDateString('mk-MK')}</p>
+                      <h3 className="font-bold text-slate-800 dark:text-white transition-colors">{review.customer_name}</h3>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 transition-colors">{new Date(review.created_at).toLocaleDateString('mk-MK')}</p>
                     </div>
                     <div className="flex gap-0.5">
                       {[...Array(5)].map((_, i) => (
                         <Star 
                           key={i} 
                           size={16} 
-                          className={i < review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-slate-200'} 
+                          className={i < review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-slate-200 dark:text-slate-700'} 
                         />
                       ))}
                     </div>
                   </div>
-                  <p className="text-slate-600 italic">"{review.comment}"</p>
+                  <p className="text-slate-600 dark:text-slate-400 italic transition-colors">"{review.comment}"</p>
                 </div>
               ))}
               {reviews.length === 0 && (
-                <div className="col-span-full text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
-                  <Star className="mx-auto text-slate-200 mb-4" size={48} />
-                  <p className="text-slate-500 font-medium">Сè уште немате рецензии.</p>
-                  <p className="text-sm text-slate-400 mt-1">Рецензиите се појавуваат откако корисниците ќе ги примат своите нарачки.</p>
+                <div className="col-span-full text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800 transition-colors">
+                  <Star className="mx-auto text-slate-200 dark:text-slate-700 mb-4" size={48} />
+                  <p className="text-slate-500 dark:text-slate-400 font-medium transition-colors">Сè уште немате рецензии.</p>
+                  <p className="text-sm text-slate-400 dark:text-slate-500 mt-1 transition-colors">Рецензиите се појавуваат откако корисниците ќе ги примат своите нарачки.</p>
                 </div>
               )}
             </div>
@@ -2027,19 +2209,19 @@ export default function Restaurant() {
         {activeTab === 'campaigns' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-slate-800">Промотивни Кампањи</h2>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white transition-colors">Промотивни Кампањи</h2>
               <button 
                 onClick={() => setIsAdding(prev => !prev)} 
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg ${isAdding ? 'bg-slate-200 text-slate-700' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-600/20'}`}
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg ${isAdding ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-600/20 dark:shadow-none'}`}
               >
                 {isAdding ? <><X size={20} /> Затвори</> : <><Plus size={20} /> Побарај промоција</>}
               </button>
             </div>
 
             {isAdding && (
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-indigo-100 animate-in fade-in slide-in-from-top-4 duration-300">
-                <h3 className="text-lg font-bold text-slate-800 mb-6">Барање за нова промотивна кампања</h3>
-                <p className="text-sm text-slate-500 mb-8 bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-indigo-100 dark:border-slate-800 animate-in fade-in slide-in-from-top-4 duration-300 transition-colors">
+                <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 transition-colors">Барање за нова промотивна кампања</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30 transition-colors">
                   <strong>Напомена:</strong> Секое барање за промоција мора да биде одобрено од администраторот пред да стане активно.
                 </p>
                 
@@ -2071,38 +2253,38 @@ export default function Restaurant() {
                 }} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Име на кампања</label>
-                      <input name="name" required type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="пр. Викенд Попуст" />
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Име на кампања</label>
+                      <input name="name" required type="text" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="пр. Викенд Попуст" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Опис</label>
-                      <textarea name="description" required className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 h-24" placeholder="Опис на промоцијата..." />
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Опис</label>
+                      <textarea name="description" required className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 h-24 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="Опис на промоцијата..." />
                     </div>
                   </div>
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Буџет (ден.)</label>
-                        <input name="budget" required type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="5000" />
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Буџет (ден.)</label>
+                        <input name="budget" required type="number" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="5000" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Број на купони</label>
-                        <input name="quantity" required type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="50" />
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Број на купони</label>
+                        <input name="quantity" required type="number" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="50" />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Почеток</label>
-                        <input name="start_date" required type="date" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Почеток</label>
+                        <input name="start_date" required type="date" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Крај</label>
-                        <input name="end_date" required type="date" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Крај</label>
+                        <input name="end_date" required type="date" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
                       </div>
                     </div>
                   </div>
                   <div className="col-span-full pt-4">
-                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-indigo-600/20">
+                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-indigo-600/20 dark:shadow-none">
                       Испрати барање за одобрување
                     </button>
                   </div>
@@ -2112,48 +2294,159 @@ export default function Restaurant() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {campaigns.map(campaign => (
-                <div key={campaign.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 flex flex-col">
-                  <div className={`p-4 text-center text-xs font-bold uppercase tracking-wider ${
+                <div key={campaign.id} className="bg-white dark:bg-slate-900 rounded-3xl overflow-hidden shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col transition-colors">
+                  <div className={`p-4 text-center text-xs font-bold uppercase tracking-wider transition-colors ${
                     campaign.status === 'active' ? 'bg-emerald-500 text-white' : 
                     campaign.status === 'pending' ? 'bg-amber-500 text-white' : 
-                    'bg-slate-500 text-white'
+                    'bg-slate-500 dark:bg-slate-700 text-white'
                   }`}>
                     {campaign.status === 'active' ? 'Активна' : 
                      campaign.status === 'pending' ? 'Чека одобрување' : 
                      'Завршена/Одбиена'}
                   </div>
                   <div className="p-6 flex-1 flex flex-col">
-                    <h3 className="font-bold text-lg text-slate-800 mb-2">{campaign.name}</h3>
-                    <p className="text-slate-500 text-sm mb-4 flex-1">{campaign.description}</p>
+                    <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-2 transition-colors">{campaign.name}</h3>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 flex-1 transition-colors">{campaign.description}</p>
                     
-                    <div className="space-y-3 pt-4 border-t border-slate-50">
+                    <div className="space-y-3 pt-4 border-t border-slate-50 dark:border-slate-800 transition-colors">
                       <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">Буџет:</span>
-                        <span className="font-bold text-slate-800">{campaign.budget} ден.</span>
+                        <span className="text-slate-400 dark:text-slate-500 transition-colors">Буџет:</span>
+                        <span className="font-bold text-slate-800 dark:text-white transition-colors">{campaign.budget} ден.</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">Купони:</span>
-                        <span className="font-bold text-slate-800">{campaign.quantity}</span>
+                        <span className="text-slate-400 dark:text-slate-500 transition-colors">Купони:</span>
+                        <span className="font-bold text-slate-800 dark:text-white transition-colors">{campaign.quantity}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">Период:</span>
-                        <span className="font-medium text-slate-600">{new Date(campaign.start_date).toLocaleDateString()} - {new Date(campaign.end_date).toLocaleDateString()}</span>
+                        <span className="text-slate-400 dark:text-slate-500 transition-colors">Период:</span>
+                        <span className="font-medium text-slate-600 dark:text-slate-300 transition-colors">{new Date(campaign.start_date).toLocaleDateString()} - {new Date(campaign.end_date).toLocaleDateString()}</span>
                       </div>
                     </div>
                   </div>
                 </div>
               ))}
               {campaigns.length === 0 && !isAdding && (
-                <div className="col-span-full text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
-                  <Target className="mx-auto text-slate-200 mb-4" size={48} />
-                  <p className="text-slate-500 font-medium">Сè уште немате побарано промоции.</p>
-                  <p className="text-sm text-slate-400 mt-1">Промоциите ви помагаат да привлечете повеќе корисници.</p>
+                <div className="col-span-full text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800 transition-colors">
+                  <Target className="mx-auto text-slate-200 dark:text-slate-700 mb-4" size={48} />
+                  <p className="text-slate-500 dark:text-slate-400 font-medium transition-colors">Сè уште немате побарано промоции.</p>
+                  <p className="text-sm text-slate-400 dark:text-slate-500 mt-1 transition-colors">Промоциите ви помагаат да привлечете повеќе корисници.</p>
                 </div>
               )}
             </div>
           </div>
         )}
       </main>
+
+      {/* Invoice Detail Modal */}
+      {isInvoiceModalOpen && selectedInvoice && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col transition-colors">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 transition-colors">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800 dark:text-white">Фактура {selectedInvoice.invoice_number}</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Период: {new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsInvoiceModalOpen(false);
+                  setSelectedInvoice(null);
+                }}
+                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"
+              >
+                <X size={24} className="text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">Од: PizzaTime</h4>
+                  <div className="space-y-1 text-slate-700 dark:text-slate-300">
+                    <p className="font-bold">PizzaTime DOOEL</p>
+                    <p>ЕДБ: 4030020000000</p>
+                    <p>Адреса: Бул. Партизански Одреди 1</p>
+                    <p>Скопје, Македонија</p>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">До: {selectedInvoice.restaurant_name}</h4>
+                  <div className="space-y-1 text-slate-700 dark:text-slate-300">
+                    <p className="font-bold">{selectedInvoice.restaurant_name}</p>
+                    <p>Адреса: {selectedInvoice.restaurant_address}</p>
+                    <p>Град: {selectedInvoice.restaurant_city}</p>
+                    <p>Сметка: {selectedInvoice.restaurant_bank_account}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 mb-8 transition-colors">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Вкупно промет</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedInvoice.gross_amount.toLocaleString()} ден.</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Провизија ({selectedInvoice.commission_rate}%)</p>
+                    <p className="text-lg font-bold text-red-600">-{selectedInvoice.commission_amount.toLocaleString()} ден.</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">За исплата</p>
+                    <p className="text-lg font-bold text-emerald-600">{selectedInvoice.total_amount.toLocaleString()} ден.</p>
+                  </div>
+                </div>
+              </div>
+
+              <h4 className="font-bold text-slate-800 dark:text-white mb-4">Листа на нарачки</h4>
+              <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden transition-colors">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors">
+                      <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">ID</th>
+                      <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Датум</th>
+                      <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase text-right">Износ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {selectedInvoice.orders?.map((order: any) => (
+                      <tr key={order.id}>
+                        <td className="px-4 py-3 text-sm font-mono text-slate-600 dark:text-slate-400">#{order.id}</td>
+                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{new Date(order.created_at).toLocaleDateString('mk-MK')}</td>
+                        <td className="px-4 py-3 text-sm text-right font-bold text-slate-900 dark:text-white">{order.total_price.toLocaleString()} ден.</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex justify-end gap-4 transition-colors">
+              <button 
+                onClick={() => {
+                  setIsInvoiceModalOpen(false);
+                  setSelectedInvoice(null);
+                }}
+                className="px-6 py-2 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors"
+              >
+                Затвори
+              </button>
+              {selectedInvoice.status === 'Draft' && (
+                <button 
+                  onClick={() => handleSendInvoice(selectedInvoice.id)}
+                  className="px-8 py-2 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-600/20"
+                >
+                  Испрати на проверка
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

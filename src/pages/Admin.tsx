@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard } from 'lucide-react';
+import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { io } from 'socket.io-client';
 
@@ -25,6 +25,8 @@ interface PendingRestaurant {
   spare_4: string;
   username?: string;
   contract_percentage?: number;
+  billing_cycle_days?: number;
+  vat_rate?: number;
   password?: string;
   payment_config?: string;
 }
@@ -65,9 +67,14 @@ const DAYS_MAP: Record<string, string> = {
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [isEditingInvoice, setIsEditingInvoice] = useState(false);
+  const [editingInvoiceData, setEditingInvoiceData] = useState<any>(null);
   const [pendingDelivery, setPendingDelivery] = useState<DeliveryPartner[]>([]);
   const [approvedDelivery, setApprovedDelivery] = useState<DeliveryPartner[]>([]);
   const [inactiveDelivery, setInactiveDelivery] = useState<DeliveryPartner[]>([]);
@@ -126,6 +133,8 @@ export default function Admin() {
   const [testRecipient, setTestRecipient] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [isSyncingAcelle, setIsSyncingAcelle] = useState(false);
+  const [billingCycleDays, setBillingCycleDays] = useState<number>(7);
+  const [vatRate, setVatRate] = useState<number>(0);
   const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [restaurantImages, setRestaurantImages] = useState({ logo_url: '', cover_url: '', header_image: '' });
@@ -301,6 +310,15 @@ export default function Admin() {
     setOrders(await resOrders.json());
   };
 
+  const fetchInvoices = async () => {
+    try {
+      const res = await fetch('/api/admin/invoices');
+      if (res.ok) setInvoices(await res.json());
+    } catch (e) {
+      console.error('Failed to fetch invoices', e);
+    }
+  };
+
   const fetchData = async () => {
     const resPending = await fetch('/api/admin/restaurants/pending');
     setPendingRestaurants(await resPending.json());
@@ -310,6 +328,7 @@ export default function Admin() {
 
     fetchOrders();
     fetchBilling();
+    fetchInvoices();
 
     const resPendingDel = await fetch('/api/admin/delivery/pending');
     setPendingDelivery(await resPendingDel.json());
@@ -349,6 +368,8 @@ export default function Admin() {
   const openApprovalModal = (rest: PendingRestaurant) => {
     setSelectedRestaurant(rest);
     setContractPercentage(rest.contract_percentage || 15);
+    setBillingCycleDays(rest.billing_cycle_days || 7);
+    setVatRate(rest.vat_rate || 0);
     setCredentials({
       username: rest.username || `rest_${rest.id}_${Math.random().toString(36).substring(2, 6)}`,
       password: rest.password || Math.random().toString(36).substring(2, 8)
@@ -417,6 +438,8 @@ export default function Admin() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         contract_percentage: contractPercentage,
+        billing_cycle_days: billingCycleDays,
+        vat_rate: vatRate,
         username: credentials.username,
         password: credentials.password,
         payment_config: JSON.stringify(paymentConfig),
@@ -678,6 +701,41 @@ export default function Admin() {
     return match;
   });
 
+  const handleUpdateInvoiceStatus = async (id: number, status: string) => {
+    try {
+      const res = await fetch(`/api/invoices/${id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        fetchInvoices();
+        setIsInvoiceModalOpen(false);
+        setSelectedInvoice(null);
+      }
+    } catch (e) {
+      console.error('Failed to update invoice status', e);
+    }
+  };
+
+  const handleUpdateInvoice = async () => {
+    if (!selectedInvoice) return;
+    try {
+      const res = await fetch(`/api/invoices/${selectedInvoice.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingInvoiceData)
+      });
+      if (res.ok) {
+        fetchInvoices();
+        setIsEditingInvoice(false);
+        setSelectedInvoice(null);
+      }
+    } catch (e) {
+      console.error('Failed to update invoice', e);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
@@ -718,6 +776,13 @@ export default function Admin() {
             >
               <FileText size={16} />
               Нарачки
+            </button>
+            <button 
+              onClick={() => setActiveTab('invoicing')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'invoicing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Receipt size={16} />
+              Фактурирање
             </button>
             <button 
               onClick={() => setActiveTab('delivery')}
@@ -938,6 +1003,103 @@ export default function Admin() {
                       <tr>
                         <td colSpan={7} className="p-12 text-center text-slate-400">
                           Моментално нема активни нарачки.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'invoicing' ? (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-800">Фактурирање</h2>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={fetchInvoices}
+                  className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
+                  title="Освежи"
+                >
+                  <RefreshCw size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Број</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ресторан</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Период</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Вкупно</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Статус</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Акции</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {invoices.map((inv) => (
+                      <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4 font-medium text-slate-700">#{inv.invoice_number}</td>
+                        <td className="p-4 text-slate-600">{inv.restaurant_name}</td>
+                        <td className="p-4 text-slate-600">
+                          {new Date(inv.period_start).toLocaleDateString('mk-MK')} - {new Date(inv.period_end).toLocaleDateString('mk-MK')}
+                        </td>
+                        <td className="p-4 font-bold text-slate-800">{inv.total_amount} ден.</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            inv.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
+                            inv.status === 'approved' ? 'bg-blue-100 text-blue-700' :
+                            inv.status === 'pending' ? 'bg-orange-100 text-orange-700' :
+                            'bg-slate-100 text-slate-700'
+                          }`}>
+                            {inv.status === 'paid' ? 'Платена' :
+                             inv.status === 'approved' ? 'Одобрена' :
+                             inv.status === 'pending' ? 'Чека одобрување' :
+                             'Нацрт'}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => {
+                                setSelectedInvoice(inv);
+                                setIsInvoiceModalOpen(true);
+                              }}
+                              className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                              title="Прегледај"
+                            >
+                              <Eye size={18} />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setSelectedInvoice(inv);
+                                setEditingInvoiceData({
+                                  invoice_number: inv.invoice_number,
+                                  total_amount: inv.total_amount,
+                                  commission_amount: inv.commission_amount,
+                                  net_amount: inv.net_amount,
+                                  vat_amount: inv.vat_amount,
+                                  base_amount: inv.base_amount,
+                                  status: inv.status
+                                });
+                                setIsEditingInvoice(true);
+                              }}
+                              className="p-2 hover:bg-orange-50 text-orange-600 rounded-lg transition-colors"
+                              title="Измени"
+                            >
+                              <Settings2 size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {invoices.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="p-12 text-center text-slate-400 italic">
+                          Нема пронајдено фактури.
                         </td>
                       </tr>
                     )}
@@ -2117,6 +2279,23 @@ export default function Admin() {
                     </div>
                   </div>
                   <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Икона за апликација (PWA Icon)</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={globalSettings.app_icon_url || ''} 
+                        onChange={e => setGlobalSettings({...globalSettings, app_icon_url: e.target.value})} 
+                        className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                        placeholder="https://..." 
+                      />
+                      <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                        <Upload size={18} />
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleGlobalFileUpload(e, 'app_icon_url')} />
+                      </label>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">Оваа икона ќе се користи кога корисникот ќе ја додаде апликацијата на почетниот екран (Add to Home Screen).</p>
+                  </div>
+                  <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Адреса</label>
                     <input 
                       type="text" 
@@ -2206,6 +2385,49 @@ export default function Admin() {
                   <CreditCard size={20} className="text-emerald-500" />
                   Payten NestPay® Поставки
                 </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Име на фирма (PizzaTime)</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.pizzatime_company_name || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, pizzatime_company_name: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="PizzaTime DOOEL" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">ЕДБ / Даночен број</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.pizzatime_edb || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, pizzatime_edb: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="40800..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Адреса на седиште</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.pizzatime_address || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, pizzatime_address: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="ул. Македонија бр. 1" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Жиро сметка</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.pizzatime_bank_account || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, pizzatime_bank_account: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="210..." 
+                    />
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                   <div className="flex items-center gap-2 mb-2 col-span-2">
                     <input 
@@ -2317,6 +2539,25 @@ export default function Admin() {
                       <option value="test">Тест (Sandbox)</option>
                       <option value="prod">Продукција (Live)</option>
                     </select>
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-slate-100">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <BarChart size={20} className="text-indigo-500" />
+                    Маркетинг и Аналитика
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Google Analytics Measurement ID (G-XXXXXXX)</label>
+                      <input 
+                        type="text" 
+                        value={globalSettings.google_analytics_id || ''} 
+                        onChange={e => setGlobalSettings({...globalSettings, google_analytics_id: e.target.value})} 
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                        placeholder="G-XXXXXXXXXX" 
+                      />
+                    </div>
                   </div>
                 </div>
                 
@@ -2674,6 +2915,42 @@ export default function Admin() {
                       {paymentConfig.fees.length === 0 && (
                         <p className="text-xs text-blue-500 italic">Нема дефинирано дополнителни трошоци.</p>
                       )}
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-blue-100">
+                    <h4 className="text-sm font-bold text-blue-900 mb-4 flex items-center gap-2">
+                      <FileText size={16} className="text-blue-600" />
+                      Поставки за Фактурирање
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">Денови на фактурирање (период)</label>
+                        <input 
+                          type="number" 
+                          min="1"
+                          value={billingCycleDays}
+                          onChange={(e) => setBillingCycleDays(Number(e.target.value))}
+                          className="w-full p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="пр. 7"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">Стапка на ДДВ (%)</label>
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            min="0"
+                            max="100"
+                            step="0.1"
+                            value={vatRate}
+                            onChange={(e) => setVatRate(Number(e.target.value))}
+                            className="w-full p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 pr-8"
+                            placeholder="пр. 18"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-400 text-xs">%</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -3372,6 +3649,212 @@ export default function Admin() {
                     selectedDeliveryForRole.fleet_manager_id || null
                   )}
                   className="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  Зачувај
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Details Modal */}
+      {isInvoiceModalOpen && selectedInvoice && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800">Фактура #{selectedInvoice.invoice_number}</h3>
+                <p className="text-sm text-slate-500">Ресторан: {selectedInvoice.restaurant_name}</p>
+              </div>
+              <button onClick={() => setIsInvoiceModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={24} className="text-slate-500" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Период</span>
+                  <p className="font-medium text-slate-700">
+                    {new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Статус</span>
+                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                    selectedInvoice.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
+                    selectedInvoice.status === 'approved' ? 'bg-blue-100 text-blue-700' :
+                    selectedInvoice.status === 'pending' ? 'bg-orange-100 text-orange-700' :
+                    'bg-slate-100 text-slate-700'
+                  }`}>
+                    {selectedInvoice.status === 'paid' ? 'Платена' :
+                     selectedInvoice.status === 'approved' ? 'Одобрена' :
+                     selectedInvoice.status === 'pending' ? 'Чека одобрување' :
+                     'Нацрт'}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Вкупен износ</span>
+                  <p className="text-xl font-bold text-slate-800">{selectedInvoice.total_amount} ден.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                  <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <Store size={18} className="text-orange-500" /> Податоци за ресторанот
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="text-slate-500">Назив:</span> <span className="font-medium">{selectedInvoice.restaurant_name}</span></p>
+                    <p><span className="text-slate-500">Адреса:</span> <span className="font-medium">{selectedInvoice.restaurant_address}</span></p>
+                    <p><span className="text-slate-500">ЕДБ:</span> <span className="font-medium">{selectedInvoice.restaurant_spare_1 || '/'}</span></p>
+                    <p><span className="text-slate-500">Жиро сметка:</span> <span className="font-medium font-mono">{selectedInvoice.restaurant_bank_account}</span></p>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <Percent size={18} className="text-blue-500" /> Финансиски детали
+                  </h4>
+                  <div className="space-y-2 text-sm bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Основица:</span>
+                      <span className="font-bold">{selectedInvoice.base_amount} ден.</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">ДДВ ({selectedInvoice.vat_rate}%):</span>
+                      <span className="font-bold">{selectedInvoice.vat_amount} ден.</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-blue-200">
+                      <span className="text-slate-800 font-bold">Вкупно за исплата:</span>
+                      <span className="text-lg font-bold text-blue-700">{selectedInvoice.total_amount} ден.</span>
+                    </div>
+                    <div className="flex justify-between pt-4 mt-2 border-t border-blue-200 text-xs italic text-blue-600">
+                      <span>Провизија за PizzaTime:</span>
+                      <span>{selectedInvoice.commission_amount} ден.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-slate-800 mb-4">Нарачки вклучени во фактурата</h4>
+                <div className="border border-slate-100 rounded-2xl overflow-hidden">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="p-3 font-bold text-slate-500">ID</th>
+                        <th className="p-3 font-bold text-slate-500">Датум</th>
+                        <th className="p-3 font-bold text-slate-500">Износ</th>
+                        <th className="p-3 font-bold text-slate-500">Провизија</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {selectedInvoice.orders?.map((order: any) => (
+                        <tr key={order.id}>
+                          <td className="p-3 text-slate-600">#{order.id}</td>
+                          <td className="p-3 text-slate-600">{new Date(order.created_at).toLocaleString('mk-MK')}</td>
+                          <td className="p-3 font-medium text-slate-700">{order.total_price} ден.</td>
+                          <td className="p-3 text-slate-500">{(order.total_price * (selectedInvoice.contract_percentage / 100)).toFixed(2)} ден.</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              {selectedInvoice.status === 'pending' && (
+                <button 
+                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'approved')}
+                  className="px-6 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                >
+                  Одобри фактура
+                </button>
+              )}
+              {selectedInvoice.status === 'approved' && (
+                <button 
+                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'paid')}
+                  className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
+                >
+                  Означи како платена
+                </button>
+              )}
+              <button 
+                onClick={() => setIsInvoiceModalOpen(false)}
+                className="px-6 py-2 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                Затвори
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Invoice Modal */}
+      {isEditingInvoice && selectedInvoice && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-bold text-slate-800">Измени фактура</h3>
+              <button onClick={() => setIsEditingInvoice(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={20} className="text-slate-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Број на фактура</label>
+                <input 
+                  type="text" 
+                  value={editingInvoiceData.invoice_number}
+                  onChange={(e) => setEditingInvoiceData({...editingInvoiceData, invoice_number: e.target.value})}
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Вкупен износ</label>
+                  <input 
+                    type="number" 
+                    value={editingInvoiceData.total_amount}
+                    onChange={(e) => setEditingInvoiceData({...editingInvoiceData, total_amount: Number(e.target.value)})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">ДДВ износ</label>
+                  <input 
+                    type="number" 
+                    value={editingInvoiceData.vat_amount}
+                    onChange={(e) => setEditingInvoiceData({...editingInvoiceData, vat_amount: Number(e.target.value)})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Статус</label>
+                <select 
+                  value={editingInvoiceData.status}
+                  onChange={(e) => setEditingInvoiceData({...editingInvoiceData, status: e.target.value})}
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                >
+                  <option value="draft">Нацрт</option>
+                  <option value="pending">Чека одобрување</option>
+                  <option value="approved">Одобрена</option>
+                  <option value="paid">Платена</option>
+                </select>
+              </div>
+              <div className="pt-4 flex gap-3">
+                <button 
+                  onClick={() => setIsEditingInvoice(false)}
+                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  Откажи
+                </button>
+                <button 
+                  onClick={handleUpdateInvoice}
+                  className="flex-1 px-4 py-3 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20"
                 >
                   Зачувај
                 </button>

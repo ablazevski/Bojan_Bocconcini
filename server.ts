@@ -115,15 +115,21 @@ db.exec(`
       username TEXT,
       password TEXT,
       contract_percentage REAL DEFAULT 0,
-      working_hours TEXT DEFAULT '{}'
+      working_hours TEXT DEFAULT '{}',
+      billing_cycle_days INTEGER DEFAULT 7,
+      vat_rate REAL DEFAULT 0
     );
   `);
 
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN header_image TEXT");
-  } catch (e) {
-    // Column might already exist
-  }
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN billing_cycle_days INTEGER DEFAULT 7");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN vat_rate REAL DEFAULT 0");
+  } catch (e) {}
 
   db.exec(`
   CREATE TABLE IF NOT EXISTS email_templates (
@@ -196,6 +202,27 @@ db.exec(`
     is_visible INTEGER DEFAULT 1,
     restaurant_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    restaurant_id INTEGER,
+    period_start DATETIME,
+    period_end DATETIME,
+    total_orders_amount REAL,
+    commission_amount REAL,
+    net_amount REAL,
+    base_amount REAL,
+    vat_amount REAL,
+    status TEXT DEFAULT 'draft',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS invoice_orders (
+    invoice_id INTEGER,
+    order_id INTEGER,
+    PRIMARY KEY (invoice_id, order_id)
   );
 
   CREATE TABLE IF NOT EXISTS group_orders (
@@ -812,6 +839,9 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       db.prepare("UPDATE orders SET status = 'completed' WHERE id = ?").run(order.id);
       
+      // Notify admin
+      io.to("admin_room").emit("order_status_changed");
+      
       // Award loyalty points
       if (order.user_id) {
         const points = Math.floor(order.total_price / 100);
@@ -917,6 +947,48 @@ app.get("/api/orders/track/:token", (req, res) => {
       res.send(sitemap);
     });
 
+    app.get('/manifest.json', (req, res) => {
+      const settings = db.prepare('SELECT * FROM global_settings').all() as any[];
+      const s = settings.reduce((acc: any, curr: any) => {
+        acc[curr.key] = curr.value;
+        return acc;
+      }, {});
+
+      const manifest = {
+        "name": s.company_name || "PizzaTime - Достава на храна",
+        "short_name": s.company_name || "PizzaTime",
+        "description": "Најбрза достава на храна во Македонија",
+        "start_url": "/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#fff7ed",
+        "theme_color": "#ea580c",
+        "icons": [
+          {
+            "src": s.app_icon_url || "https://api.dicebear.com/7.x/initials/png?seed=PT&backgroundColor=ea580c",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+          },
+          {
+            "src": s.app_icon_url || "https://api.dicebear.com/7.x/initials/png?seed=PT&backgroundColor=ea580c",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+          },
+          {
+            "src": s.app_icon_url || "https://api.dicebear.com/7.x/initials/png?seed=PT&backgroundColor=ea580c",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+          }
+        ]
+      };
+
+      res.header('Content-Type', 'application/manifest+json');
+      res.json(manifest);
+    });
+
     app.get('/api/email/templates', (req, res) => {
       try {
         const templates = db.prepare('SELECT * FROM email_templates').all();
@@ -936,6 +1008,116 @@ app.get("/api/orders/track/:token", (req, res) => {
     app.get('/api/email/logs', (req, res) => {
       const logs = db.prepare('SELECT * FROM email_logs ORDER BY sent_at DESC LIMIT 100').all();
       res.json(logs);
+    });
+
+    // Invoicing Routes
+    app.get('/api/admin/invoices', (req, res) => {
+      const user = (req.session as any).user;
+      if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
+      
+      const invoices = db.prepare(`
+        SELECT i.*, r.name as restaurant_name 
+        FROM invoices i 
+        JOIN restaurants r ON i.restaurant_id = r.id 
+        ORDER BY i.created_at DESC
+      `).all();
+      res.json(invoices);
+    });
+
+    app.get('/api/restaurant/invoices', (req, res) => {
+      const restaurant = (req.session as any).restaurant;
+      if (!restaurant) return res.status(401).json({ error: 'Unauthorized' });
+      
+      const invoices = db.prepare('SELECT * FROM invoices WHERE restaurant_id = ? ORDER BY created_at DESC').all(restaurant.id);
+      res.json(invoices);
+    });
+
+    app.get('/api/invoices/:id', (req, res) => {
+      const invoice = db.prepare(`
+        SELECT i.*, r.name as restaurant_name, r.address as restaurant_address, 
+               r.bank_account as restaurant_bank_account, r.logo_url as restaurant_logo,
+               r.email as restaurant_email, r.phone as restaurant_phone
+        FROM invoices i 
+        JOIN restaurants r ON i.restaurant_id = r.id 
+        WHERE i.id = ?
+      `).get(req.params.id) as any;
+      
+      if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+      
+      const orders = db.prepare(`
+        SELECT o.* 
+        FROM orders o 
+        JOIN invoice_orders io ON o.id = io.order_id 
+        WHERE io.invoice_id = ?
+      `).all(req.params.id);
+      
+      res.json({ ...invoice, orders });
+    });
+
+    app.post('/api/invoices/:id/status', (req, res) => {
+      const { status } = req.body;
+      db.prepare('UPDATE invoices SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, req.params.id);
+      res.json({ success: true });
+    });
+
+    app.put('/api/invoices/:id', (req, res) => {
+      const user = (req.session as any).user;
+      if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
+      
+      const { total_orders_amount, commission_amount, net_amount, base_amount, vat_amount, status } = req.body;
+      db.prepare(`
+        UPDATE invoices 
+        SET total_orders_amount = ?, commission_amount = ?, net_amount = ?, base_amount = ?, vat_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `).run(total_orders_amount, commission_amount, net_amount, base_amount, vat_amount, status, req.params.id);
+      res.json({ success: true });
+    });
+
+    app.post('/api/restaurant/invoices/generate', (req, res) => {
+      const restaurant = (req.session as any).restaurant;
+      if (!restaurant) return res.status(401).json({ error: 'Unauthorized' });
+      
+      const r = db.prepare('SELECT * FROM restaurants WHERE id = ?').get(restaurant.id) as any;
+      
+      // Find orders that are 'completed' and not yet in any invoice
+      const orders = db.prepare(`
+        SELECT * FROM orders 
+        WHERE restaurant_id = ? 
+        AND status = 'completed' 
+        AND id NOT IN (SELECT order_id FROM invoice_orders)
+        ORDER BY created_at ASC
+      `).all(restaurant.id) as any[];
+      
+      if (orders.length === 0) {
+        return res.status(400).json({ error: 'Нема нови завршени нарачки за фактурирање' });
+      }
+      
+      const total_orders_amount = orders.reduce((sum, o) => sum + o.total_price, 0);
+      const commission_amount = total_orders_amount * (r.contract_percentage / 100);
+      const net_amount = total_orders_amount - commission_amount;
+      const base_amount = net_amount / (1 + (r.vat_rate / 100));
+      const vat_amount = net_amount - base_amount;
+      
+      const result = db.prepare(`
+        INSERT INTO invoices (restaurant_id, period_start, period_end, total_orders_amount, commission_amount, net_amount, base_amount, vat_amount, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+      `).run(
+        restaurant.id, 
+        orders[0].created_at, // period_start (oldest order)
+        orders[orders.length - 1].created_at, // period_end (newest order)
+        total_orders_amount,
+        commission_amount,
+        net_amount,
+        base_amount,
+        vat_amount
+      );
+      
+      const invoiceId = result.lastInsertRowid;
+      
+      const insertOrder = db.prepare('INSERT INTO invoice_orders (invoice_id, order_id) VALUES (?, ?)');
+      orders.forEach(o => insertOrder.run(invoiceId, o.id));
+      
+      res.json({ success: true, invoiceId });
     });
 
     app.post('/api/email/test', async (req, res) => {
@@ -1997,6 +2179,7 @@ app.get("/api/orders/track/:token", (req, res) => {
         
         // Notify delivery partners that a new order is ready for pickup
         io.to("delivery_partners").emit("new_available_order");
+        io.to("admin_room").emit("order_status_changed");
 
         sendPushNotification(null, {
           title: 'Нарачката е подготвена!',
@@ -2041,6 +2224,7 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       // Notify delivery partners
       io.to("delivery_partners").emit("new_available_order");
+      io.to("admin_room").emit("order_status_changed");
     } else if (status === 'delivering' || status === 'completed') {
       const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
       // If no delivery partner is assigned yet, the restaurant is delivering it themselves
@@ -2310,6 +2494,7 @@ app.get("/api/orders/track/:token", (req, res) => {
     const { orderId, partnerId, partnerName } = req.body;
     db.prepare("UPDATE orders SET delivery_partner_id = ?, delivery_partner_name = ?, status = 'delivering' WHERE id = ?")
       .run(partnerId, partnerName, orderId);
+    io.to("admin_room").emit("order_status_changed");
     res.json({ success: true });
   });
 
@@ -2364,6 +2549,7 @@ app.get("/api/orders/track/:token", (req, res) => {
 
     // Notify restaurant
     io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
+    io.to("admin_room").emit("order_status_changed");
     
     res.json({ success: true });
   });
