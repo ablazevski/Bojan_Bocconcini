@@ -1,6 +1,60 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, ReactNode, Component, ErrorInfo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard } from 'lucide-react';
+import { motion } from 'motion/react';
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle size={32} />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800 mb-2">Настана грешка</h1>
+            <p className="text-slate-600 mb-6">
+              Се извинуваме, но настана неочекувана грешка во апликацијата.
+            </p>
+            <div className="bg-slate-50 p-4 rounded-lg text-left mb-6 overflow-auto max-h-40">
+              <code className="text-xs text-red-500">{this.state.error?.toString()}</code>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+            >
+              Освежи ја страницата
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { io } from 'socket.io-client';
 
@@ -9,6 +63,8 @@ interface PendingRestaurant {
   name: string;
   city: string;
   address: string;
+  lat?: number;
+  lng?: number;
   email: string;
   phone: string;
   bank_account: string;
@@ -66,8 +122,33 @@ const DAYS_MAP: Record<string, string> = {
 };
 
 export default function Admin() {
+  return (
+    <ErrorBoundary>
+      <AdminContent />
+    </ErrorBoundary>
+  );
+}
+
+function AdminContent() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing'>('dashboard');
+  const [admin, setAdmin] = useState<any>(null);
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [admins, setAdmins] = useState<any[]>([]);
+  const [isCreateAdminModalOpen, setIsCreateAdminModalOpen] = useState(false);
+  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [newAdmin, setNewAdmin] = useState({
+    username: '',
+    password: '',
+    name: '',
+    email: '',
+    role: 'admin',
+    permissions: [] as string[]
+  });
+  const [newUser, setNewUser] = useState({ name: '', email: '' });
+
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing' | 'admins'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -117,6 +198,17 @@ export default function Admin() {
   
   const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
   const [emailLogs, setEmailLogs] = useState<any[]>([]);
+  const [homeSlider, setHomeSlider] = useState<any[]>([]);
+  const [isHomeSliderModalOpen, setIsHomeSliderModalOpen] = useState(false);
+  const [editingSliderItem, setEditingSliderItem] = useState<any>(null);
+  const [newSliderItem, setNewSliderItem] = useState({
+    title: '',
+    image_url: '',
+    cta_text: '',
+    cta_link: '',
+    display_order: 0,
+    is_active: 1
+  });
   const [smtpSettings, setSmtpSettings] = useState({
     smtp_host: '',
     smtp_port: '587',
@@ -133,6 +225,8 @@ export default function Admin() {
   const [testRecipient, setTestRecipient] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [isSyncingAcelle, setIsSyncingAcelle] = useState(false);
+  const [showGenerateInvoiceModal, setShowGenerateInvoiceModal] = useState(false);
+  const [selectedRestaurantForInvoice, setSelectedRestaurantForInvoice] = useState('');
   const [billingCycleDays, setBillingCycleDays] = useState<number>(7);
   const [vatRate, setVatRate] = useState<number>(0);
   const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
@@ -193,9 +287,123 @@ export default function Admin() {
   });
 
   useEffect(() => {
-    fetchData();
+    checkAuth();
     fetchSettings();
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch('/api/admin/me');
+      if (res.ok) {
+        const data = await res.json();
+        setAdmin(data);
+        fetchData();
+      }
+    } catch (e) {
+      console.error('Auth check failed', e);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    setLoginError('');
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAdmin(data.admin);
+        fetchData();
+      } else {
+        const data = await res.json();
+        setLoginError(data.error || 'Невалидни податоци');
+      }
+    } catch (e) {
+      setLoginError('Грешка при најава');
+    }
+    setIsLoggingIn(false);
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/admin/logout', { method: 'POST' });
+    setAdmin(null);
+    navigate('/portal');
+  };
+
+  const fetchAdmins = async () => {
+    if (admin?.role !== 'super') return;
+    try {
+      const res = await fetch('/api/admin/admins');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setAdmins(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch admins', e);
+    }
+  };
+
+  const handleCreateAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/admin/admins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newAdmin)
+      });
+      if (res.ok) {
+        setIsCreateAdminModalOpen(false);
+        setNewAdmin({ username: '', password: '', name: '', email: '', role: 'admin', permissions: [] });
+        fetchAdmins();
+        alert('Администраторот е успешно креиран!');
+      } else {
+        const data = await res.json();
+        alert(`Грешка: ${data.error || 'Неуспешно креирање'}`);
+      }
+    } catch (err) {
+      console.error('Failed to create admin', err);
+      alert('Грешка при комуникација со серверот');
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser)
+      });
+      if (res.ok) {
+        setIsCreateUserModalOpen(false);
+        setNewUser({ name: '', email: '' });
+        fetchData();
+        alert('Корисникот е успешно креиран!');
+      } else {
+        const data = await res.json();
+        alert(`Грешка: ${data.error || 'Неуспешно креирање'}`);
+      }
+    } catch (err) {
+      console.error('Failed to create user', err);
+      alert('Грешка при комуникација со серверот');
+    }
+  };
+
+  const handleDeleteAdmin = async (id: number) => {
+    if (!confirm('Дали сте сигурни?')) return;
+    const res = await fetch(`/api/admin/admins/${id}`, { method: 'DELETE' });
+    if (res.ok) fetchAdmins();
+  };
+
+  useEffect(() => {
+    if (activeTab === 'admins') {
+      fetchAdmins();
+    }
+  }, [activeTab]);
 
   const fetchSettings = async () => {
     try {
@@ -226,14 +434,22 @@ export default function Admin() {
     }
   };
 
-  const fetchEmailData = () => {
-    fetch('/api/email/templates')
-      .then(res => res.json())
-      .then(data => setEmailTemplates(data));
-    
-    fetch('/api/email/logs')
-      .then(res => res.json())
-      .then(data => setEmailLogs(data));
+  const fetchEmailData = async () => {
+    try {
+      const resTemplates = await fetch('/api/email/templates');
+      if (resTemplates.ok) {
+        const data = await resTemplates.json();
+        if (Array.isArray(data)) setEmailTemplates(data);
+      }
+      
+      const resLogs = await fetch('/api/email/logs');
+      if (resLogs.ok) {
+        const data = await resLogs.json();
+        if (Array.isArray(data)) setEmailLogs(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch email data', e);
+    }
   };
 
   useEffect(() => {
@@ -291,68 +507,165 @@ export default function Admin() {
   }, [billingStartDate, billingEndDate]);
 
   const fetchBilling = async () => {
-    const params = new URLSearchParams();
-    if (billingStartDate) params.append('startDate', billingStartDate);
-    if (billingEndDate) params.append('endDate', billingEndDate);
-    
-    const res = await fetch(`/api/admin/billing?${params.toString()}`);
-    setBillingData(await res.json());
+    try {
+      const params = new URLSearchParams();
+      if (billingStartDate) params.append('startDate', billingStartDate);
+      if (billingEndDate) params.append('endDate', billingEndDate);
+      
+      const res = await fetch(`/api/admin/billing?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data === 'object' && !Array.isArray(data)) {
+          setBillingData(data);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch billing', e);
+    }
   };
 
   const fetchOrders = async () => {
-    const params = new URLSearchParams();
-    if (orderFilterRestaurant) params.append('restaurantId', orderFilterRestaurant);
-    if (orderFilterDelivery) params.append('deliveryPartnerId', orderFilterDelivery);
-    if (orderFilterStartDate) params.append('startDate', orderFilterStartDate);
-    if (orderFilterEndDate) params.append('endDate', orderFilterEndDate);
-    
-    const resOrders = await fetch(`/api/admin/orders?${params.toString()}`);
-    setOrders(await resOrders.json());
+    try {
+      const params = new URLSearchParams();
+      if (orderFilterRestaurant) params.append('restaurantId', orderFilterRestaurant);
+      if (orderFilterDelivery) params.append('deliveryPartnerId', orderFilterDelivery);
+      if (orderFilterStartDate) params.append('startDate', orderFilterStartDate);
+      if (orderFilterEndDate) params.append('endDate', orderFilterEndDate);
+      
+      const resOrders = await fetch(`/api/admin/orders?${params.toString()}`);
+      if (resOrders.ok) {
+        const data = await resOrders.json();
+        if (Array.isArray(data)) setOrders(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch orders', e);
+    }
   };
 
   const fetchInvoices = async () => {
     try {
       const res = await fetch('/api/admin/invoices');
-      if (res.ok) setInvoices(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setInvoices(data);
+      }
     } catch (e) {
       console.error('Failed to fetch invoices', e);
     }
   };
 
   const fetchData = async () => {
-    const resPending = await fetch('/api/admin/restaurants/pending');
-    setPendingRestaurants(await resPending.json());
-    
-    const resApproved = await fetch('/api/admin/restaurants/approved');
-    setApprovedRestaurants(await resApproved.json());
+    try {
+      const resPending = await fetch('/api/admin/restaurants/pending');
+      if (resPending.ok) {
+        const data = await resPending.json();
+        if (Array.isArray(data)) setPendingRestaurants(data);
+      }
+      
+      const resApproved = await fetch('/api/admin/restaurants/approved');
+      if (resApproved.ok) {
+        const data = await resApproved.json();
+        if (Array.isArray(data)) setApprovedRestaurants(data);
+      }
 
-    fetchOrders();
-    fetchBilling();
-    fetchInvoices();
+      fetchOrders();
+      fetchBilling();
+      fetchInvoices();
 
-    const resPendingDel = await fetch('/api/admin/delivery/pending');
-    setPendingDelivery(await resPendingDel.json());
+      const resPendingDel = await fetch('/api/admin/delivery/pending');
+      if (resPendingDel.ok) {
+        const data = await resPendingDel.json();
+        if (Array.isArray(data)) setPendingDelivery(data);
+      }
 
-    const resApprovedDel = await fetch('/api/admin/delivery/approved');
-    setApprovedDelivery(await resApprovedDel.json());
+      const resApprovedDel = await fetch('/api/admin/delivery/approved');
+      if (resApprovedDel.ok) {
+        const data = await resApprovedDel.json();
+        if (Array.isArray(data)) setApprovedDelivery(data);
+      }
 
-    const resInactiveDel = await fetch('/api/admin/delivery/inactive');
-    setInactiveDelivery(await resInactiveDel.json());
+      const resInactiveDel = await fetch('/api/admin/delivery/inactive');
+      if (resInactiveDel.ok) {
+        const data = await resInactiveDel.json();
+        if (Array.isArray(data)) setInactiveDelivery(data);
+      }
 
-    const resAllDel = await fetch('/api/admin/delivery/all');
-    setAllDeliveryPartners(await resAllDel.json());
+      const resAllDel = await fetch('/api/admin/delivery/all');
+      if (resAllDel.ok) {
+        const data = await resAllDel.json();
+        if (Array.isArray(data)) setAllDeliveryPartners(data);
+      }
 
-    const resMarketing = await fetch('/api/admin/marketing-associates');
-    setMarketingAssociates(await resMarketing.json());
+      const resMarketing = await fetch('/api/admin/marketing-associates');
+      if (resMarketing.ok) {
+        const data = await resMarketing.json();
+        if (Array.isArray(data)) setMarketingAssociates(data);
+      }
 
-    const resCampaigns = await fetch('/api/admin/campaigns');
-    setCampaigns(await resCampaigns.json());
+      const resCampaigns = await fetch('/api/admin/campaigns');
+      if (resCampaigns.ok) {
+        const data = await resCampaigns.json();
+        if (Array.isArray(data)) setCampaigns(data);
+      }
 
-    const resUsers = await fetch('/api/admin/users');
-    setUsers(await resUsers.json());
+      const resUsers = await fetch('/api/admin/users');
+      if (resUsers.ok) {
+        const data = await resUsers.json();
+        if (Array.isArray(data)) setUsers(data);
+      }
 
-    const resReviews = await fetch('/api/admin/reviews');
-    setReviews(await resReviews.json());
+      const resReviews = await fetch('/api/admin/reviews');
+      if (resReviews.ok) {
+        const data = await resReviews.json();
+        if (Array.isArray(data)) setReviews(data);
+      }
+      fetchHomeSlider();
+    } catch (e) {
+      console.error('Failed to fetch data', e);
+    }
+  };
+
+  const fetchHomeSlider = async () => {
+    try {
+      const res = await fetch('/api/admin/home-slider');
+      if (res.ok) {
+        const data = await res.json();
+        setHomeSlider(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch home slider', e);
+    }
+  };
+
+  const handleSaveSliderItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/admin/home-slider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingSliderItem || newSliderItem)
+      });
+      if (res.ok) {
+        setIsHomeSliderModalOpen(false);
+        setEditingSliderItem(null);
+        setNewSliderItem({ title: '', image_url: '', cta_text: '', cta_link: '', display_order: 0, is_active: 1 });
+        fetchHomeSlider();
+      }
+    } catch (e) {
+      console.error('Failed to save slider item', e);
+    }
+  };
+
+  const handleDeleteSliderItem = async (id: number) => {
+    if (!window.confirm('Дали сте сигурни дека сакате да го избришете овој слајд?')) return;
+    try {
+      const res = await fetch(`/api/admin/home-slider/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchHomeSlider();
+      }
+    } catch (e) {
+      console.error('Failed to delete slider item', e);
+    }
   };
 
   const fetchUsedCodes = async (campaignId: number) => {
@@ -718,6 +1031,61 @@ export default function Admin() {
     }
   };
 
+  const handleGenerateInvoice = async () => {
+    if (!selectedRestaurantForInvoice) {
+      alert('Ве молиме изберете ресторан.');
+      return;
+    }
+    
+    try {
+      const res = await fetch('/api/admin/invoices/generate-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: selectedRestaurantForInvoice })
+      });
+      
+      if (res.ok) {
+        alert('Фактурата е успешно генерирана!');
+        setShowGenerateInvoiceModal(false);
+        setSelectedRestaurantForInvoice('');
+        fetchInvoices();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Грешка при генерирање на фактура.');
+      }
+    } catch (e) {
+      alert('Грешка при комуникација со серверот.');
+    }
+  };
+
+  const handleApproveInvoice = async (id: number) => {
+    if (!confirm('Дали сте сигурни дека сакате да ја одобрите оваа фактура?')) return;
+    try {
+      const res = await fetch(`/api/admin/invoices/${id}/approve`, { method: 'POST' });
+      if (res.ok) {
+        fetchInvoices();
+      } else {
+        alert('Грешка при одобрување на фактурата.');
+      }
+    } catch (e) {
+      alert('Грешка при комуникација со серверот.');
+    }
+  };
+
+  const handleDeleteInvoice = async (id: number) => {
+    if (!confirm('Дали сте сигурни дека сакате да ја избришете оваа фактура?')) return;
+    try {
+      const res = await fetch(`/api/admin/invoices/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchInvoices();
+      } else {
+        alert('Грешка при бришење на фактурата.');
+      }
+    } catch (e) {
+      alert('Грешка при комуникација со серверот.');
+    }
+  };
+
   const handleUpdateInvoice = async () => {
     if (!selectedInvoice) return;
     try {
@@ -736,6 +1104,110 @@ export default function Admin() {
     }
   };
 
+  if (!admin) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-emerald-600 p-8 text-white text-center">
+            <Settings className="w-12 h-12 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold">Админ Панел</h1>
+            <p className="opacity-80">Најавете се за да продолжите</p>
+          </div>
+          <form onSubmit={handleLogin} className="p-8 space-y-6">
+            {loginError && (
+              <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
+                {loginError}
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Корисничко име</label>
+              <input
+                type="text"
+                required
+                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                value={loginForm.username}
+                onChange={e => setLoginForm({ ...loginForm, username: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Лозинка</label>
+              <input
+                type="password"
+                required
+                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                value={loginForm.password}
+                onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isLoggingIn ? <RefreshCw className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
+              Најави се
+            </button>
+            
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-slate-500">Или</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => window.location.href = '/api/auth/google'}
+              className="w-full bg-white border border-slate-200 text-slate-700 py-3 rounded-lg font-medium hover:bg-slate-50 transition-all flex items-center justify-center gap-3"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                />
+              </svg>
+              Најави се со Google
+            </button>
+
+            <Link to="/portal" className="block text-center text-sm text-slate-500 hover:text-emerald-600 transition-colors">
+              Назад кон порталот
+            </Link>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  const hasPermission = (p: string) => {
+    if (!admin) return false;
+    if (admin.role === 'super') return true;
+    
+    let permissions = admin.permissions;
+    if (typeof permissions === 'string') {
+      try {
+        permissions = JSON.parse(permissions);
+      } catch (e) {
+        permissions = [];
+      }
+    }
+    
+    return Array.isArray(permissions) && permissions.includes(p);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
@@ -743,119 +1215,168 @@ export default function Admin() {
           <Link to="/" className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
             <ArrowLeft size={20} />
           </Link>
-          <h1 className="text-xl font-bold text-slate-800">Админ Панел</h1>
-          <div className="flex bg-slate-100 p-1 rounded-lg ml-8">
-            <button 
-              onClick={() => setActiveTab('dashboard')}
-              className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              Дашборд
-            </button>
-            <button 
-              onClick={() => setActiveTab('restaurants')}
-              className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'restaurants' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Store size={16} />
-              Ресторани
-              {pendingRestaurants.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-50">
-                  {pendingRestaurants.length}
-                </span>
-              )}
-            </button>
-            <button 
-              onClick={() => setActiveTab('database')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'database' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Database size={16} />
-              База на податоци
-            </button>
-            <button 
-              onClick={() => setActiveTab('orders')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <FileText size={16} />
-              Нарачки
-            </button>
-            <button 
-              onClick={() => setActiveTab('invoicing')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'invoicing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Receipt size={16} />
-              Фактурирање
-            </button>
-            <button 
-              onClick={() => setActiveTab('delivery')}
-              className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'delivery' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Bike size={16} />
-              Доставувачи
-              {pendingDelivery.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-50">
-                  {pendingDelivery.length}
-                </span>
-              )}
-            </button>
-            <button 
-              onClick={() => setActiveTab('marketing')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'marketing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Users size={16} />
-              Маркетинг
-            </button>
-            <button 
-              onClick={() => setActiveTab('campaigns')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'campaigns' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Target size={16} />
-              Кампањи
-            </button>
-            <button 
-              onClick={() => setActiveTab('billing')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'billing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <DollarSign size={16} />
-              Исплати
-            </button>
-            <button 
-              onClick={() => setActiveTab('users')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'users' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Users size={16} />
-              Корисници
-            </button>
-            <button 
-              onClick={() => setActiveTab('reviews')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'reviews' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Star size={16} />
-              Рецензии
-            </button>
-            <button 
-              onClick={() => setActiveTab('settings')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'settings' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Settings size={16} />
-              Поставки
-            </button>
-            <button 
-              onClick={() => setActiveTab('email')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'email' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Mail size={16} />
-              Е-маил
-            </button>
+          <h1 className="text-xl font-bold text-slate-800 flex-shrink-0">Админ Панел</h1>
+          <div className="flex bg-slate-100 p-1 rounded-lg ml-4 overflow-x-auto scrollbar-hide">
+            {hasPermission('dashboard') && (
+              <button 
+                onClick={() => setActiveTab('dashboard')}
+                className={`relative px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'dashboard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <LayoutDashboard size={14} />
+                Дашборд
+              </button>
+            )}
+            {hasPermission('restaurants') && (
+              <button 
+                onClick={() => setActiveTab('restaurants')}
+                className={`relative px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'restaurants' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Store size={14} />
+                Ресторани
+                {pendingRestaurants.length > 0 && (
+                  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-bold px-1 py-0.5 rounded-full border border-slate-50">
+                    {pendingRestaurants.length}
+                  </span>
+                )}
+              </button>
+            )}
+            {hasPermission('database') && (
+              <button 
+                onClick={() => setActiveTab('database')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'database' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Database size={14} />
+                База
+              </button>
+            )}
+            {hasPermission('orders') && (
+              <button 
+                onClick={() => setActiveTab('orders')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <FileText size={14} />
+                Нарачки
+              </button>
+            )}
+            {hasPermission('invoicing') && (
+              <button 
+                onClick={() => setActiveTab('invoicing')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'invoicing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Receipt size={14} />
+                Фактури
+              </button>
+            )}
+            {hasPermission('delivery') && (
+              <button 
+                onClick={() => setActiveTab('delivery')}
+                className={`relative px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'delivery' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Bike size={14} />
+                Достава
+                {pendingDelivery.length > 0 && (
+                  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-bold px-1 py-0.5 rounded-full border border-slate-50">
+                    {pendingDelivery.length}
+                  </span>
+                )}
+              </button>
+            )}
+            {hasPermission('marketing') && (
+              <button 
+                onClick={() => setActiveTab('marketing')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'marketing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Users size={14} />
+                Маркетинг
+              </button>
+            )}
+            {hasPermission('campaigns') && (
+              <button 
+                onClick={() => setActiveTab('campaigns')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'campaigns' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Target size={14} />
+                Кампањи
+              </button>
+            )}
+            {hasPermission('billing') && (
+              <button 
+                onClick={() => setActiveTab('billing')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'billing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <DollarSign size={14} />
+                Исплати
+              </button>
+            )}
+            {hasPermission('users') && (
+              <button 
+                onClick={() => setActiveTab('users')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'users' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Users size={14} />
+                Корисници
+              </button>
+            )}
+            {hasPermission('reviews') && (
+              <button 
+                onClick={() => setActiveTab('reviews')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'reviews' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Star size={14} />
+                Рецензии
+              </button>
+            )}
+            {hasPermission('settings') && (
+              <button 
+                onClick={() => setActiveTab('settings')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'settings' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Settings size={14} />
+                Поставки
+              </button>
+            )}
+            {hasPermission('email') && (
+              <button 
+                onClick={() => setActiveTab('email')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'email' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Mail size={14} />
+                Е-маил
+              </button>
+            )}
+            {hasPermission('admins') && (
+              <button 
+                onClick={() => setActiveTab('admins')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'admins' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Award size={14} />
+                Админи
+              </button>
+            )}
             <Link 
               to="/marketing"
-              className="px-4 py-2 rounded-md text-sm font-medium text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center gap-2 border border-indigo-100 ml-2"
+              className="px-3 py-1.5 rounded-md text-[10px] font-medium text-indigo-600 hover:bg-indigo-50 transition-colors flex flex-col items-center gap-0.5 min-w-[80px] border border-indigo-100 ml-2"
             >
-              <LogIn size={16} />
-              Најави се како Маркетинг
+              <LogIn size={14} />
+              Маркетинг
             </Link>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-slate-800 text-white rounded-full flex items-center justify-center text-sm font-medium">A</div>
+          <div className="flex flex-col items-end">
+            <span className="text-sm font-medium text-slate-700">{admin.name}</span>
+            <span className="text-[10px] text-slate-500 uppercase tracking-wider">{admin.role}</span>
+          </div>
+          <div className="w-8 h-8 bg-slate-800 text-white rounded-full flex items-center justify-center text-sm font-medium">
+            {admin.name?.charAt(0) || 'A'}
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="ml-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+            title="Одјави се"
+          >
+            <LogOut size={20} />
+          </button>
         </div>
       </header>
       
@@ -1017,6 +1538,13 @@ export default function Admin() {
               <h2 className="text-2xl font-bold text-slate-800">Фактурирање</h2>
               <div className="flex items-center gap-2">
                 <button 
+                  onClick={() => setShowGenerateInvoiceModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
+                >
+                  <Plus size={18} />
+                  Генерирај Нова
+                </button>
+                <button 
                   onClick={fetchInvoices}
                   className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
                   title="Освежи"
@@ -1034,7 +1562,7 @@ export default function Admin() {
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Број</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ресторан</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Период</th>
-                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Вкупно</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">За исплата</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Статус</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Акции</th>
                     </tr>
@@ -1047,17 +1575,17 @@ export default function Admin() {
                         <td className="p-4 text-slate-600">
                           {new Date(inv.period_start).toLocaleDateString('mk-MK')} - {new Date(inv.period_end).toLocaleDateString('mk-MK')}
                         </td>
-                        <td className="p-4 font-bold text-slate-800">{inv.total_amount} ден.</td>
+                        <td className="p-4 font-bold text-blue-700">{inv.net_amount} ден.</td>
                         <td className="p-4">
                           <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                            inv.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
-                            inv.status === 'approved' ? 'bg-blue-100 text-blue-700' :
-                            inv.status === 'pending' ? 'bg-orange-100 text-orange-700' :
+                            inv.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
+                            inv.status === 'Approved' ? 'bg-blue-100 text-blue-700' :
+                            inv.status === 'Pending' ? 'bg-orange-100 text-orange-700' :
                             'bg-slate-100 text-slate-700'
                           }`}>
-                            {inv.status === 'paid' ? 'Платена' :
-                             inv.status === 'approved' ? 'Одобрена' :
-                             inv.status === 'pending' ? 'Чека одобрување' :
+                            {inv.status === 'Paid' ? 'Платена' :
+                             inv.status === 'Approved' ? 'Одобрена' :
+                             inv.status === 'Pending' ? 'Чека одобрување' :
                              'Нацрт'}
                           </span>
                         </td>
@@ -1073,6 +1601,15 @@ export default function Admin() {
                             >
                               <Eye size={18} />
                             </button>
+                            {inv.status === 'Draft' && (
+                              <button 
+                                onClick={() => handleApproveInvoice(inv.id)}
+                                className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors"
+                                title="Одобри"
+                              >
+                                <Check size={18} />
+                              </button>
+                            )}
                             <button 
                               onClick={() => {
                                 setSelectedInvoice(inv);
@@ -1091,6 +1628,13 @@ export default function Admin() {
                               title="Измени"
                             >
                               <Settings2 size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteInvoice(inv.id)}
+                              className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                              title="Избриши"
+                            >
+                              <Trash2 size={18} />
                             </button>
                           </div>
                         </td>
@@ -1759,8 +2303,17 @@ export default function Admin() {
           <div className="p-8">
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-800">Регистрирани Корисници</h2>
-                <div className="text-sm text-slate-500">Вкупно: {users.length}</div>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-xl font-bold text-slate-800">Регистрирани Корисници</h2>
+                  <div className="text-sm text-slate-500">Вкупно: {users.length}</div>
+                </div>
+                <button 
+                  onClick={() => setIsCreateUserModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-sm"
+                >
+                  <UserPlus size={18} />
+                  Нов Корисник
+                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -2381,6 +2934,66 @@ export default function Admin() {
               </div>
 
               <div className="mt-8 pt-6 border-t border-slate-100">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <LayoutDashboard size={20} className="text-orange-500" />
+                    Почетен Слајдер (Home Slider)
+                  </h3>
+                  <button 
+                    onClick={() => {
+                      setEditingSliderItem(null);
+                      setNewSliderItem({ title: '', image_url: '', cta_text: '', cta_link: '', display_order: homeSlider.length, is_active: 1 });
+                      setIsHomeSliderModalOpen(true);
+                    }}
+                    className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold hover:bg-orange-600 transition-colors flex items-center gap-2"
+                  >
+                    <Plus size={18} /> Додај слајд
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {homeSlider.map(item => (
+                    <div key={item.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden group shadow-sm hover:shadow-md transition-shadow">
+                      <div className="aspect-video relative overflow-hidden">
+                        <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <button 
+                            onClick={() => {
+                              setEditingSliderItem(item);
+                              setIsHomeSliderModalOpen(true);
+                            }}
+                            className="bg-white text-slate-800 p-2 rounded-full hover:bg-slate-100 transition-colors"
+                          >
+                            <Settings2 size={18} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteSliderItem(item.id)}
+                            className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                        {!item.is_active && (
+                          <div className="absolute top-2 right-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            Неактивен
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-4">
+                        <div className="font-bold text-slate-800 truncate">{item.title || 'Без наслов'}</div>
+                        <div className="text-xs text-slate-500 truncate">{item.cta_text || 'Без текст на копче'}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {homeSlider.length === 0 && (
+                    <div className="col-span-full py-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
+                      Нема додадено слајдови за почетната страница.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-slate-100">
                 <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                   <CreditCard size={20} className="text-emerald-500" />
                   Payten NestPay® Поставки
@@ -2641,6 +3254,85 @@ export default function Admin() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'admins' ? (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <Award className="text-indigo-600" />
+                Управување со Администратори
+              </h2>
+              <button 
+                onClick={() => setIsCreateAdminModalOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
+              >
+                <Plus size={20} />
+                Нов Администратор
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="p-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Име</th>
+                    <th className="p-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Корисничко име</th>
+                    <th className="p-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Е-маил</th>
+                    <th className="p-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Улога</th>
+                    <th className="p-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Пристап</th>
+                    <th className="p-4 font-bold text-slate-500 uppercase text-xs tracking-wider text-right">Акции</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {admins.map(a => (
+                    <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="p-4 font-medium text-slate-800">{a.name}</td>
+                      <td className="p-4 text-slate-600">{a.username}</td>
+                      <td className="p-4 text-slate-600">{a.email}</td>
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${a.role === 'super' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {a.role === 'super' ? 'Супер Админ' : 'Администратор'}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex flex-wrap gap-1">
+                          {a.role === 'super' ? (
+                            <span className="text-xs text-slate-400 italic">Целосен пристап</span>
+                          ) : (
+                            (() => {
+                              let perms = a.permissions;
+                              if (typeof perms === 'string') {
+                                try {
+                                  perms = JSON.parse(perms);
+                                } catch (e) {
+                                  perms = [];
+                                }
+                              }
+                              return Array.isArray(perms) ? perms.map((p: string) => (
+                                <span key={p} className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-medium">
+                                  {p}
+                                </span>
+                              )) : null;
+                            })()
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4 text-right">
+                        {a.role !== 'super' && (
+                          <button 
+                            onClick={() => handleDeleteAdmin(a.id)}
+                            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Избриши"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : activeTab === 'restaurants' ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -2759,6 +3451,55 @@ export default function Admin() {
         </div>
       )}
     </main>
+
+      {/* Generate Invoice Modal */}
+      {showGenerateInvoiceModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="bg-blue-600 p-6 text-white flex items-center justify-between">
+              <h2 className="text-xl font-bold">Генерирај Нова Фактура</h2>
+              <button onClick={() => setShowGenerateInvoiceModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wider">Избери Ресторан</label>
+                <select 
+                  value={selectedRestaurantForInvoice}
+                  onChange={(e) => setSelectedRestaurantForInvoice(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50"
+                >
+                  <option value="">-- Избери ресторан --</option>
+                  {approvedRestaurants.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-800">
+                Системот автоматски ќе ги пресмета сите завршени нарачки кои досега не се фактурирани за избраниот ресторан.
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowGenerateInvoiceModal(false)}
+                  className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors"
+                >
+                  Откажи
+                </button>
+                <button 
+                  onClick={handleGenerateInvoice}
+                  className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                >
+                  Генерирај
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Review Modal */}
       {selectedRestaurant && (
@@ -3683,20 +4424,20 @@ export default function Admin() {
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Статус</span>
                   <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                    selectedInvoice.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
-                    selectedInvoice.status === 'approved' ? 'bg-blue-100 text-blue-700' :
-                    selectedInvoice.status === 'pending' ? 'bg-orange-100 text-orange-700' :
+                    selectedInvoice.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
+                    selectedInvoice.status === 'Approved' ? 'bg-blue-100 text-blue-700' :
+                    selectedInvoice.status === 'Pending' ? 'bg-orange-100 text-orange-700' :
                     'bg-slate-100 text-slate-700'
                   }`}>
-                    {selectedInvoice.status === 'paid' ? 'Платена' :
-                     selectedInvoice.status === 'approved' ? 'Одобрена' :
-                     selectedInvoice.status === 'pending' ? 'Чека одобрување' :
+                    {selectedInvoice.status === 'Paid' ? 'Платена' :
+                     selectedInvoice.status === 'Approved' ? 'Одобрена' :
+                     selectedInvoice.status === 'Pending' ? 'Чека одобрување' :
                      'Нацрт'}
                   </span>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Вкупен износ</span>
-                  <p className="text-xl font-bold text-slate-800">{selectedInvoice.total_amount} ден.</p>
+                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Вкупно за исплата</span>
+                  <p className="text-xl font-bold text-blue-700">{selectedInvoice.net_amount} ден.</p>
                 </div>
               </div>
 
@@ -3718,20 +4459,19 @@ export default function Admin() {
                   </h4>
                   <div className="space-y-2 text-sm bg-blue-50 p-4 rounded-2xl border border-blue-100">
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Основица:</span>
-                      <span className="font-bold">{selectedInvoice.base_amount} ден.</span>
+                      <span className="text-slate-600">Вкупно остварен промет:</span>
+                      <span className="font-bold">{selectedInvoice.total_amount} ден.</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">ДДВ ({selectedInvoice.vat_rate}%):</span>
-                      <span className="font-bold">{selectedInvoice.vat_amount} ден.</span>
+                      <span className="text-slate-600">Провизија за PizzaTime ({selectedInvoice.contract_percentage}%):</span>
+                      <span className="font-bold">-{selectedInvoice.commission_amount} ден.</span>
                     </div>
                     <div className="flex justify-between pt-2 border-t border-blue-200">
-                      <span className="text-slate-800 font-bold">Вкупно за исплата:</span>
-                      <span className="text-lg font-bold text-blue-700">{selectedInvoice.total_amount} ден.</span>
+                      <span className="text-slate-800 font-bold">Вкупно побарување:</span>
+                      <span className="text-lg font-bold text-blue-700">{selectedInvoice.net_amount} ден.</span>
                     </div>
-                    <div className="flex justify-between pt-4 mt-2 border-t border-blue-200 text-xs italic text-blue-600">
-                      <span>Провизија за PizzaTime:</span>
-                      <span>{selectedInvoice.commission_amount} ден.</span>
+                    <div className="flex justify-between pt-4 mt-2 border-t border-blue-200 text-[10px] italic text-blue-600">
+                      <span>(Основица: {selectedInvoice.base_amount} ден. + ДДВ {selectedInvoice.vat_rate}%: {selectedInvoice.vat_amount} ден.)</span>
                     </div>
                   </div>
                 </div>
@@ -3765,17 +4505,25 @@ export default function Admin() {
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-              {selectedInvoice.status === 'pending' && (
+              {selectedInvoice.status === 'Draft' && (
                 <button 
-                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'approved')}
+                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Pending')}
+                  className="px-6 py-2 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20"
+                >
+                  Испрати до ресторан
+                </button>
+              )}
+              {selectedInvoice.status === 'Pending' && (
+                <button 
+                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Approved')}
                   className="px-6 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
                 >
                   Одобри фактура
                 </button>
               )}
-              {selectedInvoice.status === 'approved' && (
+              {selectedInvoice.status === 'Approved' && (
                 <button 
-                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'paid')}
+                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Paid')}
                   className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
                 >
                   Означи како платена
@@ -3814,7 +4562,7 @@ export default function Admin() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Вкупен износ</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Вкупен промет (Бруто)</label>
                   <input 
                     type="number" 
                     value={editingInvoiceData.total_amount}
@@ -3823,11 +4571,11 @@ export default function Admin() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">ДДВ износ</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">За исплата (Нето)</label>
                   <input 
                     type="number" 
-                    value={editingInvoiceData.vat_amount}
-                    onChange={(e) => setEditingInvoiceData({...editingInvoiceData, vat_amount: Number(e.target.value)})}
+                    value={editingInvoiceData.net_amount}
+                    onChange={(e) => setEditingInvoiceData({...editingInvoiceData, net_amount: Number(e.target.value)})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                   />
                 </div>
@@ -3839,10 +4587,10 @@ export default function Admin() {
                   onChange={(e) => setEditingInvoiceData({...editingInvoiceData, status: e.target.value})}
                   className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                 >
-                  <option value="draft">Нацрт</option>
-                  <option value="pending">Чека одобрување</option>
-                  <option value="approved">Одобрена</option>
-                  <option value="paid">Платена</option>
+                  <option value="Draft">Нацрт</option>
+                  <option value="Pending">Чека одобрување</option>
+                  <option value="Approved">Одобрена</option>
+                  <option value="Paid">Платена</option>
                 </select>
               </div>
               <div className="pt-4 flex gap-3">
@@ -3860,6 +4608,287 @@ export default function Admin() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Create Admin Modal */}
+      {isHomeSliderModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
+          >
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <LayoutDashboard className="text-orange-500" />
+                {editingSliderItem ? 'Уреди слајд' : 'Додај нов слајд'}
+              </h2>
+              <button onClick={() => setIsHomeSliderModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-200 rounded-full transition-all">
+                <X size={24} />
+              </button>
+            </div>
+            <form onSubmit={handleSaveSliderItem} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Наслов (Title)</label>
+                <input 
+                  type="text" 
+                  value={(editingSliderItem ? editingSliderItem.title : newSliderItem.title) || ''} 
+                  onChange={e => editingSliderItem ? setEditingSliderItem({...editingSliderItem, title: e.target.value}) : setNewSliderItem({...newSliderItem, title: e.target.value})} 
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                  placeholder="Наслов на слајдот..." 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Слика (URL)</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    required
+                    value={(editingSliderItem ? editingSliderItem.image_url : newSliderItem.image_url) || ''} 
+                    onChange={e => editingSliderItem ? setEditingSliderItem({...editingSliderItem, image_url: e.target.value}) : setNewSliderItem({...newSliderItem, image_url: e.target.value})} 
+                    className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                    placeholder="https://..." 
+                  />
+                  <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                    <Upload size={18} />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          const base64 = reader.result as string;
+                          if (editingSliderItem) setEditingSliderItem({...editingSliderItem, image_url: base64});
+                          else setNewSliderItem({...newSliderItem, image_url: base64});
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }} />
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Текст на копчето (CTA Text)</label>
+                <input 
+                  type="text" 
+                  value={(editingSliderItem ? editingSliderItem.cta_text : newSliderItem.cta_text) || ''} 
+                  onChange={e => editingSliderItem ? setEditingSliderItem({...editingSliderItem, cta_text: e.target.value}) : setNewSliderItem({...newSliderItem, cta_text: e.target.value})} 
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                  placeholder="Нарачај сега..." 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">CTA Линк</label>
+                <input 
+                  type="text" 
+                  value={(editingSliderItem ? editingSliderItem.cta_link : newSliderItem.cta_link) || ''} 
+                  onChange={e => editingSliderItem ? setEditingSliderItem({...editingSliderItem, cta_link: e.target.value}) : setNewSliderItem({...newSliderItem, cta_link: e.target.value})} 
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                  placeholder="/menu..." 
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Редослед</label>
+                  <input 
+                    type="number" 
+                    value={(editingSliderItem ? editingSliderItem.display_order : newSliderItem.display_order) ?? 0} 
+                    onChange={e => editingSliderItem ? setEditingSliderItem({...editingSliderItem, display_order: parseInt(e.target.value) || 0}) : setNewSliderItem({...newSliderItem, display_order: parseInt(e.target.value) || 0})} 
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-6">
+                  <input 
+                    type="checkbox" 
+                    id="is_active_slider"
+                    checked={editingSliderItem ? editingSliderItem.is_active === 1 : newSliderItem.is_active === 1} 
+                    onChange={e => editingSliderItem ? setEditingSliderItem({...editingSliderItem, is_active: e.target.checked ? 1 : 0}) : setNewSliderItem({...newSliderItem, is_active: e.target.checked ? 1 : 0})} 
+                    className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
+                  />
+                  <label htmlFor="is_active_slider" className="text-sm font-bold text-slate-700">Активен</label>
+                </div>
+              </div>
+              <div className="pt-4 flex gap-3">
+                <button type="button" onClick={() => setIsHomeSliderModalOpen(false)} className="flex-1 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-colors">
+                  Откажи
+                </button>
+                <button type="submit" className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">
+                  Зачувај
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {isCreateAdminModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-2xl overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-bold text-slate-800">Креирај нов администратор</h3>
+              <button onClick={() => setIsCreateAdminModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={20} className="text-slate-500" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateAdmin} className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Целосно име</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newAdmin.name}
+                    onChange={e => setNewAdmin({...newAdmin, name: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="пр. Петар Петров"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Е-маил</label>
+                  <input 
+                    type="email" 
+                    required
+                    value={newAdmin.email}
+                    onChange={e => setNewAdmin({...newAdmin, email: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="email@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Корисничко име</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newAdmin.username}
+                    onChange={e => setNewAdmin({...newAdmin, username: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="username"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Лозинка</label>
+                  <input 
+                    type="password" 
+                    required
+                    value={newAdmin.password}
+                    onChange={e => setNewAdmin({...newAdmin, password: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-3">Дозволи за пристап (Пермисии)</label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {[
+                    { id: 'dashboard', label: 'Дашборд' },
+                    { id: 'restaurants', label: 'Ресторани' },
+                    { id: 'database', label: 'База на податоци' },
+                    { id: 'orders', label: 'Нарачки' },
+                    { id: 'invoicing', label: 'Фактурирање' },
+                    { id: 'delivery', label: 'Доставувачи' },
+                    { id: 'marketing', label: 'Маркетинг' },
+                    { id: 'campaigns', label: 'Кампањи' },
+                    { id: 'billing', label: 'Исплати' },
+                    { id: 'users', label: 'Корисници' },
+                    { id: 'reviews', label: 'Рецензии' },
+                    { id: 'settings', label: 'Поставки' },
+                    { id: 'email', label: 'Е-маил' },
+                    { id: 'admins', label: 'Администратори' }
+                  ].map(p => (
+                    <label key={p.id} className="flex items-center gap-2 p-3 border border-slate-100 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors">
+                      <input 
+                        type="checkbox" 
+                        checked={newAdmin.permissions.includes(p.id)}
+                        onChange={e => {
+                          const perms = e.target.checked 
+                            ? [...newAdmin.permissions, p.id]
+                            : newAdmin.permissions.filter(x => x !== p.id);
+                          setNewAdmin({...newAdmin, permissions: perms});
+                        }}
+                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-700 font-medium">{p.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsCreateAdminModalOpen(false)}
+                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  Откажи
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  Креирај Администратор
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isCreateUserModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-bold text-slate-800">Креирај нов корисник</h3>
+              <button onClick={() => setIsCreateUserModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={20} className="text-slate-500" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateUser} className="p-6 space-y-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Целосно име</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newUser.name}
+                    onChange={e => setNewUser({...newUser, name: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="пр. Петар Петров"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Е-маил</label>
+                  <input 
+                    type="email" 
+                    required
+                    value={newUser.email}
+                    onChange={e => setNewUser({...newUser, email: e.target.value})}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="email@example.com"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 italic">
+                  * Корисникот ќе треба да се најави преку Google со овој е-маил за да го користи својот профил.
+                </p>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsCreateUserModalOpen(false)}
+                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  Откажи
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  Креирај Корисник
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -110,7 +110,8 @@ export default function Marketing() {
           end_date: '',
           location_type: 'all_mk',
           selected_cities: [],
-          map_zones: []
+          map_zones: [],
+          is_visible: true
         });
         fetchCampaigns();
       } else {

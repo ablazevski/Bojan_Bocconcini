@@ -298,7 +298,18 @@ export default function TrackOrder() {
               </div>
             )}
 
-            <p className="text-slate-400 font-sans text-sm mb-12">Нарачано на {new Date(order.created_at).toLocaleString('mk-MK')}</p>
+            <p className="text-slate-400 font-sans text-sm mb-12">Нарачано на {(() => {
+              const dateStr = order.created_at;
+              const date = new Date(dateStr.endsWith('Z') ? dateStr : dateStr.replace(' ', 'T') + 'Z');
+              return new Intl.DateTimeFormat('mk-MK', { 
+                day: '2-digit', 
+                month: '2-digit', 
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+              }).format(date);
+            })()}</p>
 
             {order.status === 'delivering' && (
               <div className="mb-12">

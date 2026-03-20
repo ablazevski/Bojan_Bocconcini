@@ -184,7 +184,6 @@ export default function Restaurant() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
-  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [dashboardFilter, setDashboardFilter] = useState<'today' | 'week' | 'month' | 'all'>('today');
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -299,31 +298,24 @@ export default function Restaurant() {
     }
   };
 
-  const handleGenerateInvoice = async () => {
-    setIsGeneratingInvoice(true);
+  const viewInvoice = async (invoice: any) => {
     try {
-      const res = await fetch('/api/restaurant/invoices/generate', { method: 'POST' });
+      const res = await fetch(`/api/invoices/${invoice.id}`);
       if (res.ok) {
-        const data = await res.json();
-        alert(data.message);
-        fetchInvoices();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to generate invoice');
+        setSelectedInvoice(await res.json());
+        setIsInvoiceModalOpen(true);
       }
     } catch (e) {
-      console.error('Failed to generate invoice', e);
-    } finally {
-      setIsGeneratingInvoice(false);
+      console.error('Failed to fetch invoice details', e);
     }
   };
 
-  const handleSendInvoice = async (id: number) => {
+  const handleUpdateInvoiceStatus = async (id: number, status: string) => {
     try {
       const res = await fetch(`/api/invoices/${id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'pending' })
+        body: JSON.stringify({ status })
       });
       if (res.ok) {
         fetchInvoices();
@@ -331,7 +323,7 @@ export default function Restaurant() {
         setSelectedInvoice(null);
       }
     } catch (e) {
-      console.error('Failed to send invoice', e);
+      console.error('Failed to update invoice status', e);
     }
   };
 
@@ -1099,9 +1091,9 @@ export default function Restaurant() {
 
                   {/* Charts Section */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors min-w-0">
                       <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Нарачки по статус</h3>
-                      <div className="h-64">
+                      <div className="h-64 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
                             data={[
@@ -1132,9 +1124,9 @@ export default function Restaurant() {
                       </div>
                     </div>
 
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors min-w-0">
                       <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Трендови на продажба</h3>
-                      <div className="h-64">
+                      <div className="h-64 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart
                             data={(() => {
@@ -1164,9 +1156,9 @@ export default function Restaurant() {
                       </div>
                     </div>
 
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors min-w-0">
                       <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Најпопуларни продукти</h3>
-                      <div className="h-64">
+                      <div className="h-64 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie
@@ -1815,7 +1807,7 @@ export default function Restaurant() {
               )}
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'menu' ? (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2 transition-colors">
@@ -2073,7 +2065,7 @@ export default function Restaurant() {
               )}
             </div>
           </div>
-        )}
+        ) : null}
 
         {activeTab === 'invoicing' && (
           <div className="space-y-6">
@@ -2082,14 +2074,6 @@ export default function Restaurant() {
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white transition-colors">Фактурирање</h2>
                 <p className="text-slate-500 dark:text-slate-400">Преглед и управување со вашите фактури</p>
               </div>
-              <button 
-                onClick={handleGenerateInvoice}
-                disabled={isGeneratingInvoice}
-                className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-600/20 disabled:opacity-50"
-              >
-                {isGeneratingInvoice ? <RefreshCw size={20} className="animate-spin" /> : <RefreshCw size={20} />}
-                Генерирај пресметка
-              </button>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden transition-colors">
@@ -2099,7 +2083,7 @@ export default function Restaurant() {
                     <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors">
                       <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Број</th>
                       <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Период</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Вкупно</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">За исплата</th>
                       <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Статус</th>
                       <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Акција</th>
                     </tr>
@@ -2115,7 +2099,7 @@ export default function Restaurant() {
                             {new Date(invoice.period_start).toLocaleDateString('mk-MK')} - {new Date(invoice.period_end).toLocaleDateString('mk-MK')}
                           </td>
                           <td className="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
-                            {invoice.total_amount.toLocaleString()} ден.
+                            {invoice.net_amount.toLocaleString()} ден.
                           </td>
                           <td className="px-6 py-4">
                             <span className={`px-3 py-1 rounded-full text-xs font-bold ${
@@ -2132,10 +2116,7 @@ export default function Restaurant() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button 
-                              onClick={() => {
-                                setSelectedInvoice(invoice);
-                                setIsInvoiceModalOpen(true);
-                              }}
+                              onClick={() => viewInvoice(invoice)}
                               className="p-2 text-slate-400 hover:text-red-600 transition-colors"
                             >
                               <Eye size={20} />
@@ -2148,7 +2129,7 @@ export default function Restaurant() {
                         <td colSpan={5} className="px-6 py-20 text-center">
                           <Receipt className="mx-auto text-slate-200 dark:text-slate-700 mb-4" size={48} />
                           <p className="text-slate-500 dark:text-slate-400 font-medium">Сè уште немате генерирано фактури.</p>
-                          <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">Кликнете на копчето погоре за да генерирате нова пресметка.</p>
+                          <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">Фактурите ќе бидат видливи тука откако ќе бидат генерирани од администраторот.</p>
                         </td>
                       </tr>
                     )}
@@ -2385,10 +2366,10 @@ export default function Restaurant() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div>
                     <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Вкупно промет</p>
-                    <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedInvoice.gross_amount.toLocaleString()} ден.</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedInvoice.total_amount.toLocaleString()} ден.</p>
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Провизија ({selectedInvoice.commission_rate}%)</p>
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Провизија ({selectedInvoice.contract_percentage}%)</p>
                     <p className="text-lg font-bold text-red-600">-{selectedInvoice.commission_amount.toLocaleString()} ден.</p>
                   </div>
                   <div>
@@ -2397,7 +2378,7 @@ export default function Restaurant() {
                   </div>
                   <div>
                     <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">За исплата</p>
-                    <p className="text-lg font-bold text-emerald-600">{selectedInvoice.total_amount.toLocaleString()} ден.</p>
+                    <p className="text-lg font-bold text-emerald-600">{selectedInvoice.net_amount.toLocaleString()} ден.</p>
                   </div>
                 </div>
               </div>
@@ -2435,12 +2416,12 @@ export default function Restaurant() {
               >
                 Затвори
               </button>
-              {selectedInvoice.status === 'Draft' && (
+              {selectedInvoice.status === 'Pending' && (
                 <button 
-                  onClick={() => handleSendInvoice(selectedInvoice.id)}
-                  className="px-8 py-2 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-600/20"
+                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Approved')}
+                  className="px-8 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
                 >
-                  Испрати на проверка
+                  Одобри фактура
                 </button>
               )}
             </div>

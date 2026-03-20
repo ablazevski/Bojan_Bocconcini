@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import LocationPickerMap from '../components/LocationPickerMap';
 import { useTheme } from '../context/ThemeContext';
@@ -53,6 +53,8 @@ export default function Customer() {
   const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
   const [user, setUser] = useState<any>(null);
   const [lastOrderTrackingTokens, setLastOrderTrackingTokens] = useState<Record<number, string>>({});
+  const [homeSlider, setHomeSlider] = useState<any[]>([]);
+  const [currentSlide, setCurrentSlide] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [selectedFees, setSelectedFees] = useState<Record<number, string[]>>({}); // restaurantId -> feeNames[]
@@ -89,6 +91,36 @@ export default function Customer() {
   
   useEffect(() => {
     fetchSettings();
+    fetchHomeSlider();
+
+    // Check for query parameters
+    const params = new URLSearchParams(window.location.search);
+    const checkoutParam = params.get('checkout');
+    const restaurantIdParam = params.get('restaurantId');
+
+    if (checkoutParam === 'true') {
+      setStep('checkout');
+    }
+    if (restaurantIdParam) {
+      const rid = Number(restaurantIdParam);
+      setSelectedRestaurantId(rid);
+      // Fetch restaurant details to get the city
+      fetch(`/api/customer/restaurant-by-id/${rid}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.city) {
+            setSelectedCity(data.city);
+            // If location is not set, try to set it to restaurant city center or something
+            // But better let the user pick.
+          }
+          // Also add to availableRestaurants if not there
+          setAvailableRestaurants(prev => {
+            if (prev.some(r => r.id === data.id)) return prev;
+            return [...prev, data];
+          });
+        })
+        .catch(err => console.error('Failed to fetch restaurant details', err));
+    }
 
     fetch('/api/customer/cities')
       .then(res => res.json())
@@ -264,6 +296,15 @@ export default function Customer() {
     setStep('checkout');
   };
 
+  useEffect(() => {
+    if (homeSlider.length > 1) {
+      const timer = setInterval(() => {
+        setCurrentSlide(prev => (prev + 1) % homeSlider.length);
+      }, 5000);
+      return () => clearInterval(timer);
+    }
+  }, [homeSlider.length]);
+
   const fetchSettings = async () => {
     try {
       const res = await fetch('/api/settings');
@@ -273,6 +314,18 @@ export default function Customer() {
       setGlobalSettings(data);
     } catch (err) {
       console.error('Failed to fetch settings:', err);
+    }
+  };
+
+  const fetchHomeSlider = async () => {
+    try {
+      const res = await fetch('/api/customer/home-slider');
+      if (res.ok) {
+        const data = await res.json();
+        setHomeSlider(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch home slider', e);
     }
   };
 
@@ -672,10 +725,10 @@ export default function Customer() {
           {step !== 'city' && step !== 'success' && (
             <div className="hidden md:flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-sm font-medium">
               <span className="text-orange-600 dark:text-orange-400 font-bold capitalize">
-                {currentTime.toLocaleDateString('mk-MK', { weekday: 'long' })}
+                {new Intl.DateTimeFormat('mk-MK', { weekday: 'long' }).format(currentTime)}
               </span>
               <span>
-                {currentTime.toLocaleDateString('mk-MK', { day: '2-digit', month: '2-digit', year: 'numeric' })} • {currentTime.toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit' })}
+                {new Intl.DateTimeFormat('mk-MK', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(currentTime)} • {new Intl.DateTimeFormat('mk-MK', { hour: '2-digit', minute: '2-digit', hour12: false }).format(currentTime)}
               </span>
             </div>
           )}
@@ -873,6 +926,74 @@ export default function Customer() {
 
         {step === 'menu' && (
           <>
+            {/* Home Slider */}
+            {homeSlider.length > 0 && (
+              <div className="mb-12 relative overflow-hidden rounded-[2.5rem] shadow-2xl shadow-orange-500/10 group">
+                <div className="flex transition-transform duration-700 ease-in-out" style={{ transform: `translateX(-${currentSlide * 100}%)` }}>
+                  {homeSlider.map((slide, idx) => (
+                    <div key={idx} className="min-w-full relative aspect-[21/9] md:aspect-[21/7]">
+                      <img 
+                        src={slide.image_url} 
+                        alt={slide.cta_text} 
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-transparent flex items-center p-8 md:p-16">
+                        <div className="max-w-xl">
+                          <motion.h2 
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="text-3xl md:text-5xl font-black text-white mb-6 leading-tight drop-shadow-lg"
+                          >
+                            {slide.title}
+                          </motion.h2>
+                          {slide.cta_link && (
+                            <motion.a
+                              href={slide.cta_link}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: 0.4 }}
+                              className="inline-flex items-center gap-3 bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-2xl font-black text-lg transition-all shadow-xl shadow-orange-500/30 hover:scale-105 active:scale-95 group/btn"
+                            >
+                              {slide.cta_text || 'Нарачај сега'}
+                              <ArrowRight className="group-hover/btn:translate-x-1 transition-transform" />
+                            </motion.a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {homeSlider.length > 1 && (
+                  <>
+                    <button 
+                      onClick={() => setCurrentSlide(prev => (prev - 1 + homeSlider.length) % homeSlider.length)}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full flex items-center justify-center hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <ChevronLeft size={24} />
+                    </button>
+                    <button 
+                      onClick={() => setCurrentSlide(prev => (prev + 1) % homeSlider.length)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full flex items-center justify-center hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <ChevronRight size={24} />
+                    </button>
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2">
+                      {homeSlider.map((_, idx) => (
+                        <button 
+                          key={idx}
+                          onClick={() => setCurrentSlide(idx)}
+                          className={`w-2.5 h-2.5 rounded-full transition-all ${currentSlide === idx ? 'bg-orange-500 w-8' : 'bg-white/40 hover:bg-white/60'}`}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="mb-8">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
                 <div className="flex items-center justify-center gap-2 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-xl border border-orange-100 dark:border-slate-800 shadow-sm cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors whitespace-nowrap" onClick={() => setStep('location')}>

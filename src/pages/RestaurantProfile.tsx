@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { MapPin, Phone, Clock, ShoppingBag, ArrowLeft, Plus, Minus, Info, Star, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { MapPin, Phone, Clock, ShoppingBag, ArrowLeft, Plus, Minus, Info, Star, X, Sun, Moon } from 'lucide-react';
 import SEO from '../components/SEO';
+import { useTheme } from '../context/ThemeContext';
 
 export default function RestaurantProfile() {
   const { username } = useParams();
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
   const [restaurant, setRestaurant] = useState<any>(null);
   const [menu, setMenu] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
@@ -14,6 +16,7 @@ export default function RestaurantProfile() {
   const [cart, setCart] = useState<any[]>([]);
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/customer/restaurant/${username}`)
@@ -29,6 +32,12 @@ export default function RestaurantProfile() {
           modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
         }));
         setMenu(parsedMenu);
+        
+        // Set initial active category
+        if (parsedMenu.length > 0) {
+          const firstCat = parsedMenu[0].category || 'Останато';
+          setActiveCategory(firstCat);
+        }
         
         // Fetch reviews
         fetch(`/api/restaurants/${data.restaurant.id}/reviews`)
@@ -124,7 +133,7 @@ export default function RestaurantProfile() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className={`min-h-screen flex items-center justify-center ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'}`}>
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
       </div>
     );
@@ -132,8 +141,8 @@ export default function RestaurantProfile() {
 
   if (!restaurant) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
-        <h1 className="text-3xl font-bold text-slate-800 mb-4">Ресторанот не е пронајден</h1>
+      <div className={`min-h-screen flex flex-col items-center justify-center ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'} p-6`}>
+        <h1 className={`text-3xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} mb-4`}>Ресторанот не е пронајден</h1>
         <button onClick={() => navigate('/')} className="px-6 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">
           Врати се на почетна
         </button>
@@ -141,10 +150,15 @@ export default function RestaurantProfile() {
     );
   }
 
-  // Group menu by category
+  // Group menu by category and subcategory
   const groupedMenu = menu.reduce((acc: any, item: any) => {
-    if (!acc[item.category]) acc[item.category] = [];
-    acc[item.category].push(item);
+    const category = item.category || 'Останато';
+    if (!acc[category]) acc[category] = {};
+    
+    const subcategory = item.subcategory || 'Останато';
+    if (!acc[category][subcategory]) acc[category][subcategory] = [];
+    
+    acc[category][subcategory].push(item);
     return acc;
   }, {});
 
@@ -155,7 +169,7 @@ export default function RestaurantProfile() {
     : null;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'} pb-24 transition-colors duration-300`}>
       <SEO 
         title={`${restaurant.name} - Достава на храна во ${restaurant.city}`}
         description={`Нарачајте храна од ${restaurant.name} во ${restaurant.city}. Проверете го менито и нарачајте брза достава до вашиот дом.`}
@@ -168,32 +182,42 @@ export default function RestaurantProfile() {
         ) : (
           <div className="w-full h-full bg-gradient-to-r from-orange-400 to-red-500 opacity-80"></div>
         )}
-        <button 
-          onClick={() => navigate('/')}
-          className="absolute top-6 left-6 bg-white/20 backdrop-blur-md p-3 rounded-full text-white hover:bg-white/30 transition-colors"
-        >
-          <ArrowLeft size={24} />
-        </button>
+        <div className="absolute top-6 left-6 flex gap-4">
+          <button 
+            onClick={() => navigate('/')}
+            className="bg-white/20 backdrop-blur-md p-3 rounded-full text-white hover:bg-white/30 transition-colors"
+          >
+            <ArrowLeft size={24} />
+          </button>
+        </div>
+        <div className="absolute top-6 right-6">
+          <button 
+            onClick={toggleTheme}
+            className="bg-white/20 backdrop-blur-md p-3 rounded-full text-white hover:bg-white/30 transition-colors"
+          >
+            {theme === 'light' ? <Moon size={24} /> : <Sun size={24} />}
+          </button>
+        </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-24 relative z-10">
         {/* Restaurant Header Card */}
-        <div className="bg-white rounded-3xl shadow-xl p-6 md:p-8 mb-8 flex flex-col md:flex-row items-center md:items-end gap-6">
-          <div className="w-32 h-32 rounded-2xl bg-white shadow-lg p-2 flex-shrink-0">
+        <div className={`${theme === 'dark' ? 'bg-slate-900' : 'bg-white'} rounded-3xl shadow-xl p-6 md:p-8 mb-8 flex flex-col md:flex-row items-center md:items-end gap-6 transition-colors`}>
+          <div className={`w-32 h-32 rounded-2xl ${theme === 'dark' ? 'bg-slate-800' : 'bg-white'} shadow-lg p-2 flex-shrink-0`}>
             {restaurant.logo_url ? (
               <img src={restaurant.logo_url} alt={restaurant.name} className="w-full h-full object-contain rounded-xl" referrerPolicy="no-referrer" />
             ) : (
-              <div className="w-full h-full bg-orange-100 rounded-xl flex items-center justify-center text-orange-500 font-bold text-2xl">
+              <div className={`w-full h-full ${theme === 'dark' ? 'bg-orange-900/30 text-orange-400' : 'bg-orange-100 text-orange-500'} rounded-xl flex items-center justify-center font-bold text-2xl`}>
                 {restaurant.name.charAt(0)}
               </div>
             )}
           </div>
           
           <div className="flex-1 text-center md:text-left">
-            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-800 mb-2">{restaurant.name}</h1>
-            <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-slate-600">
+            <h1 className={`text-3xl md:text-4xl font-extrabold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} mb-2`}>{restaurant.name}</h1>
+            <div className={`flex flex-wrap items-center justify-center md:justify-start gap-4 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
               {averageRating && (
-                <div className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-bold border border-amber-100">
+                <div className={`flex items-center gap-1 ${theme === 'dark' ? 'bg-amber-900/30 text-amber-400 border-amber-900/50' : 'bg-amber-50 text-amber-700 border-amber-100'} px-3 py-1 rounded-full text-sm font-bold border`}>
                   <Star size={16} fill="currentColor" />
                   {averageRating} ({reviews.length})
                 </div>
@@ -206,8 +230,8 @@ export default function RestaurantProfile() {
                   Работно време
                   <Info size={14} className="text-slate-400" />
                 </span>
-                <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                  <h4 className="font-bold text-slate-800 mb-3 text-sm border-b border-slate-50 pb-2">Работно време за достава</h4>
+                <div className={`absolute top-full left-0 mt-2 w-64 ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'} rounded-2xl shadow-xl border p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50`}>
+                  <h4 className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} mb-3 text-sm border-b ${theme === 'dark' ? 'border-slate-700' : 'border-slate-50'} pb-2`}>Работно време за достава</h4>
                   <div className="space-y-2">
                     {(() => {
                       const days = [
@@ -230,7 +254,7 @@ export default function RestaurantProfile() {
                         return (
                           <div key={day.id} className="flex justify-between text-xs">
                             <span className="text-slate-500">{day.label}</span>
-                            <span className="font-medium text-slate-700">
+                            <span className={`font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
                               {hours?.active && openTime && closeTime ? `${openTime} - ${closeTime}` : <span className="text-red-400">Затворено</span>}
                             </span>
                           </div>
@@ -248,7 +272,9 @@ export default function RestaurantProfile() {
               const workingHours = typeof restaurant.working_hours === 'string' 
                 ? JSON.parse(restaurant.working_hours) 
                 : restaurant.working_hours || {};
-              const now = new Date();
+              // Get current time in Macedonia timezone
+              const macedoniaTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"});
+              const now = new Date(macedoniaTime);
               const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
               const dayName = days[now.getDay()];
               const dayHours = workingHours[dayName];
@@ -278,12 +304,12 @@ export default function RestaurantProfile() {
               }
 
               return isOpen ? (
-                <span className="bg-emerald-100 text-emerald-700 px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2">
+                <span className={`${theme === 'dark' ? 'bg-emerald-900/30 text-emerald-400' : 'bg-emerald-100 text-emerald-700'} px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2`}>
                   <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
                   Отворено
                 </span>
               ) : (
-                <span className="bg-red-100 text-red-700 px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2">
+                <span className={`${theme === 'dark' ? 'bg-red-900/30 text-red-400' : 'bg-red-100 text-red-700'} px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2`}>
                   <span className="w-2 h-2 bg-red-500 rounded-full"></span>
                   Затворено
                 </span>
@@ -294,56 +320,123 @@ export default function RestaurantProfile() {
             </span>
           </div>
         </div>
-
+        
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Menu Section */}
           <div className="lg:col-span-2 space-y-8">
-            {Object.keys(groupedMenu).map(category => (
-              <div key={category} className="bg-white rounded-3xl shadow-sm p-6 md:p-8">
-                <h2 className="text-2xl font-bold text-slate-800 mb-6 pb-4 border-b border-slate-100">{category}</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {groupedMenu[category].map((item: any) => (
-                    <div key={item.id} className="group border border-slate-100 rounded-2xl p-4 hover:shadow-md transition-all hover:border-orange-200 bg-slate-50/50 hover:bg-white flex flex-col">
-                      {item.image_url && (
-                        <div className="w-full h-40 rounded-xl overflow-hidden mb-4 bg-slate-200">
-                          <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
-                        </div>
+            <div className={`${theme === 'dark' ? 'bg-slate-900' : 'bg-white'} rounded-3xl shadow-sm p-6 md:p-8 transition-colors`}>
+              {/* Main Category Tabs */}
+              <div className="flex items-baseline gap-8 mb-10 overflow-x-auto no-scrollbar pb-2 border-b border-slate-100 dark:border-slate-800">
+                {Object.keys(groupedMenu).map(category => (
+                  <button
+                    key={category}
+                    onClick={() => setActiveCategory(category)}
+                    className={`transition-all duration-300 whitespace-nowrap relative pb-4 ${
+                      activeCategory === category 
+                        ? `text-3xl font-extrabold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}` 
+                        : `text-xl font-bold ${theme === 'dark' ? 'text-slate-600' : 'text-slate-300'} hover:text-slate-400`
+                    }`}
+                  >
+                    {category}
+                    {activeCategory === category && (
+                      <motion.div 
+                        layoutId="activeCategoryIndicator"
+                        className="absolute bottom-0 left-0 right-0 h-1 bg-orange-500 rounded-full"
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {activeCategory && groupedMenu[activeCategory] && (
+                <div className="space-y-12">
+                  {/* Subcategory Navigation (Pills) */}
+                  {Object.keys(groupedMenu[activeCategory]).length > 1 && (
+                    <div className="flex flex-wrap gap-2 mb-8">
+                      {Object.keys(groupedMenu[activeCategory]).map(sub => (
+                        <button
+                          key={sub}
+                          onClick={() => {
+                            const element = document.getElementById(`sub-${activeCategory}-${sub}`);
+                            if (element) {
+                              const offset = 100;
+                              const elementPosition = element.getBoundingClientRect().top;
+                              const offsetPosition = elementPosition + window.pageYOffset - offset;
+                              window.scrollTo({
+                                top: offsetPosition,
+                                behavior: "smooth"
+                              });
+                            }
+                          }}
+                          className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
+                            theme === 'dark' 
+                              ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700' 
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                          }`}
+                        >
+                          {sub}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Items grouped by subcategory */}
+                  {Object.keys(groupedMenu[activeCategory]).map(subcategory => (
+                    <div key={subcategory} id={`sub-${activeCategory}-${subcategory}`} className="scroll-mt-24">
+                      {subcategory !== 'Останато' && (
+                        <h3 className={`text-lg font-bold ${theme === 'dark' ? 'text-orange-400' : 'text-orange-600'} mb-6 flex items-center gap-2`}>
+                          <div className="w-1.5 h-6 bg-orange-500 rounded-full"></div>
+                          {subcategory}
+                        </h3>
                       )}
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start mb-2">
-                          <h3 className="font-bold text-slate-800 text-lg leading-tight">{item.name}</h3>
-                          <span className="font-extrabold text-orange-600 bg-orange-50 px-2 py-1 rounded-lg text-sm whitespace-nowrap ml-2">{item.price} ден.</span>
-                        </div>
-                        <p className="text-sm text-slate-500 line-clamp-2 mb-4">{item.description}</p>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        {groupedMenu[activeCategory][subcategory].map((item: any) => (
+                          <div 
+                            key={item.id} 
+                            onClick={() => openItemModal(item)}
+                            className={`group cursor-pointer border ${theme === 'dark' ? 'border-slate-800 hover:border-orange-900/50 bg-slate-800/50 hover:bg-slate-800' : 'border-slate-100 hover:border-orange-200 bg-slate-50/50 hover:bg-white'} rounded-2xl p-4 hover:shadow-md transition-all flex flex-col`}
+                          >
+                            {item.image_url && (
+                              <div className={`w-full h-40 rounded-xl overflow-hidden mb-4 ${theme === 'dark' ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                                <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
+                              </div>
+                            )}
+                            <div className="flex-1">
+                              <div className="flex justify-between items-start mb-2">
+                                <h3 className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} text-lg leading-tight group-hover:text-orange-500 transition-colors`}>{item.name}</h3>
+                                <span className={`font-extrabold ${theme === 'dark' ? 'text-orange-400 bg-orange-900/30' : 'text-orange-600 bg-orange-50'} px-2 py-1 rounded-lg text-sm whitespace-nowrap ml-2`}>{item.price} ден.</span>
+                              </div>
+                              <p className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'} line-clamp-2 mb-4`}>{item.description}</p>
+                            </div>
+                            <div className={`w-full py-3 ${theme === 'dark' ? 'bg-slate-700 group-hover:bg-orange-600' : 'bg-slate-800 group-hover:bg-orange-500'} text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 mt-auto`}>
+                              <Plus size={18} /> Додади
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <button 
-                        onClick={() => openItemModal(item)}
-                        className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 mt-auto"
-                      >
-                        <Plus size={18} /> Додади
-                      </button>
                     </div>
                   ))}
                 </div>
-              </div>
-            ))}
+              )}
+            </div>
 
             {/* Reviews Section */}
-            <div className="bg-white rounded-3xl shadow-sm p-6 md:p-8">
-              <h2 className="text-2xl font-bold text-slate-800 mb-6 pb-4 border-b border-slate-100 flex items-center gap-2">
+            <div className={`${theme === 'dark' ? 'bg-slate-900' : 'bg-white'} rounded-3xl shadow-sm p-6 md:p-8 transition-colors`}>
+              <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} mb-6 pb-4 border-b ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100'} flex items-center gap-2`}>
                 <Star className="text-amber-500" /> Рецензии од корисници
               </h2>
               {reviews.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <div className={`text-center py-12 ${theme === 'dark' ? 'text-slate-500 bg-slate-800/50 border-slate-700' : 'text-slate-400 bg-slate-50 border-slate-200'} rounded-2xl border border-dashed`}>
                   <p>Сеуште нема рецензии за овој ресторан.</p>
                 </div>
               ) : (
                 <div className="space-y-6">
                   {reviews.map(rev => (
-                    <div key={rev.id} className="border-b border-slate-50 pb-6 last:border-0 last:pb-0">
+                    <div key={rev.id} className={`border-b ${theme === 'dark' ? 'border-slate-800' : 'border-slate-50'} pb-6 last:border-0 last:pb-0`}>
                       <div className="flex justify-between items-start mb-2">
                         <div>
-                          <p className="font-bold text-slate-800">{rev.customer_name}</p>
+                          <p className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{rev.customer_name}</p>
                           <div className="flex items-center gap-1 text-amber-500 mt-1">
                             {[...Array(5)].map((_, i) => (
                               <Star key={i} size={14} fill={i < rev.rating ? "currentColor" : "none"} />
@@ -352,7 +445,7 @@ export default function RestaurantProfile() {
                         </div>
                         <span className="text-xs text-slate-400">{new Date(rev.created_at).toLocaleDateString()}</span>
                       </div>
-                      <p className="text-slate-600 text-sm italic">"{rev.comment}"</p>
+                      <p className={`${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'} text-sm italic`}>"{rev.comment}"</p>
                     </div>
                   ))}
                 </div>
@@ -362,55 +455,55 @@ export default function RestaurantProfile() {
 
           {/* Cart Sidebar */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-3xl shadow-xl p-6 sticky top-6">
-              <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
-                <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center">
+            <div className={`${theme === 'dark' ? 'bg-slate-900' : 'bg-white'} rounded-3xl shadow-xl p-6 sticky top-6 transition-colors`}>
+              <div className={`flex items-center gap-3 mb-6 pb-4 border-b ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100'}`}>
+                <div className={`w-10 h-10 ${theme === 'dark' ? 'bg-orange-900/30 text-orange-400' : 'bg-orange-100 text-orange-600'} rounded-xl flex items-center justify-center`}>
                   <ShoppingBag size={20} />
                 </div>
-                <h2 className="text-xl font-bold text-slate-800">Вашата нарачка</h2>
+                <h2 className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>Вашата нарачка</h2>
               </div>
 
               {cart.length === 0 ? (
                 <div className="text-center py-8 text-slate-500">
-                  <ShoppingBag size={48} className="mx-auto text-slate-200 mb-4" />
+                  <ShoppingBag size={48} className={`mx-auto ${theme === 'dark' ? 'text-slate-800' : 'text-slate-200'} mb-4`} />
                   <p>Кошничката е празна</p>
                 </div>
               ) : (
                 <>
                   <div className="space-y-4 mb-6 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                     {cart.map(item => (
-                      <div key={item.cartId} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <div key={item.cartId} className={`${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'} p-3 rounded-xl border`}>
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex-1 pr-4">
-                            <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
-                            <span className="text-orange-600 font-bold text-sm">{item.finalPrice || item.price} ден.</span>
+                            <h4 className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} text-sm`}>{item.name}</h4>
+                            <span className={`font-bold text-sm ${theme === 'dark' ? 'text-orange-400' : 'text-orange-600'}`}>{item.finalPrice || item.price} ден.</span>
                           </div>
                           <button 
                             onClick={() => removeFromCart(item.cartId)}
-                            className="w-8 h-8 bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 rounded-lg flex items-center justify-center transition-colors shadow-sm"
+                            className={`${theme === 'dark' ? 'bg-slate-700 border-slate-600 text-slate-400 hover:text-red-400 hover:border-red-900/50' : 'bg-white border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200'} w-8 h-8 border rounded-lg flex items-center justify-center transition-colors shadow-sm`}
                           >
                             <Minus size={16} />
                           </button>
                         </div>
-                        <div className="text-[10px] text-slate-500 space-y-0.5">
+                        <div className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'} space-y-0.5`}>
                           {Object.entries(item.selectedModifiers || {}).map(([group, selection]) => {
                             if (Array.isArray(selection)) {
-                              return selection.length > 0 ? <p key={group}><span className="font-medium">{group}:</span> {selection.join(', ')}</p> : null;
+                              return selection.length > 0 ? <p key={group}><span className="font-medium">{group}:</span> {(selection as any[]).join(', ')}</p> : null;
                             }
-                            return selection ? <p key={group}><span className="font-medium">{group}:</span> {selection}</p> : null;
+                            return selection ? <p key={group}><span className="font-medium">{group}:</span> {selection as any}</p> : null;
                           })}
                         </div>
                       </div>
                     ))}
                   </div>
-                  <div className="border-t border-slate-100 pt-4 mb-6">
-                    <div className="flex justify-between items-center text-lg font-bold text-slate-800">
+                  <div className={`border-t ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100'} pt-4 mb-6`}>
+                    <div className={`flex justify-between items-center text-lg font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
                       <span>Вкупно:</span>
                       <span>{cartTotal} ден.</span>
                     </div>
                   </div>
                   <button 
-                    onClick={() => navigate('/customer')}
+                    onClick={() => navigate(`/customer?checkout=true&restaurantId=${restaurant.id}`)}
                     className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold transition-colors shadow-lg shadow-orange-500/30 text-lg"
                   >
                     Продолжи кон наплата
@@ -422,88 +515,91 @@ export default function RestaurantProfile() {
         </div>
       </div>
       {/* Item Customization Modal */}
-      {selectedItem && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
-          >
-            <div className="relative h-64 flex-shrink-0">
-              <img src={selectedItem.image_url} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              <button 
-                onClick={() => setSelectedItem(null)}
-                className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-md transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 md:p-8 overflow-y-auto flex-1">
-              <div className="mb-6">
-                <h3 className="text-3xl font-extrabold text-slate-800 mb-2">{selectedItem.name}</h3>
-                <p className="text-slate-500 leading-relaxed">{selectedItem.description}</p>
+      <AnimatePresence>
+        {selectedItem && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className={`${theme === 'dark' ? 'bg-slate-900' : 'bg-white'} rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]`}
+            >
+              <div className="relative h-64 flex-shrink-0">
+                <img src={selectedItem.image_url} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <button 
+                  onClick={() => setSelectedItem(null)}
+                  className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-md transition-colors"
+                >
+                  <X size={20} />
+                </button>
               </div>
-
-              {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
-                <div className="space-y-8">
-                  {selectedItem.modifiers.map((group: any) => (
-                    <div key={group.name} className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
-                      <div className="flex justify-between items-center mb-4">
-                        <h4 className="font-bold text-slate-800 text-lg">{group.name}</h4>
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400 px-2 py-1 bg-white rounded-lg border border-slate-100">
-                          {group.type === 'single' ? 'Еден избор' : 'Повеќе избори'}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {group.options.map((option: any) => {
-                          const isSelected = group.type === 'single' 
-                            ? selectedModifiers[group.name] === option.name
-                            : (selectedModifiers[group.name] as string[])?.includes(option.name);
-                          
-                          return (
-                            <button
-                              key={option.name}
-                              onClick={() => toggleModifier(group.name, option.name, group.type)}
-                              className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
-                                isSelected 
-                                  ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-md shadow-orange-200' 
-                                  : 'border-white bg-white hover:border-orange-200 text-slate-600'
-                              }`}
-                            >
-                              <span className="font-bold">{option.name}</span>
-                              {option.price > 0 && (
-                                <span className={`text-sm font-black ${isSelected ? 'text-orange-600' : 'text-slate-400'}`}>
-                                  +{option.price} ден.
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+              
+              <div className="p-6 md:p-8 overflow-y-auto flex-1">
+                <div className="mb-6">
+                  <h3 className={`text-3xl font-extrabold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} mb-2`}>{selectedItem.name}</h3>
+                  <p className={`${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'} leading-relaxed`}>{selectedItem.description}</p>
                 </div>
-              )}
-            </div>
 
-            <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-6">
-              <div className="flex flex-col">
-                <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Вкупна цена</span>
-                <span className="text-3xl font-black text-slate-800">
-                  {calculateItemPrice(selectedItem, selectedModifiers)} <span className="text-lg font-bold text-slate-500">ден.</span>
-                </span>
+                {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
+                  <div className="space-y-8">
+                    {selectedItem.modifiers.map((group: any) => (
+                      <div key={group.name} className={`${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'} p-6 rounded-3xl border`}>
+                        <div className="flex justify-between items-center mb-4">
+                          <h4 className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} text-lg`}>{group.name}</h4>
+                          <span className={`text-xs font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-slate-500 bg-slate-900 border-slate-700' : 'text-slate-400 bg-white border-slate-100'} px-2 py-1 rounded-lg border`}>
+                            {group.type === 'single' ? 'Еден избор' : 'Повеќе избори'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {group.options.map((option: any) => {
+                            const isSelected = group.type === 'single' 
+                              ? selectedModifiers[group.name] === option.name
+                              : (selectedModifiers[group.name] as string[])?.includes(option.name);
+                            
+                            return (
+                              <button
+                                key={option.name}
+                                onClick={() => toggleModifier(group.name, option.name, group.type)}
+                                className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                                  isSelected 
+                                    ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-md shadow-orange-200' 
+                                    : `${theme === 'dark' ? 'border-slate-700 bg-slate-700 hover:border-orange-900/50 text-slate-300' : 'border-white bg-white hover:border-orange-200 text-slate-600'}`
+                                }`}
+                              >
+                                <span className="font-bold">{option.name}</span>
+                                {option.price > 0 && (
+                                  <span className={`text-sm font-black ${isSelected ? 'text-orange-600' : 'text-slate-400'}`}>
+                                    +{option.price} ден.
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <button 
-                onClick={handleAddToCart}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-lg transition-all shadow-lg shadow-orange-500/30 active:scale-95"
-              >
-                Додади во кошничка
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+
+              <div className={`${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'} p-6 md:p-8 border-t flex items-center justify-between gap-6`}>
+                <div className="flex flex-col">
+                  <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Вкупна цена</span>
+                  <span className={`text-3xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                    {calculateItemPrice(selectedItem, selectedModifiers)} <span className="text-lg font-bold text-slate-500">ден.</span>
+                  </span>
+                </div>
+                <button 
+                  onClick={handleAddToCart}
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-lg transition-all shadow-lg shadow-orange-500/30 active:scale-95"
+                >
+                  Додади во кошничка
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

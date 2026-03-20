@@ -21,6 +21,9 @@ interface Order {
   payment_method: string;
   selected_fees: string;
   restaurant_name?: string;
+  delivery_partner_id?: number;
+  delivery_lat?: number;
+  delivery_lng?: number;
 }
 
 function Countdown({ targetTime }: { targetTime: string }) {
@@ -405,7 +408,7 @@ export default function Delivery() {
     if (!partner) return;
     try {
       const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
-      const now = new Date();
+      const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"}));
       const currentDay = days[now.getDay()];
       const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
       
@@ -487,7 +490,7 @@ export default function Delivery() {
 
   const workingHours = JSON.parse(partner.working_hours || '{}');
   const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
-  const now = new Date();
+  const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"}));
   const currentDay = days[now.getDay()];
   const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   
