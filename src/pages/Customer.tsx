@@ -124,7 +124,8 @@ export default function Customer() {
 
     fetch('/api/customer/cities')
       .then(res => res.json())
-      .then(data => setCities(data));
+      .then(data => setCities(data))
+      .catch(err => console.error('Failed to fetch cities', err));
       
     fetch('/api/customer/campaigns/active')
       .then(res => res.json())
@@ -139,7 +140,8 @@ export default function Customer() {
             setSelectedCampaignId(data[0].id);
           }
         }
-      });
+      })
+      .catch(err => console.error('Failed to fetch active campaigns', err));
 
     const savedCart = localStorage.getItem('cart');
     if (savedCart) {
@@ -394,35 +396,45 @@ export default function Customer() {
   const handleLocationConfirm = async () => {
     if (!location || !selectedCity) return;
     
-    const res = await fetch('/api/customer/available', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ city: selectedCity, lat: location[0], lng: location[1] })
-    });
-    const data = await res.json();
-    
-    setAvailableRestaurants(data.restaurants);
-    
-    // Parse modifiers from JSON string
-    const parsedItems = data.items.map((item: any) => ({
-      ...item,
-      modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
-    }));
-    
-    setMenuItems(parsedItems);
+    try {
+      const res = await fetch('/api/customer/available', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ city: selectedCity, lat: location[0], lng: location[1] })
+      });
+      
+      if (!res.ok) {
+        throw new Error('Failed to fetch available restaurants');
+      }
+      
+      const data = await res.json();
+      
+      setAvailableRestaurants(data.restaurants);
+      
+      // Parse modifiers from JSON string
+      const parsedItems = data.items.map((item: any) => ({
+        ...item,
+        modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
+      }));
+      
+      setMenuItems(parsedItems);
 
-    if (cart.length > 0) {
-      const isRestaurantAvailable = data.restaurants.some((r: any) => r.id === selectedRestaurantId);
-      if (isRestaurantAvailable) {
-        setStep('cart');
+      if (cart.length > 0) {
+        const isRestaurantAvailable = data.restaurants.some((r: any) => r.id === selectedRestaurantId);
+        if (isRestaurantAvailable) {
+          setStep('cart');
+        } else {
+          setError('Избраниот ресторан не доставува до вашата локација. Вашата кошничка ќе биде испразнета.');
+          setCart([]);
+          setSelectedRestaurantId(null);
+          setStep('menu');
+        }
       } else {
-        setError('Избраниот ресторан не доставува до вашата локација. Вашата кошничка ќе биде испразнета.');
-        setCart([]);
-        setSelectedRestaurantId(null);
         setStep('menu');
       }
-    } else {
-      setStep('menu');
+    } catch (err) {
+      console.error('Location confirm error:', err);
+      setError('Настана грешка при проверка на достапноста. Ве молиме обидете се повторно.');
     }
   };
 
@@ -956,7 +968,7 @@ export default function Customer() {
                               transition={{ delay: 0.4 }}
                               className="inline-flex items-center gap-3 bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-2xl font-black text-lg transition-all shadow-xl shadow-orange-500/30 hover:scale-105 active:scale-95 group/btn"
                             >
-                              {slide.cta_text || 'Нарачај сега'}
+                              {slide.cta_text || 'Нарачај веднаш'}
                               <ArrowRight className="group-hover/btn:translate-x-1 transition-transform" />
                             </motion.a>
                           )}

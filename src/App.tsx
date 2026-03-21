@@ -79,22 +79,27 @@ export default function App() {
             registration.pushManager.getSubscription()
               .then(async subscription => {
                 if (!subscription) {
-                  // Get public key from server
-                  const res = await fetch('/api/push/key');
-                  const { publicKey } = await res.json();
-                  
-                  // Subscribe the user
-                  const newSubscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(publicKey)
-                  });
-                  
-                  // Send subscription to server
-                  await fetch('/api/push/subscribe', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ subscription: newSubscription })
-                  });
+                  try {
+                    // Get public key from server
+                    const res = await fetch('/api/push/key');
+                    if (!res.ok) throw new Error('Failed to fetch push key');
+                    const { publicKey } = await res.json();
+                    
+                    // Subscribe the user
+                    const newSubscription = await registration.pushManager.subscribe({
+                      userVisibleOnly: true,
+                      applicationServerKey: urlBase64ToUint8Array(publicKey)
+                    });
+                    
+                    // Send subscription to server
+                    await fetch('/api/push/subscribe', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ subscription: newSubscription })
+                    });
+                  } catch (err) {
+                    console.error('Push subscription error:', err);
+                  }
                 }
               });
           }

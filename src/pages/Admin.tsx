@@ -177,7 +177,8 @@ function AdminContent() {
     end_date: '',
     location_type: 'all_mk',
     selected_cities: [] as string[],
-    restaurant_id: ''
+    restaurant_id: '',
+    cta_text: ''
   });
   const [orders, setOrders] = useState<any[]>([]);
   const [billingData, setBillingData] = useState<{restaurants: any[], deliveryPartners: any[]}>({restaurants: [], deliveryPartners: []});
@@ -298,6 +299,8 @@ function AdminContent() {
         const data = await res.json();
         setAdmin(data);
         fetchData();
+      } else {
+        setAdmin(null);
       }
     } catch (e) {
       console.error('Auth check failed', e);
@@ -319,7 +322,7 @@ function AdminContent() {
         setAdmin(data.admin);
         fetchData();
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({ error: 'Невалидни податоци' }));
         setLoginError(data.error || 'Невалидни податоци');
       }
     } catch (e) {
@@ -630,7 +633,10 @@ function AdminContent() {
       const res = await fetch('/api/admin/home-slider');
       if (res.ok) {
         const data = await res.json();
+        console.log('Fetched home slider:', data);
         setHomeSlider(data);
+      } else {
+        console.error('Failed to fetch home slider:', await res.text());
       }
     } catch (e) {
       console.error('Failed to fetch home slider', e);
@@ -639,20 +645,27 @@ function AdminContent() {
 
   const handleSaveSliderItem = async (e: React.FormEvent) => {
     e.preventDefault();
+    const itemToSave = editingSliderItem || newSliderItem;
+    console.log('Saving slider item:', itemToSave);
     try {
       const res = await fetch('/api/admin/home-slider', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingSliderItem || newSliderItem)
+        body: JSON.stringify(itemToSave)
       });
       if (res.ok) {
         setIsHomeSliderModalOpen(false);
         setEditingSliderItem(null);
         setNewSliderItem({ title: '', image_url: '', cta_text: '', cta_link: '', display_order: 0, is_active: 1 });
         fetchHomeSlider();
+      } else {
+        const errorText = await res.text();
+        console.error('Failed to save slider item:', errorText);
+        alert('Грешка при зачувување на слајдот');
       }
     } catch (e) {
       console.error('Failed to save slider item', e);
+      alert('Грешка при зачувување на слајдот');
     }
   };
 
@@ -893,8 +906,9 @@ function AdminContent() {
           start_date: '',
           end_date: '',
           location_type: 'all_mk',
-          selected_cities: [],
-          restaurant_id: ''
+          selected_cities: [] as string[],
+          restaurant_id: '',
+          cta_text: ''
         });
         fetchData();
       } else {
@@ -2444,7 +2458,7 @@ function AdminContent() {
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Host</label>
                       <input 
                         type="text" 
-                        value={smtpSettings.smtp_host}
+                        value={smtpSettings.smtp_host || ''}
                         onChange={e => setSmtpSettings({...smtpSettings, smtp_host: e.target.value})}
                         className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                         placeholder="smtp.example.com"
@@ -2454,7 +2468,7 @@ function AdminContent() {
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Port</label>
                       <input 
                         type="text" 
-                        value={smtpSettings.smtp_port}
+                        value={smtpSettings.smtp_port || ''}
                         onChange={e => setSmtpSettings({...smtpSettings, smtp_port: e.target.value})}
                         className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                         placeholder="587"
@@ -2466,7 +2480,7 @@ function AdminContent() {
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">User</label>
                       <input 
                         type="text" 
-                        value={smtpSettings.smtp_user}
+                        value={smtpSettings.smtp_user || ''}
                         onChange={e => setSmtpSettings({...smtpSettings, smtp_user: e.target.value})}
                         className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                       />
@@ -2511,7 +2525,15 @@ function AdminContent() {
                           method: 'PUT',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(smtpSettings)
-                        }).then(() => alert('SMTP поставките се зачувани!'));
+                        })
+                        .then(res => {
+                          if (res.ok) alert('SMTP поставките се зачувани!');
+                          else alert('Грешка при зачувување на поставките.');
+                        })
+                        .catch(err => {
+                          console.error('Failed to save SMTP settings', err);
+                          alert('Грешка при комуникација со серверот.');
+                        });
                       }}
                       className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
                     >
@@ -2552,6 +2574,10 @@ function AdminContent() {
                           if (data.success) alert('Тест е-маилот е успешно испратен!');
                           else alert('Грешка: ' + data.message);
                         })
+                        .catch(err => {
+                          console.error('Failed to send test email', err);
+                          alert('Грешка при комуникација со серверот.');
+                        })
                         .finally(() => setIsSendingTest(false));
                       }}
                       disabled={isSendingTest}
@@ -2575,7 +2601,7 @@ function AdminContent() {
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">API URL</label>
                     <input 
                       type="text" 
-                      value={acelleSettings.apiUrl}
+                      value={acelleSettings.apiUrl || ''}
                       onChange={e => setAcelleSettings({...acelleSettings, apiUrl: e.target.value})}
                       className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                       placeholder="https://acelle.yourdomain.com"
@@ -2585,7 +2611,7 @@ function AdminContent() {
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">API Key</label>
                     <input 
                       type="password" 
-                      value={acelleSettings.apiKey}
+                      value={acelleSettings.apiKey || ''}
                       onChange={e => setAcelleSettings({...acelleSettings, apiKey: e.target.value})}
                       className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                     />
@@ -2611,7 +2637,15 @@ function AdminContent() {
                             acelle_api_key: acelleSettings.apiKey,
                             acelle_list_uid: acelleSettings.listUid
                           })
-                        }).then(() => alert('Acelle поставките се зачувани!'));
+                        })
+                        .then(res => {
+                          if (res.ok) alert('Acelle поставките се зачувани!');
+                          else alert('Грешка при зачувување на поставките.');
+                        })
+                        .catch(err => {
+                          console.error('Failed to save Acelle settings', err);
+                          alert('Грешка при комуникација со серверот.');
+                        });
                       }}
                       className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
                     >
@@ -2629,6 +2663,10 @@ function AdminContent() {
                         .then(res => res.json())
                         .then(data => {
                           alert(`Синхронизацијата заврши! Успешни: ${data.successCount}, Неуспешни: ${data.failCount}`);
+                        })
+                        .catch(err => {
+                          console.error('Failed to sync Acelle', err);
+                          alert('Грешка при комуникација со серверот.');
                         })
                         .finally(() => setIsSyncingAcelle(false));
                       }}
@@ -2775,11 +2813,18 @@ function AdminContent() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(selectedTemplate)
                         })
-                        .then(res => res.json())
-                        .then(() => {
-                          alert('Шаблонот е успешно зачуван!');
-                          setSelectedTemplate(null);
-                          fetchEmailData();
+                        .then(res => {
+                          if (res.ok) {
+                            alert('Шаблонот е успешно зачуван!');
+                            setSelectedTemplate(null);
+                            fetchEmailData();
+                          } else {
+                            alert('Грешка при зачувување на шаблонот.');
+                          }
+                        })
+                        .catch(err => {
+                          console.error('Failed to save email template', err);
+                          alert('Грешка при комуникација со серверот.');
                         });
                       }}
                       className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/20 transition-all"
@@ -3909,7 +3954,7 @@ function AdminContent() {
                   <input 
                     type="text"
                     required
-                    value={newCampaign.name}
+                    value={newCampaign.name || ''}
                     onChange={e => setNewCampaign({...newCampaign, name: e.target.value})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                     placeholder="пр. Летен Попуст 2024"
@@ -3933,7 +3978,7 @@ function AdminContent() {
               <div className="space-y-2">
                 <label className="block text-sm font-bold text-slate-700">Опис</label>
                 <textarea 
-                  value={newCampaign.description}
+                  value={newCampaign.description || ''}
                   onChange={e => setNewCampaign({...newCampaign, description: e.target.value})}
                   className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none"
                   placeholder="Краток опис на кампањата..."
@@ -3946,7 +3991,7 @@ function AdminContent() {
                   <input 
                     type="number"
                     required
-                    value={newCampaign.budget}
+                    value={newCampaign.budget || ''}
                     onChange={e => setNewCampaign({...newCampaign, budget: e.target.value})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
@@ -3956,7 +4001,7 @@ function AdminContent() {
                   <input 
                     type="number"
                     required
-                    value={newCampaign.quantity}
+                    value={newCampaign.quantity || ''}
                     onChange={e => setNewCampaign({...newCampaign, quantity: e.target.value})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
@@ -4126,7 +4171,7 @@ function AdminContent() {
                   <input 
                     type="text" 
                     required
-                    value={newAssociate.company_name}
+                    value={newAssociate.company_name || ''}
                     onChange={e => setNewAssociate({...newAssociate, company_name: e.target.value})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
@@ -4136,7 +4181,7 @@ function AdminContent() {
                   <input 
                     type="text" 
                     required
-                    value={newAssociate.contact_person}
+                    value={newAssociate.contact_person || ''}
                     onChange={e => setNewAssociate({...newAssociate, contact_person: e.target.value})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                   />

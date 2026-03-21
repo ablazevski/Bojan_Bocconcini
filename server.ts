@@ -729,6 +729,7 @@ if (restCount.count === 0) {
   });
 
   app.post("/api/admin/home-slider", (req, res) => {
+    console.log('POST /api/admin/home-slider body:', req.body);
     const { id, title, image_url, cta_text, cta_link, display_order, is_active } = req.body;
     if (id) {
       db.prepare("UPDATE home_slider SET title = ?, image_url = ?, cta_text = ?, cta_link = ?, display_order = ?, is_active = ? WHERE id = ?")

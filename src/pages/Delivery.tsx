@@ -421,16 +421,26 @@ export default function Delivery() {
   };
 
   const updateStatus = async (orderId: number, status: string) => {
-    await fetch(`/api/delivery/orders/${orderId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        status,
-        partnerId: partner.id,
-        partnerName: partner.name
-      })
-    });
-    fetchOrders();
+    try {
+      const res = await fetch(`/api/delivery/orders/${orderId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          status,
+          partnerId: partner.id,
+          partnerName: partner.name
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Грешка при ажурирање на статусот');
+        return;
+      }
+      fetchOrders();
+    } catch (err) {
+      console.error('Failed to update order status', err);
+      alert('Грешка при поврзување со серверот');
+    }
   };
 
   if (!partner) {

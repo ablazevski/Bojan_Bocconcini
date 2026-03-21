@@ -467,20 +467,32 @@ export default function Restaurant() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const res = await fetch('/api/restaurants/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(loginForm)
-    });
-    const data = await res.json();
-    if (res.ok && data.success) {
-      setLoggedInRestaurant(data.restaurant);
-      localStorage.setItem('restaurant_auth', JSON.stringify(data.restaurant));
-      try {
-        setDeliveryZones(JSON.parse(data.restaurant.delivery_zones || '[]'));
-      } catch (e) {}
-    } else {
-      setLoginError(data.message || 'Грешка при најава');
+    try {
+      const res = await fetch('/api/restaurants/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm)
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: 'Грешка при најава' }));
+        setLoginError(errorData.message || 'Грешка при најава');
+        return;
+      }
+
+      const data = await res.json();
+      if (data.success) {
+        setLoggedInRestaurant(data.restaurant);
+        localStorage.setItem('restaurant_auth', JSON.stringify(data.restaurant));
+        try {
+          setDeliveryZones(JSON.parse(data.restaurant.delivery_zones || '[]'));
+        } catch (e) {}
+      } else {
+        setLoginError(data.message || 'Грешка при најава');
+      }
+    } catch (err) {
+      console.error('Login failed', err);
+      setLoginError('Настана грешка при поврзување со серверот.');
     }
   };
 
@@ -491,23 +503,41 @@ export default function Restaurant() {
 
   const fetchMenu = async () => {
     if (!loggedInRestaurant) return;
-    const res = await fetch(`/api/menu/${loggedInRestaurant.id}`);
-    const data = await res.json();
-    setMenuItems(data);
+    try {
+      const res = await fetch(`/api/menu/${loggedInRestaurant.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMenuItems(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch menu', e);
+    }
   };
 
   const fetchReviews = async () => {
     if (!loggedInRestaurant) return;
-    const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/reviews`);
-    const data = await res.json();
-    setReviews(data);
+    try {
+      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/reviews`);
+      if (res.ok) {
+        const data = await res.json();
+        setReviews(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch reviews', err);
+    }
   };
 
   const fetchCampaigns = async () => {
     if (!loggedInRestaurant) return;
-    const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/campaigns`);
-    const data = await res.json();
-    setCampaigns(data);
+    try {
+      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/campaigns`);
+      if (res.ok) {
+        const data = await res.json();
+        setCampaigns(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch campaigns', err);
+    }
   };
 
   const fetchActiveDeliveryPartners = async () => {
@@ -524,22 +554,27 @@ export default function Restaurant() {
 
   const fetchOrders = async (isBackground = false) => {
     if (!loggedInRestaurant) return;
-    const res = await fetch(`/api/orders/${loggedInRestaurant.id}`);
-    const data = await res.json();
-    
-    if (data.length > 0) {
-      const currentMaxId = Math.max(...data.map((o: any) => o.id));
-      if (isBackground && maxOrderIdRef.current > 0 && currentMaxId > maxOrderIdRef.current) {
-        setHasNewOrders(true);
-        playNotificationSound();
-        const newOrder = data.find((o: any) => o.id === currentMaxId);
-        if (newOrder) sendBrowserNotification(newOrder.id);
+    try {
+      const res = await fetch(`/api/orders/${loggedInRestaurant.id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      
+      if (data.length > 0) {
+        const currentMaxId = Math.max(...data.map((o: any) => o.id));
+        if (isBackground && maxOrderIdRef.current > 0 && currentMaxId > maxOrderIdRef.current) {
+          setHasNewOrders(true);
+          playNotificationSound();
+          const newOrder = data.find((o: any) => o.id === currentMaxId);
+          if (newOrder) sendBrowserNotification(newOrder.id);
+        }
+        maxOrderIdRef.current = currentMaxId;
       }
-      maxOrderIdRef.current = currentMaxId;
+      setOrders(data);
+      
+      fetchActiveDeliveryPartners();
+    } catch (err) {
+      console.error('Failed to fetch orders', err);
     }
-    setOrders(data);
-    
-    fetchActiveDeliveryPartners();
   };
 
   const updateOrderDelay = async (orderId: number, delayMinutes: number) => {
