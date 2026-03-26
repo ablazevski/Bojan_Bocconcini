@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { io } from 'socket.io-client';
+import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
+import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 
 interface ModifierOption {
@@ -177,18 +179,44 @@ function FreshnessTimer({ readyAt }: { readyAt: string }) {
 export default function Restaurant() {
   const { theme, toggleTheme } = useTheme();
   const [loggedInRestaurant, setLoggedInRestaurant] = useState<any>(null);
+  const [isSessionSynced, setIsSessionSynced] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings' | 'reviews' | 'campaigns' | 'invoicing'>('orders');
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [expandedInvoices, setExpandedInvoices] = useState<Set<number>>(new Set());
+
+  const toggleInvoiceExpansion = (id: number) => {
+    const newExpanded = new Set(expandedInvoices);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedInvoices(newExpanded);
+  };
+
+  const groupedInvoices = React.useMemo(() => {
+    const calculations = invoices.filter(inv => inv.type === 'calculation');
+    const others = invoices.filter(inv => inv.type !== 'calculation');
+    
+    return calculations.map(calc => ({
+      ...calc,
+      children: others.filter(other => other.parent_id === calc.id)
+    }));
+  }, [invoices]);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [isConfirmApproveModalOpen, setIsConfirmApproveModalOpen] = useState(false);
+  const [invoiceToApprove, setInvoiceToApprove] = useState<any | null>(null);
   const [dashboardFilter, setDashboardFilter] = useState<'today' | 'week' | 'month' | 'all'>('today');
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [hasNewInvoices, setHasNewInvoices] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
   const [activeDeliveryPartners, setActiveDeliveryPartners] = useState<number>(0);
   const [deliveryMethodCounts, setDeliveryMethodCounts] = useState<Record<string, number>>({
     bicycle: 0,
@@ -289,18 +317,59 @@ export default function Restaurant() {
     working_hours: '{}'
   });
 
-  const fetchInvoices = async () => {
-    try {
-      const res = await fetch('/api/restaurant/invoices');
-      if (res.ok) setInvoices(await res.json());
-    } catch (e) {
-      console.error('Failed to fetch invoices', e);
+  const fetchInvoices = useCallback(async (isRetry = false) => {
+    if (!loggedInRestaurant) {
+      console.warn('fetchInvoices called but loggedInRestaurant is null');
+      return;
     }
-  };
+    console.log(`[INVOICE] Fetching invoices for restaurant ID: ${loggedInRestaurant.id}, isRetry: ${isRetry}...`);
+    try {
+      const res = await fetch('/api/restaurant/invoices', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[INVOICE] Invoices fetched successfully:', data.length);
+        setInvoices(data);
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('[INVOICE] Failed to fetch invoices:', res.status, errorData);
+        if (res.status === 401 && !isRetry) {
+          console.warn('[INVOICE] Session might be expired or missing. Attempting auto-login...');
+          const saved = localStorage.getItem('restaurant_auth');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed.username && parsed.password) {
+               const loginRes = await fetch('/api/restaurants/login', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 credentials: 'include',
+                 body: JSON.stringify({ username: parsed.username, password: parsed.password })
+               });
+               if (loginRes.ok) {
+                 console.log('[INVOICE] Auto-login successful, retrying fetchInvoices...');
+                 return fetchInvoices(true);
+               } else {
+                 console.error('[INVOICE] Auto-login failed during fetchInvoices retry');
+               }
+            } else {
+              console.warn('[INVOICE] No credentials in localStorage for auto-login');
+            }
+          } else {
+            console.warn('[INVOICE] No restaurant_auth in localStorage');
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[INVOICE] Failed to fetch invoices', e);
+      if (e instanceof Error && e.message.includes('Failed to fetch') && !isRetry) {
+        console.warn('[INVOICE] Network error, retrying in 2 seconds...');
+        setTimeout(() => fetchInvoices(true), 2000);
+      }
+    }
+  }, [loggedInRestaurant]);
 
   const viewInvoice = async (invoice: any) => {
     try {
-      const res = await fetch(`/api/invoices/${invoice.id}`);
+      const res = await fetch(`/api/invoices/${invoice.id}`, { credentials: 'include' });
       if (res.ok) {
         setSelectedInvoice(await res.json());
         setIsInvoiceModalOpen(true);
@@ -311,27 +380,58 @@ export default function Restaurant() {
   };
 
   const handleUpdateInvoiceStatus = async (id: number, status: string) => {
+    if (status === 'Approved') {
+      setInvoiceToApprove(id);
+      setIsConfirmApproveModalOpen(true);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/invoices/${id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ status })
       });
       if (res.ok) {
         fetchInvoices();
         setIsInvoiceModalOpen(false);
         setSelectedInvoice(null);
+        toast.success('Статусот е ажуриран');
       }
     } catch (e) {
-      console.error('Failed to update invoice status', e);
+      toast.error('Грешка при ажурирање на статусот');
+    }
+  };
+
+  const confirmApproveInvoice = async () => {
+    if (!invoiceToApprove) return;
+    try {
+      const res = await fetch(`/api/restaurant/invoices/${invoiceToApprove}/approve`, { 
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        toast.success('Пресметката е одобрена');
+        fetchInvoices();
+        setIsInvoiceModalOpen(false);
+        setSelectedInvoice(null);
+        setIsConfirmApproveModalOpen(false);
+        setInvoiceToApprove(null);
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Грешка при одобрување.');
+      }
+    } catch (e) {
+      toast.error('Грешка при комуникација со серверот.');
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'invoicing') {
+    if (activeTab === 'invoicing' && isSessionSynced) {
       fetchInvoices();
     }
-  }, [activeTab]);
+  }, [activeTab, fetchInvoices, isSessionSynced]);
 
   useEffect(() => {
     if (loggedInRestaurant) {
@@ -362,13 +462,14 @@ export default function Restaurant() {
     const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(settingsForm)
     });
     if (res.ok) {
       const updatedRest = { ...loggedInRestaurant, ...settingsForm };
       setLoggedInRestaurant(updatedRest);
       localStorage.setItem('restaurant_auth', JSON.stringify(updatedRest));
-      alert('Поставките се успешно зачувани!');
+      toast.success('Поставките се успешно зачувани!');
     }
     setIsSavingSettings(false);
   };
@@ -382,14 +483,16 @@ export default function Restaurant() {
     try {
       const res = await fetch('/api/upload', {
         method: 'POST',
-        body: formData
+        body: formData,
+        credentials: 'include'
       });
       if (!res.ok) throw new Error('Upload failed');
       const data = await res.json();
       setSettingsForm(prev => ({ ...prev, [field]: data.url }));
+      toast.success('Сликата е прикачена');
     } catch (err) {
       console.error(err);
-      alert('Грешка при прикачување на сликата.');
+      toast.error('Грешка при прикачување на сликата.');
     }
   };
   
@@ -402,14 +505,16 @@ export default function Restaurant() {
     try {
       const res = await fetch('/api/upload', {
         method: 'POST',
-        body: formData
+        body: formData,
+        credentials: 'include'
       });
       if (!res.ok) throw new Error('Upload failed');
       const data = await res.json();
       setNewItem(prev => ({ ...prev, image_url: data.url }));
+      toast.success('Сликата е прикачена');
     } catch (err) {
       console.error(err);
-      alert('Грешка при прикачување на сликата.');
+      toast.error('Грешка при прикачување на сликата.');
     }
   };
 
@@ -424,45 +529,55 @@ export default function Restaurant() {
     if (saved) {
       const parsed = JSON.parse(saved);
       setLoggedInRestaurant(parsed);
+      
+      // Sync session with backend
+      const syncSession = async (retryCount = 0) => {
+        console.log(`[SYNC] Starting session sync (retry: ${retryCount})...`);
+        try {
+          const res = await fetch('/api/restaurant/me', { credentials: 'include' });
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+          const data = await res.json();
+          console.log('[SYNC] Session check response:', data);
+          if (!data.restaurant && parsed.username && parsed.password) {
+             console.log('[SYNC] Session missing, attempting auto-login...');
+             const loginRes = await fetch('/api/restaurants/login', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               credentials: 'include',
+               body: JSON.stringify({ username: parsed.username, password: parsed.password })
+             });
+             if (!loginRes.ok) {
+               const loginErr = await loginRes.json().catch(() => ({}));
+               console.error('[SYNC] Auto-login failed during sync', loginRes.status, loginErr);
+             } else {
+               console.log('[SYNC] Auto-login successful during sync');
+             }
+          } else if (data.restaurant) {
+            console.log('[SYNC] Session already active for:', data.restaurant.name);
+          }
+          setIsSessionSynced(true);
+        } catch (e) {
+          console.error('[SYNC] Session sync failed', e);
+          if (retryCount < 3) {
+            console.log(`[SYNC] Retrying session sync (${retryCount + 1}/3)...`);
+            setTimeout(() => syncSession(retryCount + 1), 1000);
+          } else {
+            console.warn('[SYNC] Max retries reached, proceeding anyway');
+            setIsSessionSynced(true); // Still set to true to allow other calls to proceed
+          }
+        }
+      };
+      syncSession();
+
       try {
         setDeliveryZones(JSON.parse(parsed.delivery_zones || '[]'));
       } catch (e) {}
+    } else {
+      setIsSessionSynced(true);
     }
   }, []);
 
-  useEffect(() => {
-    if (loggedInRestaurant) {
-      fetchMenu();
-      fetchOrders();
-      fetchReviews();
-      fetchCampaigns();
-      
-      const socket = io();
-      socket.emit('join_restaurant', loggedInRestaurant.id);
 
-      socket.on('new_order', (data) => {
-        console.log('New order received via socket:', data);
-        setHasNewOrders(true);
-        playNotificationSound();
-        sendBrowserNotification(data.id);
-        fetchOrders(true);
-      });
-
-      socket.on('order_preparing', (data) => {
-        console.log('Order preparing signal received:', data);
-        fetchOrders(true);
-      });
-
-      const interval = setInterval(() => {
-        fetchOrders(true);
-      }, 30000); // Keep as fallback but less frequent
-      
-      return () => {
-        socket.disconnect();
-        clearInterval(interval);
-      };
-    }
-  }, [loggedInRestaurant]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -471,6 +586,7 @@ export default function Restaurant() {
       const res = await fetch('/api/restaurants/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(loginForm)
       });
       
@@ -496,15 +612,20 @@ export default function Restaurant() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch (e) {
+      console.error('Logout failed on server', e);
+    }
     setLoggedInRestaurant(null);
     localStorage.removeItem('restaurant_auth');
   };
 
-  const fetchMenu = async () => {
+  const fetchMenu = useCallback(async () => {
     if (!loggedInRestaurant) return;
     try {
-      const res = await fetch(`/api/menu/${loggedInRestaurant.id}`);
+      const res = await fetch(`/api/menu/${loggedInRestaurant.id}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setMenuItems(data);
@@ -512,12 +633,12 @@ export default function Restaurant() {
     } catch (e) {
       console.error('Failed to fetch menu', e);
     }
-  };
+  }, [loggedInRestaurant]);
 
-  const fetchReviews = async () => {
+  const fetchReviews = useCallback(async () => {
     if (!loggedInRestaurant) return;
     try {
-      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/reviews`);
+      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/reviews`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setReviews(data);
@@ -525,12 +646,12 @@ export default function Restaurant() {
     } catch (err) {
       console.error('Failed to fetch reviews', err);
     }
-  };
+  }, [loggedInRestaurant]);
 
-  const fetchCampaigns = async () => {
+  const fetchCampaigns = useCallback(async () => {
     if (!loggedInRestaurant) return;
     try {
-      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/campaigns`);
+      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/campaigns`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setCampaigns(data);
@@ -538,24 +659,24 @@ export default function Restaurant() {
     } catch (err) {
       console.error('Failed to fetch campaigns', err);
     }
-  };
+  }, [loggedInRestaurant]);
 
-  const fetchActiveDeliveryPartners = async () => {
+  const fetchActiveDeliveryPartners = useCallback(async () => {
     if (!loggedInRestaurant) return;
     try {
-      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/active-delivery-partners`);
+      const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/active-delivery-partners`, { credentials: 'include' });
       const data = await res.json();
       setActiveDeliveryPartners(data.count || 0);
       setDeliveryMethodCounts(data.countsByMethod || { bicycle: 0, motorcycle: 0, car: 0 });
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [loggedInRestaurant]);
 
-  const fetchOrders = async (isBackground = false) => {
+  const fetchOrders = useCallback(async (isBackground = false) => {
     if (!loggedInRestaurant) return;
     try {
-      const res = await fetch(`/api/orders/${loggedInRestaurant.id}`);
+      const res = await fetch(`/api/orders/${loggedInRestaurant.id}`, { credentials: 'include' });
       if (!res.ok) return;
       const data = await res.json();
       
@@ -575,16 +696,90 @@ export default function Restaurant() {
     } catch (err) {
       console.error('Failed to fetch orders', err);
     }
-  };
+  }, [loggedInRestaurant, fetchActiveDeliveryPartners]);
+
+  useEffect(() => {
+    if (loggedInRestaurant && isSessionSynced) {
+      fetchMenu();
+      fetchOrders();
+      fetchReviews();
+      fetchCampaigns();
+      fetchActiveDeliveryPartners();
+      
+      const socket = io();
+      
+      socket.on('connect', () => {
+        console.log('Socket connected:', socket.id);
+        setSocketConnected(true);
+        socket.emit('join_restaurant', loggedInRestaurant.id);
+      });
+
+      socket.on('disconnect', () => {
+        console.log('Socket disconnected');
+        setSocketConnected(false);
+      });
+
+      socket.on('new_order', (data) => {
+        console.log('New order received via socket:', data);
+        setHasNewOrders(true);
+        playNotificationSound();
+        sendBrowserNotification(data.id);
+        fetchOrders(true);
+      });
+
+      socket.on('new_invoice', (data) => {
+        console.log('New invoice received via socket:', data);
+        setHasNewInvoices(true);
+        
+        // Show a visible toast for debugging as requested
+        const msg = data.message || `Пристигна нова пресметка #${data.invoice_number}`;
+        toast.info(msg);
+
+        if (Notification.permission === "granted") {
+          const notification = new Notification("Нова пресметка!", {
+            body: msg,
+            icon: "/favicon.ico"
+          });
+          notification.onclick = () => {
+            window.focus();
+            setActiveTab('invoicing');
+            fetchInvoices();
+          };
+        }
+        fetchInvoices();
+      });
+
+      socket.on('invoice_status_updated', (data) => {
+        console.log('Invoice status updated via socket:', data);
+        fetchInvoices();
+      });
+
+      socket.on('order_preparing', (data) => {
+        console.log('Order preparing signal received:', data);
+        fetchOrders(true);
+      });
+
+      const interval = setInterval(() => {
+        fetchOrders(true);
+      }, 30000); // Keep as fallback but less frequent
+      
+      return () => {
+        socket.disconnect();
+        clearInterval(interval);
+      };
+    }
+  }, [loggedInRestaurant, fetchMenu, fetchOrders, fetchReviews, fetchCampaigns, fetchActiveDeliveryPartners, fetchInvoices, isSessionSynced]);
 
   const updateOrderDelay = async (orderId: number, delayMinutes: number) => {
     const res = await fetch(`/api/orders/${orderId}/delay`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ delayMinutes })
     });
     const data = await res.json();
     if (data.success) {
+      toast.success('Времето е ажурирано');
       setOrders(orders.map(o => {
         if (o.id === orderId) {
           return { ...o, spare_2: data.targetTime };
@@ -601,7 +796,7 @@ export default function Restaurant() {
       
       const printWindow = window.open('', '_blank');
       if (!printWindow) {
-        alert('Ве молиме овозможете скокачки прозорци (pop-ups) за да печатите.');
+        toast.error('Ве молиме овозможете скокачки прозорци (pop-ups) за да печатите.');
         return;
       }
 
@@ -685,7 +880,7 @@ export default function Restaurant() {
       printWindow.document.close();
     } catch (err) {
       console.error('Print error:', err);
-      alert('Грешка при генерирање на налепницата.');
+      toast.error('Грешка при генерирање на налепницата.');
     }
   };
 
@@ -693,20 +888,24 @@ export default function Restaurant() {
     const res = await fetch(`/api/orders/${orderId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ status })
     });
     const data = await res.json();
-    setOrders(orders.map(o => {
-      if (o.id === orderId) {
-        return { 
-          ...o, 
-          status, 
-          delivery_code: data.delivery_code || o.delivery_code,
-          delivery_partner_name: data.delivery_partner_name || o.delivery_partner_name
-        };
-      }
-      return o;
-    }));
+    if (res.ok) {
+      toast.success('Статусот е ажуриран');
+      setOrders(orders.map(o => {
+        if (o.id === orderId) {
+          return { 
+            ...o, 
+            status, 
+            delivery_code: data.delivery_code || o.delivery_code,
+            delivery_partner_name: data.delivery_partner_name || o.delivery_partner_name
+          };
+        }
+        return o;
+      }));
+    }
   };
 
   const handleSaveZones = async () => {
@@ -715,13 +914,14 @@ export default function Restaurant() {
     const res = await fetch(`/api/restaurants/${loggedInRestaurant.id}/zones`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ delivery_zones: deliveryZones })
     });
     if (res.ok) {
       const updatedRest = { ...loggedInRestaurant, delivery_zones: JSON.stringify(deliveryZones) };
       setLoggedInRestaurant(updatedRest);
       localStorage.setItem('restaurant_auth', JSON.stringify(updatedRest));
-      alert('Зоните на достава се успешно зачувани!');
+      toast.success('Зоните на достава се успешно зачувани!');
     }
     setIsSavingZones(false);
   };
@@ -742,6 +942,7 @@ export default function Restaurant() {
       const res = await fetch(`/api/menu/${editingId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload)
       });
       if (res.ok) {
@@ -749,17 +950,20 @@ export default function Restaurant() {
         setEditingId(null);
         setNewItem(initialNewItem);
         fetchMenu();
+        toast.success('Производот е ажуриран');
       }
     } else {
       const res = await fetch(`/api/menu/${loggedInRestaurant.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload)
       });
       if (res.ok) {
         setIsAdding(false);
         setNewItem(initialNewItem);
         fetchMenu();
+        toast.success('Производот е додаден');
       }
     }
     setIsAddingItem(false);
@@ -781,13 +985,19 @@ export default function Restaurant() {
   };
 
   const handleDeleteItem = async (id: number) => {
-    const res = await fetch(`/api/menu/${id}`, { method: 'DELETE' });
-    if (res.ok) fetchMenu();
+    const res = await fetch(`/api/menu/${id}`, { method: 'DELETE', credentials: 'include' });
+    if (res.ok) {
+      fetchMenu();
+      toast.success('Производот е избришан');
+    }
   };
 
   const handleToggleAvailability = async (id: number) => {
-    const res = await fetch(`/api/menu/${id}/toggle-availability`, { method: 'PUT' });
-    if (res.ok) fetchMenu();
+    const res = await fetch(`/api/menu/${id}/toggle-availability`, { method: 'PUT', credentials: 'include' });
+    if (res.ok) {
+      fetchMenu();
+      toast.success('Достапноста е променета');
+    }
   };
 
   const addModifierGroup = () => {
@@ -957,11 +1167,18 @@ export default function Restaurant() {
               Поставки
             </button>
           </div>
+          {/* Socket Status Indicator */}
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+            <div className={`w-2 h-2 rounded-full ${socketConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              {socketConnected ? 'Поврзан' : 'Прекинат'}
+            </span>
+          </div>
           <button onClick={() => {
             const url = `${window.location.origin}/r/${loggedInRestaurant.username}`;
             if (navigator.clipboard && window.isSecureContext) {
               navigator.clipboard.writeText(url)
-                .then(() => alert('Линкот е копиран: ' + url))
+                .then(() => toast.success('Линкот е копиран: ' + url))
                 .catch(() => prompt('Вашиот прелистувач не дозволува автоматско копирање (поради iframe). Копирајте го линкот рачно:', url));
             } else {
               prompt('Копирајте го линкот рачно:', url);
@@ -1022,7 +1239,72 @@ export default function Restaurant() {
         </button>
       </div>
       
+      {/* Notification Banner for New Invoices */}
+      {hasNewInvoices && activeTab !== 'invoicing' && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-orange-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-4 cursor-pointer"
+          onClick={() => {
+            setActiveTab('invoicing');
+            setHasNewInvoices(false);
+          }}
+        >
+          <div className="bg-white/20 p-2 rounded-lg">
+            <FileText size={20} />
+          </div>
+          <div>
+            <p className="font-bold">Нова фактура за одобрување!</p>
+            <p className="text-sm opacity-90">Кликнете за да ја прегледате</p>
+          </div>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setHasNewInvoices(false);
+            }}
+            className="ml-2 hover:bg-white/10 p-1 rounded-lg"
+          >
+            <X size={18} />
+          </button>
+        </motion.div>
+      )}
+
       <main className="max-w-6xl mx-auto p-6">
+        {/* New Invoice Notification Banner */}
+        {hasNewInvoices && activeTab !== 'invoicing' && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            className="mb-6 overflow-hidden"
+          >
+            <div className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-4 text-white shadow-lg shadow-orange-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 p-2 rounded-xl">
+                  <FileText size={24} />
+                </div>
+                <div>
+                  <h4 className="font-bold">Нова фактура!</h4>
+                  <p className="text-sm text-white/80">Имате нова фактура за одобрување или промена на статус.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setActiveTab('invoicing')}
+                  className="px-4 py-2 bg-white text-orange-600 font-bold rounded-xl text-sm hover:bg-orange-50 transition-colors"
+                >
+                  Види фактури
+                </button>
+                <button 
+                  onClick={() => setHasNewInvoices(false)}
+                  className="p-2 hover:bg-black/10 rounded-xl transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {activeTab === 'dashboard' ? (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -2109,6 +2391,16 @@ export default function Restaurant() {
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white transition-colors">Фактурирање</h2>
                 <p className="text-slate-500 dark:text-slate-400">Преглед и управување со вашите фактури</p>
               </div>
+              <button 
+                onClick={() => {
+                  fetchInvoices();
+                  setHasNewInvoices(false);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
+              >
+                <RefreshCw size={18} className={hasNewInvoices ? 'animate-spin text-orange-500' : ''} />
+                <span className="hidden sm:inline">Освежи</span>
+              </button>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden transition-colors">
@@ -2124,40 +2416,108 @@ export default function Restaurant() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {invoices.length > 0 ? (
-                      invoices.map((invoice) => (
-                        <tr key={invoice.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                          <td className="px-6 py-4 font-mono font-bold text-slate-700 dark:text-slate-300">
-                            {invoice.invoice_number}
-                          </td>
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                            {new Date(invoice.period_start).toLocaleDateString('mk-MK')} - {new Date(invoice.period_end).toLocaleDateString('mk-MK')}
-                          </td>
-                          <td className="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
-                            {invoice.net_amount.toLocaleString()} ден.
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                              invoice.status === 'Paid' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                              invoice.status === 'Approved' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' :
-                              invoice.status === 'Pending' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' :
-                              'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                            }`}>
-                              {invoice.status === 'Draft' ? 'Предлог' :
-                               invoice.status === 'Pending' ? 'Испратено' :
-                               invoice.status === 'Approved' ? 'Одобрено' :
-                               invoice.status === 'Paid' ? 'Платено' : invoice.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={() => viewInvoice(invoice)}
-                              className="p-2 text-slate-400 hover:text-red-600 transition-colors"
-                            >
-                              <Eye size={20} />
-                            </button>
-                          </td>
-                        </tr>
+                    {groupedInvoices.length > 0 ? (
+                      groupedInvoices.map((calc) => (
+                        <React.Fragment key={calc.id}>
+                          <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                            <td className="px-6 py-4 font-mono font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                              {calc.children.length > 0 && (
+                                <button 
+                                  onClick={() => toggleInvoiceExpansion(calc.id)}
+                                  className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                                >
+                                  {expandedInvoices.has(calc.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                </button>
+                              )}
+                              {calc.invoice_number}
+                              <span className="ml-2 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-purple-100 text-purple-700">
+                                Пресметка
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                              {new Date(calc.period_start).toLocaleDateString('mk-MK')} - {new Date(calc.period_end).toLocaleDateString('mk-MK')}
+                            </td>
+                            <td className="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
+                              {calc.net_amount.toLocaleString()} ден.
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                calc.status === 'Paid' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                calc.status === 'Approved' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' :
+                                calc.status === 'Pending Approval' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' :
+                                'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                              }`}>
+                                {calc.status === 'Draft' ? 'Предлог' :
+                                 calc.status === 'Pending Approval' ? 'Чека одобрување' :
+                                 calc.status === 'Approved' ? 'Одобрено' :
+                                 calc.status === 'Paid' ? 'Платено' : calc.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                {calc.status === 'Pending Approval' && (
+                                  <button 
+                                    onClick={() => {
+                                      setInvoiceToApprove(calc.id);
+                                      setIsConfirmApproveModalOpen(true);
+                                    }}
+                                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                    title="Одобри пресметка"
+                                  >
+                                    <Check size={20} />
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => viewInvoice(calc)}
+                                  className="p-2 text-slate-400 hover:text-red-600 transition-colors"
+                                  title="Прегледај"
+                                >
+                                  <Eye size={20} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {expandedInvoices.has(calc.id) && calc.children.map((child: any) => (
+                            <tr key={child.id} className="bg-slate-50/30 dark:bg-slate-800/10 border-l-4 border-indigo-500 transition-colors">
+                              <td className="px-6 py-4 pl-12 font-mono font-bold text-slate-600 dark:text-slate-400">
+                                {child.invoice_number}
+                                <span className={`ml-2 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
+                                  child.type === 'invoice' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-orange-100 text-orange-700'
+                                }`}>
+                                  {child.type === 'invoice' ? 'Фактура' : 'Провизија'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-slate-500 dark:text-slate-500">
+                                {new Date(child.period_start).toLocaleDateString('mk-MK')} - {new Date(child.period_end).toLocaleDateString('mk-MK')}
+                              </td>
+                              <td className="px-6 py-4 text-right font-bold text-slate-700 dark:text-slate-300">
+                                {child.net_amount.toLocaleString()} ден.
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                  child.status === 'Paid' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                  child.status === 'Approved' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' :
+                                  'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                                }`}>
+                                  {child.status === 'Approved' ? 'Одобрено' :
+                                   child.status === 'Paid' ? 'Платено' : child.status}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex justify-end gap-2">
+                                  <button 
+                                    onClick={() => viewInvoice(child)}
+                                    className="p-2 text-slate-400 hover:text-red-600 transition-colors"
+                                    title="Прегледај"
+                                  >
+                                    <Eye size={20} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
                       ))
                     ) : (
                       <tr>
@@ -2258,11 +2618,12 @@ export default function Restaurant() {
                   const res = await fetch('/api/campaigns/request', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify(payload)
                   });
                   
                   if (res.ok) {
-                    alert('Барањето е успешно испратено до администраторот!');
+                    toast.success('Барањето е успешно испратено до администраторот!');
                     setIsAdding(false);
                     fetchCampaigns();
                   }
@@ -2353,15 +2714,75 @@ export default function Restaurant() {
         )}
       </main>
 
+      {/* Confirm Approve Modal */}
+      <AnimatePresence>
+        {isConfirmApproveModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-md w-full shadow-2xl border border-slate-100 dark:border-slate-800"
+            >
+              <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-2xl flex items-center justify-center mb-6">
+                <CheckCircle size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Одобри пресметка?</h3>
+              <p className="text-slate-500 dark:text-slate-400 mb-8">
+                Дали сте сигурни дека ја одобрувате оваа пресметка? Со ова ќе се генерираат финалните фактури и ќе се затвори овој пресметковен период.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsConfirmApproveModalOpen(false)}
+                  className="flex-1 py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Откажи
+                </button>
+                <button 
+                  onClick={confirmApproveInvoice}
+                  className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
+                >
+                  Одобри
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Invoice Detail Modal */}
-      {isInvoiceModalOpen && selectedInvoice && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col transition-colors">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 transition-colors">
-              <div>
-                <h3 className="text-xl font-bold text-slate-800 dark:text-white">Фактура {selectedInvoice.invoice_number}</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Период: {new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}
+      <AnimatePresence>
+        {isInvoiceModalOpen && selectedInvoice && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+            onClick={() => setIsInvoiceModalOpen(false)}
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col transition-colors"
+              onClick={e => e.stopPropagation()}
+            >
+            <div className={`p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center transition-colors ${
+              selectedInvoice.type === 'calculation' ? 'bg-purple-50/80 dark:bg-purple-900/20' :
+              selectedInvoice.type === 'invoice' ? 'bg-blue-50/80 dark:bg-blue-900/20' :
+              'bg-orange-50/80 dark:bg-orange-900/20'
+            }`}>
+              <div className="print:mb-10">
+                <h3 className="text-xl font-bold text-slate-800 dark:text-white print:text-4xl print:mb-2">
+                  {selectedInvoice.type === 'calculation' ? 'Пресметка' : 'Фактура'} број {selectedInvoice.invoice_number}
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 print:text-xl print:text-slate-700 print:font-medium">
+                  Ресторан: {selectedInvoice.restaurant_name}
                 </p>
               </div>
               <button 
@@ -2378,91 +2799,202 @@ export default function Restaurant() {
             <div className="flex-1 overflow-y-auto p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">Од: PizzaTime</h4>
-                  <div className="space-y-1 text-slate-700 dark:text-slate-300">
-                    <p className="font-bold">PizzaTime DOOEL</p>
-                    <p>ЕДБ: 4030020000000</p>
-                    <p>Адреса: Бул. Партизански Одреди 1</p>
-                    <p>Скопје, Македонија</p>
+                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
+                    {selectedInvoice.type === 'commission' ? 'ОД (ДОБАВУВАЧ):' : 'ОД:'}
+                  </h4>
+                  <div className="space-y-1 text-slate-700 dark:text-slate-300 print:text-slate-900 print:text-sm">
+                    {selectedInvoice.type === 'commission' ? (
+                      <>
+                        <p className="font-bold">PizzaTime DOOEL</p>
+                        <p>ЕДБ: {selectedInvoice.pizzatimeInfo?.pizzatime_edb || '4030020000000'}</p>
+                        <p>Адреса: {selectedInvoice.pizzatimeInfo?.pizzatime_address || 'Бул. Партизански Одреди 1'}</p>
+                        <p>Сметка: {selectedInvoice.pizzatimeInfo?.pizzatime_bank_account}</p>
+                        <p>Банка: {selectedInvoice.pizzatimeInfo?.pizzatime_bank_name}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-bold">{selectedInvoice.restaurant_name}</p>
+                        <p>ЕДБ: {selectedInvoice.restaurant_edb}</p>
+                        <p>Адреса: {selectedInvoice.restaurant_address}</p>
+                        <p>Град: {selectedInvoice.restaurant_city}</p>
+                        <p>Сметка: {selectedInvoice.restaurant_bank_account}</p>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">До: {selectedInvoice.restaurant_name}</h4>
-                  <div className="space-y-1 text-slate-700 dark:text-slate-300">
-                    <p className="font-bold">{selectedInvoice.restaurant_name}</p>
-                    <p>Адреса: {selectedInvoice.restaurant_address}</p>
-                    <p>Град: {selectedInvoice.restaurant_city}</p>
-                    <p>Сметка: {selectedInvoice.restaurant_bank_account}</p>
+                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
+                    {selectedInvoice.type === 'commission' ? 'ДО (КУПУВАЧ):' : 'ДО:'}
+                  </h4>
+                  <div className="space-y-1 text-slate-700 dark:text-slate-300 print:text-slate-900 print:text-sm">
+                    {selectedInvoice.type === 'commission' ? (
+                      <>
+                        <p className="font-bold">{selectedInvoice.restaurant_name}</p>
+                        <p>ЕДБ: {selectedInvoice.restaurant_edb}</p>
+                        <p>Адреса: {selectedInvoice.restaurant_address}</p>
+                        <p>Град: {selectedInvoice.restaurant_city}</p>
+                        <p>Сметка: {selectedInvoice.restaurant_bank_account}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-bold">PizzaTime DOOEL</p>
+                        <p>ЕДБ: {selectedInvoice.pizzatimeInfo?.pizzatime_edb || '4030020000000'}</p>
+                        <p>Адреса: {selectedInvoice.pizzatimeInfo?.pizzatime_address || 'Бул. Партизански Одреди 1'}</p>
+                        <p>Скопје, Македонија</p>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 mb-8 transition-colors">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                  <div>
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Вкупно промет</p>
-                    <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedInvoice.total_amount.toLocaleString()} ден.</p>
+              {selectedInvoice.type === 'calculation' && (
+                <div className="space-y-6">
+                  <div className="py-4 border-b border-slate-100 dark:border-slate-800">
+                    <h4 className="text-lg font-bold text-slate-800 dark:text-white mb-2">Листа на нарачки</h4>
+                    <p className="text-slate-600 dark:text-slate-400 font-medium">
+                      Период: <span className="text-slate-900 dark:text-slate-200">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
+                    </p>
                   </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Провизија ({selectedInvoice.contract_percentage}%)</p>
-                    <p className="text-lg font-bold text-red-600">-{selectedInvoice.commission_amount.toLocaleString()} ден.</p>
+                  
+                  <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-2xl">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
+                          <th className="p-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ID</th>
+                          <th className="p-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Датум</th>
+                          <th className="p-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Износ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {selectedInvoice.orders?.map((order: any) => (
+                          <tr key={order.id} className="text-sm">
+                            <td className="p-3 text-slate-600 dark:text-slate-400 font-mono">#{order.id}</td>
+                            <td className="p-3 text-slate-600 dark:text-slate-400">{new Date(order.created_at).toLocaleDateString('mk-MK')}</td>
+                            <td className="p-3 text-slate-900 dark:text-white font-bold text-right">{order.total_price.toLocaleString()} ден.</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">ДДВ ({selectedInvoice.vat_rate}%)</p>
-                    <p className="text-lg font-bold text-slate-900 dark:text-white">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">За исплата</p>
-                    <p className="text-lg font-bold text-emerald-600">{selectedInvoice.net_amount.toLocaleString()} ден.</p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                        Основица
+                      </p>
+                      <p className="text-lg font-bold text-slate-800 dark:text-white">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 dark:text-white">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-purple-600 rounded-xl shadow-lg shadow-purple-600/20 flex flex-col justify-center print:bg-slate-100 print:shadow-none print:border print:border-slate-200">
+                      <p className="text-[10px] font-bold text-purple-100 uppercase tracking-wider mb-0.5 print:text-slate-500">Вкупно за плаќање</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900">
+                        {selectedInvoice.total_amount.toLocaleString()} ден.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              <h4 className="font-bold text-slate-800 dark:text-white mb-4">Листа на нарачки</h4>
-              <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden transition-colors">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors">
-                      <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">ID</th>
-                      <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Датум</th>
-                      <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase text-right">Износ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {selectedInvoice.orders?.map((order: any) => (
-                      <tr key={order.id}>
-                        <td className="px-4 py-3 text-sm font-mono text-slate-600 dark:text-slate-400">#{order.id}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{new Date(order.created_at).toLocaleDateString('mk-MK')}</td>
-                        <td className="px-4 py-3 text-sm text-right font-bold text-slate-900 dark:text-white">{order.total_price.toLocaleString()} ден.</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+              {selectedInvoice.type === 'invoice' && (
+                <div className="space-y-8">
+                  <div className="py-6 border-b border-slate-100 dark:border-slate-800">
+                    <h4 className="text-lg font-bold text-slate-800 dark:text-white mb-2">Опис на услугата</h4>
+                    <p className="text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+                      Вкупна остварена продажба за период: <span className="text-slate-900 dark:text-slate-200">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
+                      <br />
+                      согласно број на пресметка: <span className="text-slate-900 dark:text-slate-200">#{selectedInvoice.parent_invoice_number || '---'}</span>
+                    </p>
+                  </div>
 
-            <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex justify-end gap-4 transition-colors">
-              <button 
-                onClick={() => {
-                  setIsInvoiceModalOpen(false);
-                  setSelectedInvoice(null);
-                }}
-                className="px-6 py-2 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors"
-              >
-                Затвори
-              </button>
-              {selectedInvoice.status === 'Pending' && (
-                <button 
-                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Approved')}
-                  className="px-8 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
-                >
-                  Одобри фактура
-                </button>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                        Основица
+                      </p>
+                      <p className="text-lg font-bold text-slate-800 dark:text-white">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 dark:text-white">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-blue-600 rounded-xl shadow-lg shadow-blue-600/20 flex flex-col justify-center">
+                      <p className="text-[10px] font-bold text-blue-100 uppercase tracking-wider mb-0.5">Вкупно за плаќање</p>
+                      <p className="text-2xl font-black text-white">
+                        {selectedInvoice.total_amount.toLocaleString()} ден.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedInvoice.type === 'commission' && (
+                <div className="space-y-8">
+                  <div className="py-6 border-b border-slate-100 dark:border-slate-800 print:border-b-2 print:border-slate-200">
+                    <h4 className="text-lg font-bold text-slate-800 dark:text-white mb-2 print:text-xl">Опис на услугата</h4>
+                    <p className="text-slate-600 dark:text-slate-400 font-medium leading-relaxed print:text-slate-900">
+                      Провизија за користење на платформата PizzaTime за период: <span className="text-slate-900 dark:text-slate-200">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
+                      <br />
+                      согласно број на пресметка: <span className="text-slate-900 dark:text-slate-200 print:font-bold">#{selectedInvoice.parent_invoice_number || '---'}</span>
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 print:text-slate-400">
+                        Основица (Провизија)
+                      </p>
+                      <p className="text-lg font-bold text-slate-800 dark:text-white print:text-2xl">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 dark:text-white print:text-2xl">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-orange-600 rounded-xl shadow-lg shadow-orange-600/20 flex flex-col justify-center print:bg-white print:shadow-none print:p-0 print:border-t-2 print:border-slate-200 print:rounded-none">
+                      <p className="text-[10px] font-bold text-orange-100 uppercase tracking-wider mb-0.5 print:text-slate-400">Вкупно со ДДВ</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-4xl">
+                        {selectedInvoice.total_amount.toLocaleString()} ден.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-        </div>
+
+            <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center transition-colors print:hidden">
+              <button 
+                onClick={() => window.print()}
+                className="px-6 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center gap-2"
+              >
+                <Printer size={18} />
+                Печати
+              </button>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => {
+                    setIsInvoiceModalOpen(false);
+                    setSelectedInvoice(null);
+                  }}
+                  className="px-6 py-2 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                >
+                  Затвори
+                </button>
+                {selectedInvoice.status === 'Pending Approval' && (
+                  <button 
+                    onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Approved')}
+                    className="px-8 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
+                  >
+                    Одобри пресметка
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
       )}
+    </AnimatePresence>
     </div>
   );
 }

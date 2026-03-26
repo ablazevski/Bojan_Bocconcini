@@ -64,6 +64,8 @@ import RestaurantProfile from './pages/RestaurantProfile';
 import TrackOrder from './pages/TrackOrder';
 import Contract from './pages/Contract';
 
+import { Toaster } from 'sonner';
+
 export default function App() {
   useEffect(() => {
     // Register Service Worker for Push Notifications
@@ -118,6 +120,7 @@ export default function App() {
   return (
     <HelmetProvider>
       <ThemeProvider>
+        <Toaster position="top-center" richColors />
         <BrowserRouter>
           <GoogleAnalytics />
           <Routes>

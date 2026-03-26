@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import LocationPickerMap from '../components/LocationPickerMap';
@@ -36,8 +36,10 @@ interface CartItem extends MenuItem {
 
 export default function Customer() {
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
   const [step, setStep] = useState<'city' | 'location' | 'restaurants' | 'menu' | 'cart' | 'checkout' | 'success'>('city');
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<number | null>(null);
+  const [selectedRestaurantUsername, setSelectedRestaurantUsername] = useState<string | null>(null);
   const [cities, setCities] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>('');
   const [location, setLocation] = useState<[number, number] | null>(null);
@@ -110,8 +112,9 @@ export default function Customer() {
         .then(data => {
           if (data.city) {
             setSelectedCity(data.city);
-            // If location is not set, try to set it to restaurant city center or something
-            // But better let the user pick.
+          }
+          if (data.username) {
+            setSelectedRestaurantUsername(data.username);
           }
           // Also add to availableRestaurants if not there
           setAvailableRestaurants(prev => {
@@ -957,9 +960,8 @@ export default function Customer() {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.2 }}
                             className="text-3xl md:text-5xl font-black text-white mb-6 leading-tight drop-shadow-lg"
-                          >
-                            {slide.title}
-                          </motion.h2>
+                            dangerouslySetInnerHTML={{ __html: slide.title }}
+                          />
                           {slide.cta_link && (
                             <motion.a
                               href={slide.cta_link}
@@ -1231,7 +1233,16 @@ export default function Customer() {
         {step === 'cart' && (
           <div className="max-w-3xl mx-auto mt-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 transition-colors duration-300">
             <div className="flex items-center gap-4 mb-8">
-              <button onClick={() => setStep('menu')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 transition-colors">
+              <button 
+                onClick={() => {
+                  if (selectedRestaurantUsername) {
+                    navigate(`/r/${selectedRestaurantUsername}`);
+                  } else {
+                    setStep('menu');
+                  }
+                }} 
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 transition-colors"
+              >
                 <ArrowLeft size={20} />
               </button>
               <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Вашата кошничка</h2>

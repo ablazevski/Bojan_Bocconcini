@@ -8,6 +8,8 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import session from "express-session";
+import SQLiteStore from "better-sqlite3-session-store";
+const SqliteStore = SQLiteStore(session);
 import axios from "axios";
 import nodemailer from "nodemailer";
 import handlebars from "handlebars";
@@ -118,9 +120,14 @@ db.exec(`
       contract_percentage REAL DEFAULT 0,
       working_hours TEXT DEFAULT '{}',
       billing_cycle_days INTEGER DEFAULT 7,
-      vat_rate REAL DEFAULT 0
+      vat_rate REAL DEFAULT 0,
+      edb TEXT
     );
   `);
+
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN edb TEXT");
+  } catch (e) {}
 
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN header_image TEXT");
@@ -219,6 +226,8 @@ db.exec(`
     contract_percentage REAL,
     vat_rate REAL,
     status TEXT DEFAULT 'Draft',
+    type TEXT DEFAULT 'calculation',
+    parent_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -243,6 +252,27 @@ db.exec(`
   try {
     db.exec("ALTER TABLE invoices ADD COLUMN vat_rate REAL");
   } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN type TEXT DEFAULT 'calculation'");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN parent_id INTEGER");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN base_amount REAL");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN vat_amount REAL");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN commission_amount REAL");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN net_amount REAL");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP");
+  } catch (e) {}
 
   db.exec(`
   CREATE TABLE IF NOT EXISTS invoice_orders (
@@ -250,7 +280,9 @@ db.exec(`
     order_id INTEGER,
     PRIMARY KEY (invoice_id, order_id)
   );
+  `);
 
+  db.exec(`
   CREATE TABLE IF NOT EXISTS group_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     restaurant_id INTEGER,
@@ -354,6 +386,9 @@ try { db.exec('ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT "cash"'
 try { db.exec('ALTER TABLE orders ADD COLUMN selected_fees TEXT DEFAULT "[]"'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT "pending"'); } catch (e) {}
 try { db.exec('ALTER TABLE orders ADD COLUMN payment_transaction_id TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN accepted_at DATETIME'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN picked_up_at DATETIME'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN delivered_at DATETIME'); } catch (e) {}
 
 // Migration for restaurants
 try { db.exec('ALTER TABLE restaurants ADD COLUMN contract_percentage REAL DEFAULT 0'); } catch (e) {}
@@ -557,6 +592,13 @@ if (restCount.count === 0) {
 
   async function startServer() {
     const app = express();
+    app.set('trust proxy', true);
+    
+    // Middleware to force HTTPS headers because we are always behind an HTTPS proxy
+    app.use((req, res, next) => {
+      req.headers['x-forwarded-proto'] = 'https';
+      next();
+    });
     const httpServer = createServer(app);
     const io = new Server(httpServer, {
       cors: {
@@ -607,16 +649,44 @@ if (restCount.count === 0) {
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true }));
     app.use(session({
+      store: new SqliteStore({
+        client: db,
+        expired: {
+          clear: true,
+          intervalMs: 900000 // 15 minutes
+        }
+      }),
+      name: 'pizza.sid',
       secret: process.env.SESSION_SECRET || 'pizza-loyalty-secret',
       resave: false,
       saveUninitialized: false,
       cookie: {
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
         secure: true,
         sameSite: 'none',
         httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000 // 24 hours
-      }
+      },
+      proxy: true
     }));
+
+    // Debug middleware for sessions
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/restaurant') || req.path.startsWith('/api/restaurants/login')) {
+        const hasRestaurant = !!(req.session as any).restaurant;
+        const restaurantId = hasRestaurant ? (req.session as any).restaurant.id : 'N/A';
+        const proto = req.headers['x-forwarded-proto'] || 'N/A';
+        const host = req.headers.host || 'N/A';
+        const isSecure = req.secure;
+        
+        console.log(`[SESSION DEBUG] Path: ${req.path}, Method: ${req.method}, HasRestaurant: ${hasRestaurant}, RestaurantID: ${restaurantId}, Secure: ${isSecure}`);
+        console.log(`[SESSION DEBUG] Proto: ${proto}, Host: ${host}, CookieHeader: ${req.headers.cookie ? 'Present' : 'Missing'}`);
+        if (req.headers.cookie) {
+          console.log(`[SESSION DEBUG] Cookie Header: ${req.headers.cookie}`);
+        }
+        console.log(`[SESSION DEBUG] Session Data: ${JSON.stringify(req.session)}`);
+      }
+      next();
+    });
 
     // Google OAuth Routes
     app.get('/api/auth/google/url', (req, res) => {
@@ -713,9 +783,8 @@ if (restCount.count === 0) {
     });
 
     app.post('/api/auth/logout', (req, res) => {
-      req.session.destroy(() => {
-        res.json({ success: true });
-      });
+      req.session = null;
+      res.json({ success: true });
     });
 
     app.get("/api/customer/home-slider", (req, res) => {
@@ -955,7 +1024,7 @@ app.get("/api/orders/track/:token", (req, res) => {
         return res.json({ success: true, message: "Нарачката е веќе затворена" });
       }
 
-      db.prepare("UPDATE orders SET status = 'completed' WHERE id = ?").run(order.id);
+      db.prepare("UPDATE orders SET status = 'completed', delivered_at = CURRENT_TIMESTAMP WHERE id = ?").run(order.id);
       
       // Notify admin
       io.to("admin_room").emit("order_status_changed");
@@ -1044,7 +1113,7 @@ app.get("/api/orders/track/:token", (req, res) => {
     });
 
     app.get('/sitemap.xml', (req, res) => {
-      const restaurants = db.prepare('SELECT username FROM restaurants WHERE status = "approved"').all() as any[];
+      const restaurants = db.prepare("SELECT username FROM restaurants WHERE status = 'approved'").all() as any[];
       const baseUrl = process.env.APP_URL || 'http://localhost:3000';
       
       let sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1237,8 +1306,41 @@ app.get("/api/orders/track/:token", (req, res) => {
 
     app.delete('/api/admin/admins/:id', (req, res) => {
       if (!checkAdminAuth(req, res, 'admins')) return;
-      db.prepare('DELETE FROM admins WHERE id = ? AND role != "super"').run(req.params.id);
+      db.prepare("DELETE FROM admins WHERE id = ? AND role != 'super'").run(req.params.id);
       res.json({ success: true });
+    });
+
+    // Simple log collector for debugging
+    const debugLogs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args) => {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      debugLogs.push(`[${new Date().toISOString()}] ${msg}`);
+      if (debugLogs.length > 200) debugLogs.shift();
+      originalLog.apply(console, args);
+    };
+
+    app.get('/api/debug/logs', (req, res) => {
+      res.send(`
+        <html>
+          <body style="background: #1a1a1a; color: #00ff00; font-family: monospace; padding: 20px;">
+            <h2>Server Debug Logs</h2>
+            <button onclick="location.reload()">Refresh</button>
+            <pre>${debugLogs.reverse().join('\n')}</pre>
+          </body>
+        </html>
+      `);
+    });
+
+    // Debug route to check invoices
+    app.get('/api/debug/invoices', (req, res) => {
+      try {
+        const invoices = db.prepare("SELECT * FROM invoices").all();
+        const restaurants = db.prepare("SELECT id, name FROM restaurants").all();
+        res.json({ invoices, restaurants });
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+      }
     });
 
     // Invoicing Routes
@@ -1254,90 +1356,237 @@ app.get("/api/orders/track/:token", (req, res) => {
       res.json(invoices);
     });
 
-    app.post('/api/admin/invoices/generate-manual', (req, res) => {
+    // Helper function for rounding
+    const roundTo2 = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+    const roundTo0 = (num: number) => Math.round(num);
+
+    app.post('/api/admin/invoices/generate-calculation', (req, res) => {
       if (!checkAdminAuth(req, res, 'invoicing')) return;
       
-      const { restaurant_id } = req.body;
+      const { restaurant_id: raw_restaurant_id, period_start, period_end } = req.body;
+      const restaurant_id = Number(raw_restaurant_id);
+      console.log(`Generating calculation for restaurant ID: ${restaurant_id}, period: ${period_start} to ${period_end}`);
+      
       const r = db.prepare('SELECT * FROM restaurants WHERE id = ?').get(restaurant_id) as any;
       if (!r) return res.status(404).json({ error: 'Restaurant not found' });
       
       // Find orders that are 'completed' and not yet in any invoice
-      let orders = db.prepare(`
+      let ordersQuery = `
         SELECT * FROM orders 
         WHERE restaurant_id = ? 
         AND status = 'completed' 
         AND id NOT IN (SELECT order_id FROM invoice_orders)
-        ORDER BY created_at ASC
-      `).all(restaurant_id) as any[];
-      
-      // Special case for "Demo Pizza" or if requested to mock
-      if (orders.length === 0 && r.name === 'Demo Pizza') {
-        // Create a mock invoice for Demo Pizza
-        const total_amount = 5000 + Math.random() * 10000;
-        const commission_amount = total_amount * (r.contract_percentage / 100);
-        const net_amount = total_amount - commission_amount;
-        const base_amount = net_amount / (1 + (r.vat_rate / 100));
-        const vat_amount = net_amount - base_amount;
-        const invoice_number = `INV-${Date.now()}-${restaurant_id}`;
-        
-        const result = db.prepare(`
-          INSERT INTO invoices (restaurant_id, invoice_number, period_start, period_end, total_amount, commission_amount, net_amount, base_amount, vat_amount, contract_percentage, vat_rate, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft')
-        `).run(
-          restaurant_id,
-          invoice_number,
-          new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          new Date().toISOString(),
-          total_amount,
-          commission_amount,
-          net_amount,
-          base_amount,
-          vat_amount,
-          r.contract_percentage,
-          r.vat_rate
-        );
-        return res.json({ success: true, invoiceId: result.lastInsertRowid, mock: true });
+      `;
+      const params: any[] = [restaurant_id];
+
+      if (period_start) {
+        ordersQuery += " AND created_at >= ?";
+        params.push(period_start);
       }
+      if (period_end) {
+        ordersQuery += " AND created_at <= ?";
+        params.push(period_end);
+      }
+      
+      ordersQuery += " ORDER BY created_at ASC";
+      
+      const orders = db.prepare(ordersQuery).all(...params) as any[];
       
       if (orders.length === 0) {
-        return res.status(400).json({ error: 'Нема нови завршени нарачки за фактурирање за овој ресторан.' });
+        return res.status(400).json({ error: 'Нема нови завршени нарачки за овој период.' });
       }
       
-      const total_amount = orders.reduce((sum, o) => sum + o.total_price, 0);
-      const commission_amount = total_amount * (r.contract_percentage / 100);
-      const net_amount = total_amount - commission_amount;
-      const base_amount = net_amount / (1 + (r.vat_rate / 100));
-      const vat_amount = net_amount - base_amount;
-      const invoice_number = `INV-${Date.now()}-${restaurant_id}`;
+      const total_with_vat = roundTo2(orders.reduce((sum, o) => sum + o.total_price, 0));
+      const vat_rate = r.vat_rate || 0;
+      const base_amount = roundTo2(total_with_vat / (1 + vat_rate / 100));
+      const vat_amount = roundTo2(total_with_vat - base_amount);
+      
+      const invoice_number = `CALC-${Date.now()}-${restaurant_id}`;
       
       const result = db.prepare(`
-        INSERT INTO invoices (restaurant_id, invoice_number, period_start, period_end, total_amount, commission_amount, net_amount, base_amount, vat_amount, contract_percentage, vat_rate, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft')
+        INSERT INTO invoices (
+          restaurant_id, invoice_number, period_start, period_end, 
+          total_amount, commission_amount, net_amount, base_amount, vat_amount, 
+          contract_percentage, vat_rate, status, type
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending Approval', 'calculation')
       `).run(
         restaurant_id,
         invoice_number,
-        orders[0].created_at,
-        orders[orders.length - 1].created_at,
-        total_amount,
-        commission_amount,
-        net_amount,
+        period_start || orders[0].created_at,
+        period_end || orders[orders.length - 1].created_at,
+        total_with_vat,
+        0, // Commission will be calculated on final invoices
+        total_with_vat,
         base_amount,
         vat_amount,
         r.contract_percentage,
-        r.vat_rate
+        vat_rate
       );
       
       const invoiceId = result.lastInsertRowid;
-      const insertOrder = db.prepare('INSERT INTO invoice_orders (invoice_id, order_id) VALUES (?, ?)');
-      orders.forEach(o => insertOrder.run(invoiceId, o.id));
+      console.log(`[DEBUG] Invoice inserted successfully. ID: ${invoiceId}, RestaurantID: ${restaurant_id}, Number: ${invoice_number}`);
+      
+      // Link orders
+      const insertOrder = db.prepare("INSERT INTO invoice_orders (invoice_id, order_id) VALUES (?, ?)");
+      for (const order of orders) {
+        insertOrder.run(invoiceId, order.id);
+      }
+      
+      // Notify restaurant
+      console.log(`[DEBUG] Notifying restaurant_${restaurant_id} via socket`);
+      io.to(`restaurant_${restaurant_id}`).emit('new_invoice', {
+        id: invoiceId,
+        invoice_number,
+        type: 'calculation',
+        message: `Нова пресметка #${invoice_number} е генерирана.`
+      });
       
       res.json({ success: true, invoiceId });
+    });
+
+    // Test route for demo invoice visibility
+    app.post('/api/admin/test/insert-demo-invoice', (req, res) => {
+      if (!checkAdminAuth(req, res)) return;
+      const { restaurant_id: raw_id } = req.body;
+      if (!raw_id) return res.status(400).json({ error: 'Missing restaurant_id' });
+
+      const restaurant_id = Number(raw_id);
+
+      const invoice_number = `DEMO-${Date.now()}`;
+      try {
+        const result = db.prepare(`
+          INSERT INTO invoices (
+            restaurant_id, invoice_number, period_start, period_end, 
+            total_amount, commission_amount, net_amount, base_amount, vat_amount, 
+            contract_percentage, vat_rate, status, type
+          )
+          VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1000, 100, 900, 800, 200, 10, 18, 'Pending Approval', 'calculation')
+        `).run(restaurant_id, invoice_number);
+        
+        const invoiceId = result.lastInsertRowid;
+        
+        console.log(`[DEMO] Inserted demo invoice ${invoice_number} for restaurant ${restaurant_id}`);
+        
+        io.to(`restaurant_${restaurant_id}`).emit('new_invoice', {
+          id: invoiceId,
+          invoice_number,
+          type: 'calculation',
+          message: `ДЕМО ПРЕСМЕТКА #${invoice_number}`,
+          isDemo: true
+        });
+        
+        res.json({ success: true, invoiceId, invoice_number });
+      } catch (error) {
+        console.error('[DEMO] Failed to insert demo invoice:', error);
+        res.status(500).json({ error: 'Failed to insert demo invoice' });
+      }
+    });
+
+    app.post('/api/restaurant/invoices/:id/approve', (req, res) => {
+      const restaurant = (req.session as any).restaurant;
+      if (!restaurant) return res.status(401).json({ error: 'Unauthorized' });
+      
+      const calculation = db.prepare("SELECT * FROM invoices WHERE id = ? AND restaurant_id = ? AND type = 'calculation'").get(req.params.id, restaurant.id) as any;
+      if (!calculation) return res.status(404).json({ error: 'Calculation not found' });
+      
+      if (calculation.status !== 'Pending Approval') {
+        return res.status(400).json({ error: 'Оваа пресметка е веќе обработена.' });
+      }
+      
+      // 1. Update calculation status
+      db.prepare("UPDATE invoices SET status = 'Approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(req.params.id);
+      
+      const r = db.prepare('SELECT * FROM restaurants WHERE id = ?').get(restaurant.id) as any;
+      
+      // 2. Generate Invoice 1 (Restaurant -> PIZZATIME)
+      const inv1_number = `${r.name.replace(/\s+/g, '').toUpperCase()}-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${calculation.id}`;
+      const inv1_result = db.prepare(`
+        INSERT INTO invoices (
+          restaurant_id, invoice_number, period_start, period_end, 
+          total_amount, commission_amount, net_amount, base_amount, vat_amount, 
+          contract_percentage, vat_rate, status, type, parent_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Approved', 'invoice', ?)
+      `).run(
+        restaurant.id,
+        inv1_number,
+        calculation.period_start,
+        calculation.period_end,
+        calculation.total_amount,
+        0,
+        calculation.total_amount,
+        calculation.base_amount,
+        calculation.vat_amount,
+        calculation.contract_percentage,
+        calculation.vat_rate,
+        calculation.id
+      );
+      
+      const inv1_id = inv1_result.lastInsertRowid;
+      
+      // Link orders to the final invoice too
+      const orders = db.prepare("SELECT order_id FROM invoice_orders WHERE invoice_id = ?").all(calculation.id) as any[];
+      const insertOrder = db.prepare("INSERT INTO invoice_orders (invoice_id, order_id) VALUES (?, ?)");
+      for (const order of orders) {
+        insertOrder.run(inv1_id, order.order_id);
+      }
+      
+      // 3. Generate Invoice 2 (PIZZATIME -> Restaurant - Commission)
+      const commission_percentage = calculation.contract_percentage || 0;
+      const commission_total = roundTo2(calculation.total_amount * (commission_percentage / 100));
+      const pizzatime_vat_rate = 18; // Standard service VAT in MK
+      const commission_base = roundTo2(commission_total / (1 + pizzatime_vat_rate / 100));
+      const commission_vat = roundTo2(commission_total - commission_base);
+      
+      const inv2_number = `PIZZATIME-COMM-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${calculation.id}`;
+      db.prepare(`
+        INSERT INTO invoices (
+          restaurant_id, invoice_number, period_start, period_end, 
+          total_amount, commission_amount, net_amount, base_amount, vat_amount, 
+          contract_percentage, vat_rate, status, type, parent_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Approved', 'commission', ?)
+      `).run(
+        restaurant.id,
+        inv2_number,
+        calculation.period_start,
+        calculation.period_end,
+        commission_total,
+        commission_total,
+        commission_total,
+        commission_base,
+        commission_vat,
+        commission_percentage,
+        pizzatime_vat_rate,
+        calculation.id
+      );
+      
+      // Notify admin
+      io.to('admins').emit('invoice_status_updated', {
+        id: calculation.id,
+        status: 'Approved',
+        restaurant_name: r.name
+      });
+      
+      res.json({ success: true });
     });
 
     app.post('/api/admin/invoices/:id/approve', (req, res) => {
       if (!checkAdminAuth(req, res, 'invoicing')) return;
       
       db.prepare("UPDATE invoices SET status = 'Approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(req.params.id);
+      
+      // Notify restaurant
+      const invoice = db.prepare('SELECT restaurant_id, invoice_number FROM invoices WHERE id = ?').get(req.params.id) as any;
+      if (invoice) {
+        io.to(`restaurant_${invoice.restaurant_id}`).emit('invoice_status_updated', {
+          id: req.params.id,
+          invoice_number: invoice.invoice_number,
+          status: 'Approved'
+        });
+      }
+      
       res.json({ success: true });
     });
 
@@ -1349,27 +1598,99 @@ app.get("/api/orders/track/:token", (req, res) => {
       res.json({ success: true });
     });
 
+    app.get('/api/debug/invoices', (req, res) => {
+      const invoices = db.prepare('SELECT * FROM invoices').all();
+      res.json(invoices);
+    });
+
+    app.get('/api/restaurant/me', (req, res) => {
+      const sessionRest = (req.session as any).restaurant;
+      if (sessionRest && sessionRest.id) {
+        const restaurant = db.prepare('SELECT * FROM restaurants WHERE id = ?').get(sessionRest.id) as any;
+        if (restaurant) {
+          restaurant.id = Number(restaurant.id);
+          return res.json({ restaurant });
+        }
+      }
+      res.json({ restaurant: null });
+    });
+
     app.get('/api/restaurant/invoices', (req, res) => {
       const restaurant = (req.session as any).restaurant;
-      if (!restaurant) return res.status(401).json({ error: 'Unauthorized' });
+      if (!restaurant) {
+        console.log('[ERROR] Invoice fetch failed: No restaurant in session');
+        console.log('[DEBUG] Session object:', JSON.stringify(req.session));
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
       
-      const invoices = db.prepare("SELECT * FROM invoices WHERE restaurant_id = ? AND status != 'Draft' ORDER BY created_at DESC").all(restaurant.id);
-      res.json(invoices);
+      const restaurantId = Number(restaurant.id);
+      console.log(`[DEBUG] Fetching invoices for restaurant ID: ${restaurantId} (type: ${typeof restaurantId})`);
+      
+      try {
+        // Check schema
+        const schema = db.prepare("PRAGMA table_info(invoices)").all() as any[];
+        console.log(`[DEBUG] Invoices table schema: ${JSON.stringify(schema)}`);
+
+        // Check total count in table
+        const totalCount = db.prepare("SELECT COUNT(*) as count FROM invoices").get() as any;
+        console.log(`[DEBUG] Total invoices in entire table: ${totalCount.count}`);
+
+        // Log raw data for first 5 invoices to see types
+        const rawInvoices = db.prepare("SELECT id, restaurant_id, invoice_number, status FROM invoices LIMIT 5").all() as any[];
+        console.log(`[DEBUG] Raw sample invoices: ${JSON.stringify(rawInvoices)}`);
+
+        // Use a more direct query without CAST first to see if it works, 
+        // but try both if needed. SQLite is flexible but can be tricky with types.
+        const invoices = db.prepare(`
+          SELECT * FROM invoices 
+          WHERE (restaurant_id = ? OR CAST(restaurant_id AS TEXT) = CAST(? AS TEXT))
+          AND status NOT IN ('Draft', 'draft')
+          ORDER BY created_at DESC
+        `).all(restaurantId, restaurantId) as any[];
+
+        console.log(`[DEBUG] Found ${invoices.length} invoices for restaurant ID: ${restaurantId}`);
+        
+        // Check for ANY invoices for this restaurant regardless of status
+        const anyInvoices = db.prepare("SELECT id, restaurant_id, status, type FROM invoices WHERE restaurant_id = ? OR CAST(restaurant_id AS TEXT) = CAST(? AS TEXT)").all(restaurantId, restaurantId) as any[];
+        console.log(`[DEBUG] Total invoices in DB for this restaurant (any status): ${anyInvoices.length}`);
+        
+        if (anyInvoices.length === 0) {
+          // If 0 found for this ID, check what IDs DO exist
+          const existingIds = db.prepare("SELECT DISTINCT restaurant_id FROM invoices").all() as any[];
+          console.log(`[DEBUG] Existing restaurant IDs in invoices table: ${existingIds.map(e => e.restaurant_id).join(', ')}`);
+        } else {
+          console.log('[DEBUG] Invoice statuses:', anyInvoices.map(inv => `ID:${inv.id}, Status:${inv.status}, Type:${inv.type}`));
+        }
+        
+        res.json(invoices);
+      } catch (error) {
+        console.error('[DEBUG] Error fetching restaurant invoices:', error);
+        res.status(500).json({ error: 'Internal server error' });
+      }
     });
 
     app.get('/api/invoices/:id', (req, res) => {
       const invoice = db.prepare(`
         SELECT i.*, r.name as restaurant_name, r.address as restaurant_address, 
                r.bank_account as restaurant_bank_account, r.logo_url as restaurant_logo,
-               r.email as restaurant_email, r.phone as restaurant_phone,
+               r.email as restaurant_email, r.phone as restaurant_phone, r.edb as restaurant_edb,
                COALESCE(i.contract_percentage, r.contract_percentage) as contract_percentage,
-               COALESCE(i.vat_rate, r.vat_rate) as vat_rate
+               COALESCE(i.vat_rate, r.vat_rate) as vat_rate,
+               p.invoice_number as parent_invoice_number
         FROM invoices i 
         JOIN restaurants r ON i.restaurant_id = r.id 
+        LEFT JOIN invoices p ON i.parent_id = p.id
         WHERE i.id = ?
       `).get(req.params.id) as any;
       
       if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+      
+      // Fetch PIZZATIME info from global_settings
+      const settings = db.prepare("SELECT * FROM global_settings WHERE key LIKE 'pizzatime_%'").all() as any[];
+      const pizzatimeInfo: any = {};
+      settings.forEach(s => {
+        pizzatimeInfo[s.key] = s.value;
+      });
       
       const orders = db.prepare(`
         SELECT o.* 
@@ -1378,12 +1699,34 @@ app.get("/api/orders/track/:token", (req, res) => {
         WHERE io.invoice_id = ?
       `).all(req.params.id);
       
-      res.json({ ...invoice, orders });
+      res.json({ ...invoice, orders, pizzatimeInfo });
     });
 
     app.post('/api/invoices/:id/status', (req, res) => {
       const { status } = req.body;
+      console.log(`Updating invoice status to ${status} for invoice ID ${req.params.id}`);
       db.prepare('UPDATE invoices SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, req.params.id);
+      
+      // Notify restaurant of status changes
+      const invoice = db.prepare('SELECT restaurant_id, invoice_number FROM invoices WHERE id = ?').get(req.params.id) as any;
+      if (invoice) {
+        console.log(`Emitting invoice_status_updated to restaurant_${invoice.restaurant_id} for invoice #${invoice.invoice_number} with status ${status}`);
+        io.to(`restaurant_${invoice.restaurant_id}`).emit('invoice_status_updated', {
+          id: req.params.id,
+          invoice_number: invoice.invoice_number,
+          status: status
+        });
+        
+        // Also emit new_invoice if it's now Pending (first time restaurant sees it)
+        if (status === 'Pending') {
+          console.log(`Emitting new_invoice to restaurant_${invoice.restaurant_id} for invoice #${invoice.invoice_number}`);
+          io.to(`restaurant_${invoice.restaurant_id}`).emit('new_invoice', {
+            id: req.params.id,
+            invoice_number: invoice.invoice_number
+          });
+        }
+      }
+      
       res.json({ success: true });
     });
 
@@ -1396,6 +1739,25 @@ app.get("/api/orders/track/:token", (req, res) => {
         SET total_amount = ?, commission_amount = ?, net_amount = ?, base_amount = ?, vat_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP 
         WHERE id = ?
       `).run(total_amount, commission_amount, net_amount, base_amount, vat_amount, status, req.params.id);
+
+      // Notify restaurant of status changes
+      const invoice = db.prepare('SELECT restaurant_id, invoice_number FROM invoices WHERE id = ?').get(req.params.id) as any;
+      if (invoice) {
+        io.to(`restaurant_${invoice.restaurant_id}`).emit('invoice_status_updated', {
+          id: req.params.id,
+          invoice_number: invoice.invoice_number,
+          status: status
+        });
+        
+        // Also emit new_invoice if it's now Pending (first time restaurant sees it)
+        if (status === 'Pending') {
+          io.to(`restaurant_${invoice.restaurant_id}`).emit('new_invoice', {
+            id: req.params.id,
+            invoice_number: invoice.invoice_number
+          });
+        }
+      }
+
       res.json({ success: true });
     });
 
@@ -1595,13 +1957,13 @@ app.get("/api/orders/track/:token", (req, res) => {
 
           // Insert restaurants
           if (restaurants && restaurants.length > 0) {
-            const insertRest = db.prepare(`INSERT INTO restaurants (id, name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, status, username, password, contract_percentage, working_hours, header_image, billing_cycle_days, vat_rate, payment_config, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertRest = db.prepare(`INSERT INTO restaurants (id, name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, status, username, password, contract_percentage, working_hours, header_image, billing_cycle_days, vat_rate, edb, payment_config, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const r of restaurants) {
               insertRest.run(
                 r.id, r.name, r.city, r.address, r.email, r.phone, r.bank_account, 
                 r.logo_url || null, r.cover_url || null, 
                 r.has_own_delivery, r.delivery_zones, r.spare_1, r.spare_2, r.spare_3, r.spare_4 || null, r.status, r.username, r.password, r.contract_percentage || 0, r.working_hours || '{}',
-                r.header_image || null, r.billing_cycle_days || 7, r.vat_rate || 0, r.payment_config || '{"methods":["cash"],"fees":[]}', r.lat || null, r.lng || null
+                r.header_image || null, r.billing_cycle_days || 7, r.vat_rate || 0, r.edb || null, r.payment_config || '{"methods":["cash"],"fees":[]}', r.lat || null, r.lng || null
               );
             }
           }
@@ -1689,9 +2051,9 @@ app.get("/api/orders/track/:token", (req, res) => {
           
           // Insert invoices
           if (invoices && invoices.length > 0) {
-            const insertInvoice = db.prepare(`INSERT INTO invoices (id, restaurant_id, invoice_number, period_start, period_end, total_amount, commission_amount, net_amount, base_amount, vat_amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const insertInvoice = db.prepare(`INSERT INTO invoices (id, restaurant_id, invoice_number, period_start, period_end, total_amount, commission_amount, net_amount, base_amount, vat_amount, contract_percentage, vat_rate, status, type, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const i of invoices) {
-              insertInvoice.run(i.id, i.restaurant_id, i.invoice_number, i.period_start, i.period_end, i.total_amount, i.commission_amount, i.net_amount, i.base_amount, i.vat_amount, i.status, i.created_at, i.updated_at);
+              insertInvoice.run(i.id, i.restaurant_id, i.invoice_number, i.period_start, i.period_end, i.total_amount, i.commission_amount, i.net_amount, i.base_amount, i.vat_amount, i.contract_percentage || 0, i.vat_rate || 0, i.status, i.type || 'calculation', i.parent_id || null, i.created_at, i.updated_at);
             }
           }
           
@@ -1811,12 +2173,14 @@ app.get("/api/orders/track/:token", (req, res) => {
   app.post("/api/admin/restaurants/:id/approve", (req, res) => {
     if (!checkAdminAuth(req, res, 'restaurants')) return;
     const id = req.params.id;
-    const { contract_percentage, username, password, payment_config, logo_url, cover_url, header_image } = req.body;
+    const { contract_percentage, billing_cycle_days, vat_rate, username, password, payment_config, logo_url, cover_url, header_image } = req.body;
     
-    db.prepare("UPDATE restaurants SET status = 'approved', username = ?, password = ?, contract_percentage = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ? WHERE id = ?").run(
+    db.prepare("UPDATE restaurants SET status = 'approved', username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ? WHERE id = ?").run(
       username, 
       password, 
       contract_percentage || 0, 
+      billing_cycle_days || 7,
+      vat_rate || 0,
       payment_config || '{"methods":["cash"],"fees":[]}',
       logo_url || null,
       cover_url || null,
@@ -1830,12 +2194,14 @@ app.get("/api/orders/track/:token", (req, res) => {
   app.put("/api/admin/restaurants/:id", (req, res) => {
     if (!checkAdminAuth(req, res, 'restaurants')) return;
     const id = req.params.id;
-    const { contract_percentage, username, password, payment_config, logo_url, cover_url, header_image, status } = req.body;
+    const { contract_percentage, billing_cycle_days, vat_rate, username, password, payment_config, logo_url, cover_url, header_image, status } = req.body;
     
-    db.prepare("UPDATE restaurants SET username = ?, password = ?, contract_percentage = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ?, status = ? WHERE id = ?").run(
+    db.prepare("UPDATE restaurants SET username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ?, status = ? WHERE id = ?").run(
       username,
       password,
       contract_percentage || 0,
+      billing_cycle_days || 7,
+      vat_rate || 0,
       payment_config || '{"methods":["cash"],"fees":[]}',
       logo_url || null,
       cover_url || null,
@@ -2018,11 +2384,27 @@ app.get("/api/orders/track/:token", (req, res) => {
   // --- RESTAURANT LOGIN & SETTINGS ---
   app.post("/api/restaurants/login", (req, res) => {
     const { username, password } = req.body;
-    const restaurant = db.prepare("SELECT * FROM restaurants WHERE username = ? AND password = ? AND status = 'approved'").get(username, password);
+    const restaurant = db.prepare("SELECT * FROM restaurants WHERE username = ? AND password = ? AND status = 'approved'").get(username, password) as any;
     if (restaurant) {
+      restaurant.id = Number(restaurant.id);
+      (req.session as any).restaurant = { id: restaurant.id };
+      console.log(`[DEBUG] Restaurant login successful for ID: ${restaurant.id}. Session set with ID only.`);
       res.json({ success: true, restaurant });
     } else {
       res.status(401).json({ success: false, message: "Невалидно корисничко име или лозинка" });
+    }
+  });
+
+  app.post("/api/admin/login-as-restaurant/:id", (req, res) => {
+    if (!checkAdminAuth(req, res, 'restaurants')) return;
+    const restaurant = db.prepare("SELECT * FROM restaurants WHERE id = ?").get(req.params.id) as any;
+    if (restaurant) {
+      restaurant.id = Number(restaurant.id);
+      (req.session as any).restaurant = { id: restaurant.id };
+      console.log(`[DEBUG] Admin login-as-restaurant successful for ID: ${restaurant.id}. Session set with ID only.`);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Restaurant not found' });
     }
   });
 
@@ -2596,7 +2978,7 @@ app.get("/api/orders/track/:token", (req, res) => {
       };
       delivery_code = JSON.stringify(codeData);
       
-      db.prepare("UPDATE orders SET status = ?, delivery_code = ? WHERE id = ?").run(status, delivery_code, orderId);
+      db.prepare("UPDATE orders SET status = ?, delivery_code = ?, accepted_at = CURRENT_TIMESTAMP WHERE id = ?").run(status, delivery_code, orderId);
       
       // Notify customer
       io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
@@ -2910,14 +3292,14 @@ app.get("/api/orders/track/:token", (req, res) => {
           codeData.delivery_partner = partnerName;
           
           const updatedCode = JSON.stringify(codeData);
-          db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ?, delivery_code = ? WHERE id = ?")
+          db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ?, delivery_code = ?, picked_up_at = CURRENT_TIMESTAMP WHERE id = ?")
             .run(finalStatus, partnerId, partnerName, updatedCode, orderId);
         } catch (e) {
-          db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ? WHERE id = ?")
+          db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ?, picked_up_at = CURRENT_TIMESTAMP WHERE id = ?")
             .run(finalStatus, partnerId, partnerName, orderId);
         }
       } else {
-        db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ? WHERE id = ?")
+        db.prepare("UPDATE orders SET status = ?, delivery_partner_id = ?, delivery_partner_name = ?, picked_up_at = CURRENT_TIMESTAMP WHERE id = ?")
           .run(finalStatus, partnerId, partnerName, orderId);
       }
 
@@ -2935,7 +3317,8 @@ app.get("/api/orders/track/:token", (req, res) => {
         io.to(`order_${order.tracking_token}`).emit("driver_assigned", { partnerName });
       }
     } else {
-      db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+      const deliveredAtUpdate = status === 'completed' ? ', delivered_at = CURRENT_TIMESTAMP' : '';
+      db.prepare(`UPDATE orders SET status = ? ${deliveredAtUpdate} WHERE id = ?`).run(status, orderId);
       io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
     }
 

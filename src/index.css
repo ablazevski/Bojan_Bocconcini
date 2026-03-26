@@ -11,3 +11,65 @@
     scrollbar-width: none;
   }
 }
+
+@media print {
+  /* Hide everything by default */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show only the print section and its children */
+  #print-section,
+  #print-section * {
+    visibility: visible;
+  }
+
+  /* Position the print section at the top left of the page */
+  #print-section {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 40px !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Reset body and root for print */
+  body, html {
+    background: white !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Hide the fixed overlay background */
+  .fixed.inset-0 {
+    position: absolute !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+
+  /* Force background colors to print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide buttons and other non-essential elements during print */
+  .print-hidden,
+  button,
+  .no-print {
+    display: none !important;
+  }
+}

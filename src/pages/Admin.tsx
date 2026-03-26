@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, ReactNode, Component, ErrorInfo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer } from 'lucide-react';
 import { motion } from 'motion/react';
+import { toast } from 'sonner';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -131,6 +132,32 @@ export default function Admin() {
 
 function AdminContent() {
   const navigate = useNavigate();
+
+  const formatDuration = (start: string | null, end: string | null) => {
+    if (!start || !end) return '-';
+    try {
+      // Handle SQLite DATETIME format which might be 'YYYY-MM-DD HH:MM:SS'
+      // JS Date constructor expects 'YYYY-MM-DDTHH:MM:SSZ' or similar
+      const parseDate = (d: string) => {
+        if (d.includes(' ')) {
+          return new Date(d.replace(' ', 'T') + 'Z');
+        }
+        return new Date(d);
+      };
+      
+      const startTime = parseDate(start).getTime();
+      const endTime = parseDate(end).getTime();
+      
+      if (isNaN(startTime) || isNaN(endTime)) return '-';
+      
+      const diffMs = endTime - startTime;
+      const diffMins = Math.round(diffMs / 60000);
+      return `${diffMins} мин.`;
+    } catch (e) {
+      return '-';
+    }
+  };
+
   const [admin, setAdmin] = useState<any>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
@@ -152,6 +179,27 @@ function AdminContent() {
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [expandedInvoices, setExpandedInvoices] = useState<Set<number>>(new Set());
+
+  const toggleInvoiceExpansion = (id: number) => {
+    const newExpanded = new Set(expandedInvoices);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedInvoices(newExpanded);
+  };
+
+  const groupedInvoices = React.useMemo(() => {
+    const calculations = invoices.filter(inv => inv.type === 'calculation');
+    const others = invoices.filter(inv => inv.type !== 'calculation');
+    
+    return calculations.map(calc => ({
+      ...calc,
+      children: others.filter(other => other.parent_id === calc.id)
+    }));
+  }, [invoices]);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [isEditingInvoice, setIsEditingInvoice] = useState(false);
@@ -227,6 +275,8 @@ function AdminContent() {
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [isSyncingAcelle, setIsSyncingAcelle] = useState(false);
   const [showGenerateInvoiceModal, setShowGenerateInvoiceModal] = useState(false);
+  const [invoicePeriodStart, setInvoicePeriodStart] = useState('');
+  const [invoicePeriodEnd, setInvoicePeriodEnd] = useState('');
   const [selectedRestaurantForInvoice, setSelectedRestaurantForInvoice] = useState('');
   const [billingCycleDays, setBillingCycleDays] = useState<number>(7);
   const [vatRate, setVatRate] = useState<number>(0);
@@ -947,9 +997,23 @@ function AdminContent() {
     }
   };
 
-  const loginAsOwner = (rest: PendingRestaurant) => {
-    localStorage.setItem('restaurant_auth', JSON.stringify(rest));
-    navigate('/restaurant');
+  const loginAsOwner = async (rest: PendingRestaurant) => {
+    try {
+      const res = await fetch(`/api/admin/login-as-restaurant/${rest.id}`, { 
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        localStorage.setItem('restaurant_auth', JSON.stringify(rest));
+        navigate('/restaurant');
+      } else {
+        const error = await res.json();
+        alert(`Грешка при најава: ${error.message || 'Непозната грешка'}`);
+      }
+    } catch (error) {
+      console.error('Error logging in as restaurant:', error);
+      alert('Грешка при најава како ресторан');
+    }
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1052,23 +1116,65 @@ function AdminContent() {
     }
     
     try {
-      const res = await fetch('/api/admin/invoices/generate-manual', {
+      const res = await fetch('/api/admin/invoices/generate-calculation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_id: selectedRestaurantForInvoice })
+        body: JSON.stringify({ 
+          restaurant_id: selectedRestaurantForInvoice,
+          period_start: invoicePeriodStart,
+          period_end: invoicePeriodEnd
+        })
       });
       
       if (res.ok) {
-        alert('Фактурата е успешно генерирана!');
+        toast.success('Пресметката е успешно генерирана и испратена до ресторанот!');
         setShowGenerateInvoiceModal(false);
         setSelectedRestaurantForInvoice('');
+        setInvoicePeriodStart('');
+        setInvoicePeriodEnd('');
         fetchInvoices();
       } else {
         const data = await res.json();
-        alert(data.error || 'Грешка при генерирање на фактура.');
+        toast.error(data.error || 'Грешка при генерирање на фактура.');
       }
     } catch (e) {
-      alert('Грешка при комуникација со серверот.');
+      toast.error('Грешка при комуникација со серверот.');
+    }
+  };
+
+  const handleGenerateDemoInvoice = async (rid: string) => {
+    try {
+      const res = await fetch('/api/admin/test/insert-demo-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          restaurant_id: rid
+        })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        alert(`ДЕМО ПРЕСМЕТКА #${data.invoice_number} е успешно генерирана!`);
+        fetchInvoices();
+      } else {
+        const data = await res.json();
+        alert(`Грешка: ${data.error || 'Неуспешно генерирање демо'}`);
+      }
+    } catch (error) {
+      console.error('Failed to generate demo invoice', error);
+      alert('Грешка при поврзување со серверот.');
+    }
+  };
+
+  const viewInvoice = async (invoice: any) => {
+    try {
+      const res = await fetch(`/api/invoices/${invoice.id}`);
+      if (res.ok) {
+        setSelectedInvoice(await res.json());
+        setIsInvoiceModalOpen(true);
+      }
+    } catch (e) {
+      console.error('Failed to fetch invoice details', e);
     }
   };
 
@@ -1088,15 +1194,20 @@ function AdminContent() {
 
   const handleDeleteInvoice = async (id: number) => {
     if (!confirm('Дали сте сигурни дека сакате да ја избришете оваа фактура?')) return;
+    console.log(`[DEBUG] Attempting to delete invoice ID: ${id}`);
     try {
       const res = await fetch(`/api/admin/invoices/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        toast.success('Фактурата е успешно избришана.');
         fetchInvoices();
       } else {
-        alert('Грешка при бришење на фактурата.');
+        const data = await res.json();
+        console.error('[DEBUG] Delete failed:', data);
+        toast.error(data.error || 'Грешка при бришење на фактурата.');
       }
     } catch (e) {
-      alert('Грешка при комуникација со серверот.');
+      console.error('[DEBUG] Delete error:', e);
+      toast.error('Грешка при комуникација со серверот.');
     }
   };
 
@@ -1574,85 +1685,174 @@ function AdminContent() {
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-100">
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Број</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Тип</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ресторан</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Период</th>
-                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">За исплата</th>
+                      <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Износ</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Статус</th>
                       <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Акции</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {invoices.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-4 font-medium text-slate-700">#{inv.invoice_number}</td>
-                        <td className="p-4 text-slate-600">{inv.restaurant_name}</td>
-                        <td className="p-4 text-slate-600">
-                          {new Date(inv.period_start).toLocaleDateString('mk-MK')} - {new Date(inv.period_end).toLocaleDateString('mk-MK')}
-                        </td>
-                        <td className="p-4 font-bold text-blue-700">{inv.net_amount} ден.</td>
-                        <td className="p-4">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                            inv.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
-                            inv.status === 'Approved' ? 'bg-blue-100 text-blue-700' :
-                            inv.status === 'Pending' ? 'bg-orange-100 text-orange-700' :
-                            'bg-slate-100 text-slate-700'
-                          }`}>
-                            {inv.status === 'Paid' ? 'Платена' :
-                             inv.status === 'Approved' ? 'Одобрена' :
-                             inv.status === 'Pending' ? 'Чека одобрување' :
-                             'Нацрт'}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => {
-                                setSelectedInvoice(inv);
-                                setIsInvoiceModalOpen(true);
-                              }}
-                              className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
-                              title="Прегледај"
-                            >
-                              <Eye size={18} />
-                            </button>
-                            {inv.status === 'Draft' && (
+                    {groupedInvoices.map((calc) => (
+                      <React.Fragment key={calc.id}>
+                        <tr className="hover:bg-slate-50 transition-colors group">
+                          <td className="p-4 font-medium text-slate-700 flex items-center gap-2">
+                            {calc.children.length > 0 && (
                               <button 
-                                onClick={() => handleApproveInvoice(inv.id)}
-                                className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors"
-                                title="Одобри"
+                                onClick={() => toggleInvoiceExpansion(calc.id)}
+                                className="p-1 hover:bg-slate-200 rounded transition-colors"
                               >
-                                <Check size={18} />
+                                {expandedInvoices.has(calc.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                               </button>
                             )}
-                            <button 
-                              onClick={() => {
-                                setSelectedInvoice(inv);
-                                setEditingInvoiceData({
-                                  invoice_number: inv.invoice_number,
-                                  total_amount: inv.total_amount,
-                                  commission_amount: inv.commission_amount,
-                                  net_amount: inv.net_amount,
-                                  vat_amount: inv.vat_amount,
-                                  base_amount: inv.base_amount,
-                                  status: inv.status
-                                });
-                                setIsEditingInvoice(true);
-                              }}
-                              className="p-2 hover:bg-orange-50 text-orange-600 rounded-lg transition-colors"
-                              title="Измени"
-                            >
-                              <Settings2 size={18} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteInvoice(inv.id)}
-                              className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
-                              title="Избриши"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                            #{calc.invoice_number}
+                          </td>
+                          <td className="p-4">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-700">
+                              Пресметка
+                            </span>
+                          </td>
+                          <td className="p-4 text-slate-600">{calc.restaurant_name}</td>
+                          <td className="p-4 text-slate-600">
+                            {new Date(calc.period_start).toLocaleDateString('mk-MK')} - {new Date(calc.period_end).toLocaleDateString('mk-MK')}
+                          </td>
+                          <td className="p-4 font-bold text-blue-700">{calc.total_amount.toLocaleString()} ден.</td>
+                          <td className="p-4">
+                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                              calc.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
+                              calc.status === 'Approved' ? 'bg-blue-100 text-blue-700' :
+                              calc.status === 'Pending Approval' ? 'bg-orange-100 text-orange-700' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              {calc.status === 'Paid' ? 'Платена' :
+                               calc.status === 'Approved' ? 'Одобрена' :
+                               calc.status === 'Pending Approval' ? 'Чека одобрување' :
+                               'Нацрт'}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={() => viewInvoice(calc)}
+                                className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                                title="Прегледај"
+                              >
+                                <Eye size={18} />
+                              </button>
+                              {calc.status === 'Draft' && (
+                                <button 
+                                  onClick={() => handleUpdateInvoiceStatus(calc.id, 'Pending')}
+                                  className="p-2 hover:bg-orange-50 text-orange-600 rounded-lg transition-colors"
+                                  title="Извести ресторан"
+                                >
+                                  <Send size={18} />
+                                </button>
+                              )}
+                              {(calc.status === 'Draft' || calc.status === 'Pending') && (
+                                <button 
+                                  onClick={() => handleApproveInvoice(calc.id)}
+                                  className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors"
+                                  title="Одобри"
+                                >
+                                  <Check size={18} />
+                                </button>
+                              )}
+                              {calc.status === 'Approved' && (
+                                <button 
+                                  onClick={() => handleUpdateInvoiceStatus(calc.id, 'Paid')}
+                                  className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                                  title="Означи како платена"
+                                >
+                                  <DollarSign size={18} />
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => {
+                                  setSelectedInvoice(calc);
+                                  setEditingInvoiceData({
+                                    invoice_number: calc.invoice_number,
+                                    total_amount: calc.total_amount,
+                                    commission_amount: calc.commission_amount,
+                                    net_amount: calc.net_amount,
+                                    vat_amount: calc.vat_amount,
+                                    base_amount: calc.base_amount,
+                                    status: calc.status
+                                  });
+                                  setIsEditingInvoice(true);
+                                }}
+                                className="p-2 hover:bg-orange-50 text-orange-600 rounded-lg transition-colors"
+                                title="Измени"
+                              >
+                                <Settings2 size={18} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteInvoice(calc.id)}
+                                className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                                title="Избриши"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {expandedInvoices.has(calc.id) && calc.children.map((child: any) => (
+                          <tr key={child.id} className="bg-slate-50/50 border-l-4 border-indigo-500 transition-colors">
+                            <td className="p-4 pl-12 font-medium text-slate-600">#{child.invoice_number}</td>
+                            <td className="p-4">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                child.type === 'invoice' ? 'bg-blue-100 text-blue-700' :
+                                'bg-orange-100 text-orange-700'
+                              }`}>
+                                {child.type === 'invoice' ? 'Фактура' : 'Провизија'}
+                              </span>
+                            </td>
+                            <td className="p-4 text-slate-500">{child.restaurant_name}</td>
+                            <td className="p-4 text-slate-500">
+                              {new Date(child.period_start).toLocaleDateString('mk-MK')} - {new Date(child.period_end).toLocaleDateString('mk-MK')}
+                            </td>
+                            <td className="p-4 font-bold text-slate-700">{child.total_amount.toLocaleString()} ден.</td>
+                            <td className="p-4">
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                                child.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
+                                child.status === 'Approved' ? 'bg-blue-100 text-blue-700' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {child.status === 'Paid' ? 'Платена' :
+                                 child.status === 'Approved' ? 'Одобрена' :
+                                 'Нацрт'}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  onClick={() => viewInvoice(child)}
+                                  className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                                  title="Прегледај"
+                                >
+                                  <Eye size={18} />
+                                </button>
+                                {child.status === 'Approved' && (
+                                  <button 
+                                    onClick={() => handleUpdateInvoiceStatus(child.id, 'Paid')}
+                                    className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                                    title="Означи како платена"
+                                  >
+                                    <DollarSign size={18} />
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => handleDeleteInvoice(child.id)}
+                                  className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                                  title="Избриши"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
                     ))}
                     {invoices.length === 0 && (
                       <tr>
@@ -1783,6 +1983,7 @@ function AdminContent() {
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Статус</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Вкупно</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Код</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Време</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Следење</th>
                   </tr>
                 </thead>
@@ -1825,6 +2026,25 @@ function AdminContent() {
                         ) : (
                           <span className="text-slate-300 text-xs">-</span>
                         )}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1 text-xs font-bold text-slate-700" title="Вкупно време од нарачка до достава">
+                            <Clock size={12} className="text-slate-400" />
+                            {formatDuration(order.created_at, order.delivered_at)}
+                          </div>
+                          <div className="flex flex-col text-[9px] text-slate-400 leading-tight">
+                            {order.accepted_at && (
+                              <span>Примена: {formatDuration(order.created_at, order.accepted_at)}</span>
+                            )}
+                            {order.ready_at && order.accepted_at && (
+                              <span>Подготовка: {formatDuration(order.accepted_at, order.ready_at)}</span>
+                            )}
+                            {order.delivered_at && order.picked_up_at && (
+                              <span>Достава: {formatDuration(order.picked_up_at, order.delivered_at)}</span>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="p-4">
                         {order.tracking_token ? (
@@ -2923,6 +3143,41 @@ function AdminContent() {
                       placeholder="https://..." 
                     />
                   </div>
+                  <div className="pt-4 border-t border-slate-100">
+                    <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Податоци за Фактурирање (PIZZATIME)</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">ЕДБ (Даночен број)</label>
+                        <input 
+                          type="text" 
+                          value={globalSettings.pizzatime_edb || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, pizzatime_edb: e.target.value})} 
+                          className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                          placeholder="ЕДБ..." 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">Жиро сметка</label>
+                        <input 
+                          type="text" 
+                          value={globalSettings.pizzatime_bank_account || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, pizzatime_bank_account: e.target.value})} 
+                          className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                          placeholder="Сметка..." 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">Банка</label>
+                        <input 
+                          type="text" 
+                          value={globalSettings.pizzatime_bank_name || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, pizzatime_bank_name: e.target.value})} 
+                          className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                          placeholder="Назив на банка..." 
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -3502,7 +3757,7 @@ function AdminContent() {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
           <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="bg-blue-600 p-6 text-white flex items-center justify-between">
-              <h2 className="text-xl font-bold">Генерирај Нова Фактура</h2>
+              <h2 className="text-xl font-bold">Генерирај Нова Пресметка</h2>
               <button onClick={() => setShowGenerateInvoiceModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                 <X size={24} />
               </button>
@@ -3523,23 +3778,46 @@ function AdminContent() {
                 </select>
               </div>
 
-              <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-800">
-                Системот автоматски ќе ги пресмета сите завршени нарачки кои досега не се фактурирани за избраниот ресторан.
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wider">Од датум</label>
+                  <input 
+                    type="date" 
+                    value={invoicePeriodStart}
+                    onChange={(e) => setInvoicePeriodStart(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wider">До датум</label>
+                  <input 
+                    type="date" 
+                    value={invoicePeriodEnd}
+                    onChange={(e) => setInvoicePeriodEnd(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50"
+                  />
+                </div>
               </div>
 
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setShowGenerateInvoiceModal(false)}
-                  className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors"
-                >
-                  Откажи
-                </button>
-                <button 
-                  onClick={handleGenerateInvoice}
-                  className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
-                >
-                  Генерирај
-                </button>
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-800">
+                Системот ќе ги пресмета сите завршени нарачки за избраниот период кои досега не се фактурирани.
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowGenerateInvoiceModal(false)}
+                    className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors"
+                  >
+                    Откажи
+                  </button>
+                  <button 
+                    onClick={handleGenerateInvoice}
+                    className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                  >
+                    Генерирај
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -4446,140 +4724,251 @@ function AdminContent() {
 
       {/* Invoice Details Modal */}
       {isInvoiceModalOpen && selectedInvoice && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <div>
-                <h3 className="text-xl font-bold text-slate-800">Фактура #{selectedInvoice.invoice_number}</h3>
-                <p className="text-sm text-slate-500">Ресторан: {selectedInvoice.restaurant_name}</p>
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:p-0 print:bg-white print:backdrop-blur-none">
+          <div id="print-section" className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden print:max-h-none print:shadow-none print:rounded-none print:w-full print:static">
+            <div className={`p-6 border-b border-slate-100 flex justify-between items-center transition-colors print:border-b-2 print:border-slate-200 ${
+              selectedInvoice.type === 'calculation' ? 'bg-purple-50' :
+              selectedInvoice.type === 'invoice' ? 'bg-blue-50' :
+              'bg-orange-50'
+            }`}>
+              <div className="print:mb-10">
+                <h3 className="text-xl font-bold text-slate-800 print:text-4xl print:mb-2">
+                  {selectedInvoice.type === 'calculation' ? 'Пресметка' : 'Фактура'} број {selectedInvoice.invoice_number}
+                </h3>
+                <p className="text-sm text-slate-500 print:text-xl print:text-slate-700 print:font-medium">
+                  Ресторан: {selectedInvoice.restaurant_name}
+                </p>
               </div>
-              <button onClick={() => setIsInvoiceModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+              <button onClick={() => setIsInvoiceModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors print:hidden">
                 <X size={24} className="text-slate-500" />
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Период</span>
-                  <p className="font-medium text-slate-700">
-                    {new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}
-                  </p>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Статус</span>
-                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                    selectedInvoice.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
-                    selectedInvoice.status === 'Approved' ? 'bg-blue-100 text-blue-700' :
-                    selectedInvoice.status === 'Pending' ? 'bg-orange-100 text-orange-700' :
-                    'bg-slate-100 text-slate-700'
-                  }`}>
-                    {selectedInvoice.status === 'Paid' ? 'Платена' :
-                     selectedInvoice.status === 'Approved' ? 'Одобрена' :
-                     selectedInvoice.status === 'Pending' ? 'Чека одобрување' :
-                     'Нацрт'}
-                  </span>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Вкупно за исплата</span>
-                  <p className="text-xl font-bold text-blue-700">{selectedInvoice.net_amount} ден.</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="p-6 overflow-y-auto flex-1 space-y-8 print:overflow-visible print:p-8 print:space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12">
                 <div>
-                  <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <Store size={18} className="text-orange-500" /> Податоци за ресторанот
+                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
+                    {selectedInvoice.type === 'commission' ? 'ОД (ДОБАВУВАЧ):' : 'ОД:'}
                   </h4>
-                  <div className="space-y-2 text-sm">
-                    <p><span className="text-slate-500">Назив:</span> <span className="font-medium">{selectedInvoice.restaurant_name}</span></p>
-                    <p><span className="text-slate-500">Адреса:</span> <span className="font-medium">{selectedInvoice.restaurant_address}</span></p>
-                    <p><span className="text-slate-500">ЕДБ:</span> <span className="font-medium">{selectedInvoice.restaurant_spare_1 || '/'}</span></p>
-                    <p><span className="text-slate-500">Жиро сметка:</span> <span className="font-medium font-mono">{selectedInvoice.restaurant_bank_account}</span></p>
+                  <div className="space-y-1 text-slate-700 dark:text-slate-300 text-sm print:text-slate-900 print:text-sm">
+                    {selectedInvoice.type === 'commission' ? (
+                      <>
+                        <p className="font-bold">PizzaTime DOOEL</p>
+                        <p>ЕДБ: {selectedInvoice.pizzatimeInfo?.pizzatime_edb || '4030020000000'}</p>
+                        <p>Адреса: {selectedInvoice.pizzatimeInfo?.pizzatime_address || 'Бул. Партизански Одреди 1'}</p>
+                        <p>Сметка: {selectedInvoice.pizzatimeInfo?.pizzatime_bank_account}</p>
+                        <p>Банка: {selectedInvoice.pizzatimeInfo?.pizzatime_bank_name}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-bold">{selectedInvoice.restaurant_name}</p>
+                        <p>ЕДБ: {selectedInvoice.restaurant_edb}</p>
+                        <p>Адреса: {selectedInvoice.restaurant_address}</p>
+                        <p>Град: {selectedInvoice.restaurant_city}</p>
+                        <p>Сметка: {selectedInvoice.restaurant_bank_account}</p>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div>
-                  <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <Percent size={18} className="text-blue-500" /> Финансиски детали
+                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
+                    {selectedInvoice.type === 'commission' ? 'ДО (КУПУВАЧ):' : 'ДО:'}
                   </h4>
-                  <div className="space-y-2 text-sm bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Вкупно остварен промет:</span>
-                      <span className="font-bold">{selectedInvoice.total_amount} ден.</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Провизија за PizzaTime ({selectedInvoice.contract_percentage}%):</span>
-                      <span className="font-bold">-{selectedInvoice.commission_amount} ден.</span>
-                    </div>
-                    <div className="flex justify-between pt-2 border-t border-blue-200">
-                      <span className="text-slate-800 font-bold">Вкупно побарување:</span>
-                      <span className="text-lg font-bold text-blue-700">{selectedInvoice.net_amount} ден.</span>
-                    </div>
-                    <div className="flex justify-between pt-4 mt-2 border-t border-blue-200 text-[10px] italic text-blue-600">
-                      <span>(Основица: {selectedInvoice.base_amount} ден. + ДДВ {selectedInvoice.vat_rate}%: {selectedInvoice.vat_amount} ден.)</span>
-                    </div>
+                  <div className="space-y-1 text-slate-700 dark:text-slate-300 text-sm print:text-slate-900 print:text-sm">
+                    {selectedInvoice.type === 'commission' ? (
+                      <>
+                        <p className="font-bold">{selectedInvoice.restaurant_name}</p>
+                        <p>ЕДБ: {selectedInvoice.restaurant_edb}</p>
+                        <p>Адреса: {selectedInvoice.restaurant_address}</p>
+                        <p>Град: {selectedInvoice.restaurant_city}</p>
+                        <p>Сметка: {selectedInvoice.restaurant_bank_account}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-bold">PizzaTime DOOEL</p>
+                        <p>ЕДБ: {selectedInvoice.pizzatimeInfo?.pizzatime_edb || '4030020000000'}</p>
+                        <p>Адреса: {selectedInvoice.pizzatimeInfo?.pizzatime_address || 'Бул. Партизански Одреди 1'}</p>
+                        <p>Скопје, Македонија</p>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <div>
-                <h4 className="font-bold text-slate-800 mb-4">Нарачки вклучени во фактурата</h4>
-                <div className="border border-slate-100 rounded-2xl overflow-hidden">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-100">
-                        <th className="p-3 font-bold text-slate-500">ID</th>
-                        <th className="p-3 font-bold text-slate-500">Датум</th>
-                        <th className="p-3 font-bold text-slate-500">Износ</th>
-                        <th className="p-3 font-bold text-slate-500">Провизија</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {selectedInvoice.orders?.map((order: any) => (
-                        <tr key={order.id}>
-                          <td className="p-3 text-slate-600">#{order.id}</td>
-                          <td className="p-3 text-slate-600">{new Date(order.created_at).toLocaleString('mk-MK')}</td>
-                          <td className="p-3 font-medium text-slate-700">{order.total_price} ден.</td>
-                          <td className="p-3 text-slate-500">{(order.total_price * (selectedInvoice.contract_percentage / 100)).toFixed(2)} ден.</td>
+              {selectedInvoice.type === 'calculation' && (
+                <div className="space-y-6">
+                  <div className="py-4 border-b border-slate-100 print:border-b-2 print:border-slate-200">
+                    <h4 className="text-lg font-bold text-slate-800 mb-2">Листа на нарачки</h4>
+                    <p className="text-slate-600 font-medium">
+                      Период: <span className="text-slate-900">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
+                    </p>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 print:bg-white print:border-b-2">
+                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">ID</th>
+                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Датум</th>
+                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Клиент</th>
+                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Износ</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedInvoice.orders?.map((order: any) => (
+                          <tr key={order.id} className="text-sm">
+                            <td className="p-3 text-slate-600">#{order.id}</td>
+                            <td className="p-3 text-slate-600">{new Date(order.created_at).toLocaleDateString('mk-MK')}</td>
+                            <td className="p-3 text-slate-600">{order.customer_name}</td>
+                            <td className="p-3 text-slate-900 font-bold text-right">{order.total_price.toLocaleString()} ден.</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3 mt-8">
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                        Основица
+                      </p>
+                      <p className="text-lg font-bold text-slate-800">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-purple-600 rounded-xl shadow-lg shadow-purple-600/20 flex flex-col justify-center print:bg-white print:shadow-none print:p-0 print:border-t-2 print:border-slate-200 print:rounded-none">
+                      <p className="text-[10px] font-bold text-purple-100 uppercase tracking-wider mb-0.5 print:text-slate-500">Вкупно за плаќање</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900">
+                        {selectedInvoice.total_amount.toLocaleString()} ден.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {selectedInvoice.type === 'invoice' && (
+                <div className="space-y-8">
+                  <div className="py-6 border-b border-slate-100 print:border-b-2 print:border-slate-200">
+                    <h4 className="text-lg font-bold text-slate-800 mb-2 print:text-xl">Опис на услугата</h4>
+                    <p className="text-slate-600 font-medium leading-relaxed print:text-slate-900">
+                      Вкупна остварена продажба за период: <span className="text-slate-900">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
+                      <br />
+                      согласно број на пресметка: <span className="text-slate-900 print:font-bold">#{selectedInvoice.parent_invoice_number || '---'}</span>
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">
+                        Основица
+                      </p>
+                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-blue-600 rounded-xl shadow-lg shadow-blue-600/20 flex flex-col justify-center print:bg-white print:shadow-none print:p-0 print:border-t-2 print:border-slate-200 print:rounded-none">
+                      <p className="text-[10px] font-bold text-blue-100 uppercase tracking-wider mb-0.5 print:text-slate-400">Вкупно за плаќање</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-4xl">
+                        {selectedInvoice.total_amount.toLocaleString()} ден.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {selectedInvoice.type === 'commission' && (
+                <div className="space-y-8">
+                  <div className="py-6 border-b border-slate-100 print:border-b-2 print:border-slate-200">
+                    <h4 className="text-lg font-bold text-slate-800 mb-2 print:text-xl">Опис на услугата</h4>
+                    <p className="text-slate-600 font-medium leading-relaxed print:text-slate-900">
+                      Провизија за користење на платформата PizzaTime за период: <span className="text-slate-900">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
+                      <br />
+                      согласно број на пресметка: <span className="text-slate-900 print:font-bold">#{selectedInvoice.parent_invoice_number || '---'}</span>
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">
+                        Основица (Провизија)
+                      </p>
+                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                    </div>
+                    <div className="p-4 bg-emerald-600 rounded-xl shadow-lg shadow-emerald-600/20 flex flex-col justify-center print:bg-white print:shadow-none print:p-0 print:border-t-2 print:border-slate-200 print:rounded-none">
+                      <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-wider mb-0.5 print:text-slate-400">Вкупно со ДДВ</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-4xl">
+                        {selectedInvoice.total_amount.toLocaleString()} ден.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-              {selectedInvoice.status === 'Draft' && (
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-between items-center print:hidden">
+              <div className="flex gap-2">
+                {selectedInvoice.status !== 'Paid' && (
+                  <button 
+                    onClick={() => {
+                      handleDeleteInvoice(selectedInvoice.id);
+                      setIsInvoiceModalOpen(false);
+                    }}
+                    className="p-2 hover:bg-red-50 text-red-600 rounded-xl transition-colors flex items-center gap-2 font-bold text-sm"
+                    title="Избриши фактура"
+                  >
+                    <Trash2 size={18} />
+                    Избриши
+                  </button>
+                )}
                 <button 
-                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Pending')}
-                  className="px-6 py-2 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20"
+                  onClick={() => window.print()}
+                  className="p-2 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors flex items-center gap-2 font-bold text-sm"
+                  title="Печати"
                 >
-                  Испрати до ресторан
+                  <Printer size={18} />
+                  Печати
                 </button>
-              )}
-              {selectedInvoice.status === 'Pending' && (
+              </div>
+              <div className="flex justify-end gap-3">
+                {selectedInvoice.status === 'Draft' && (
+                  <button 
+                    onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Pending')}
+                    className="px-6 py-2 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20"
+                  >
+                    Испрати до ресторан
+                  </button>
+                )}
+                {selectedInvoice.status === 'Pending' && (
+                  <button 
+                    onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Approved')}
+                    className="px-6 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                  >
+                    Одобри фактура
+                  </button>
+                )}
+                {selectedInvoice.status === 'Approved' && (
+                  <button 
+                    onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Paid')}
+                    className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
+                  >
+                    Означи како платена
+                  </button>
+                )}
                 <button 
-                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Approved')}
-                  className="px-6 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                  onClick={() => setIsInvoiceModalOpen(false)}
+                  className="px-6 py-2 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors"
                 >
-                  Одобри фактура
+                  Затвори
                 </button>
-              )}
-              {selectedInvoice.status === 'Approved' && (
-                <button 
-                  onClick={() => handleUpdateInvoiceStatus(selectedInvoice.id, 'Paid')}
-                  className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
-                >
-                  Означи како платена
-                </button>
-              )}
-              <button 
-                onClick={() => setIsInvoiceModalOpen(false)}
-                className="px-6 py-2 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                Затвори
-              </button>
+              </div>
             </div>
           </div>
         </div>
@@ -4676,12 +5065,11 @@ function AdminContent() {
             <form onSubmit={handleSaveSliderItem} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">Наслов (Title)</label>
-                <input 
-                  type="text" 
+                <textarea 
                   value={(editingSliderItem ? editingSliderItem.title : newSliderItem.title) || ''} 
                   onChange={e => editingSliderItem ? setEditingSliderItem({...editingSliderItem, title: e.target.value}) : setNewSliderItem({...newSliderItem, title: e.target.value})} 
-                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
-                  placeholder="Наслов на слајдот..." 
+                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none min-h-[100px]" 
+                  placeholder="Наслов на слајдот (поддржува HTML)..." 
                 />
               </div>
               <div>
