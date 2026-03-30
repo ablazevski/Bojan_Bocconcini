@@ -121,7 +121,9 @@ db.exec(`
       working_hours TEXT DEFAULT '{}',
       billing_cycle_days INTEGER DEFAULT 7,
       vat_rate REAL DEFAULT 0,
-      edb TEXT
+      edb TEXT,
+      delivery_fee REAL DEFAULT 0,
+      min_order_amount REAL DEFAULT 0
     );
   `);
 
@@ -137,6 +139,12 @@ db.exec(`
   } catch (e) {}
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN vat_rate REAL DEFAULT 0");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN delivery_fee REAL DEFAULT 0");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN min_order_amount REAL DEFAULT 0");
   } catch (e) {}
 
   db.exec(`
@@ -272,6 +280,13 @@ db.exec(`
   } catch (e) {}
   try {
     db.exec("ALTER TABLE invoices ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP");
+  } catch (e) {}
+
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN spare_1 TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE invoices ADD COLUMN spare_2 TEXT");
   } catch (e) {}
 
   db.exec(`
@@ -671,14 +686,18 @@ if (restCount.count === 0) {
 
     // Debug middleware for sessions
     app.use((req, res, next) => {
-      if (req.path.startsWith('/api/restaurant') || req.path.startsWith('/api/restaurants/login')) {
+      if (req.path.startsWith('/api/restaurant') || req.path.startsWith('/api/restaurants/login') || req.path.startsWith('/api/admin')) {
         const hasRestaurant = !!(req.session as any).restaurant;
+        const hasAdmin = !!(req.session as any).admin;
+        const hasUser = !!(req.session as any).user;
         const restaurantId = hasRestaurant ? (req.session as any).restaurant.id : 'N/A';
+        const adminId = hasAdmin ? (req.session as any).admin.id : 'N/A';
+        const userEmail = hasUser ? (req.session as any).user.email : 'N/A';
         const proto = req.headers['x-forwarded-proto'] || 'N/A';
         const host = req.headers.host || 'N/A';
         const isSecure = req.secure;
         
-        console.log(`[SESSION DEBUG] Path: ${req.path}, Method: ${req.method}, HasRestaurant: ${hasRestaurant}, RestaurantID: ${restaurantId}, Secure: ${isSecure}`);
+        console.log(`[SESSION DEBUG] Path: ${req.path}, Method: ${req.method}, HasRestaurant: ${hasRestaurant}, HasAdmin: ${hasAdmin}, HasUser: ${hasUser}, AdminID: ${adminId}, UserEmail: ${userEmail}, Secure: ${isSecure}`);
         console.log(`[SESSION DEBUG] Proto: ${proto}, Host: ${host}, CookieHeader: ${req.headers.cookie ? 'Present' : 'Missing'}`);
         if (req.headers.cookie) {
           console.log(`[SESSION DEBUG] Cookie Header: ${req.headers.cookie}`);
@@ -750,21 +769,26 @@ if (restCount.count === 0) {
 
         (req.session as any).user = user;
 
-        res.send(`
-          <html>
-            <body>
-              <script>
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                  window.close();
-                } else {
-                  window.location.href = '/';
-                }
-              </script>
-              <p>Authentication successful. This window should close automatically.</p>
-            </body>
-          </html>
-        `);
+        req.session.save((err) => {
+          if (err) {
+            console.error('Session save error:', err);
+          }
+          res.send(`
+            <html>
+              <body>
+                <script>
+                  if (window.opener) {
+                    window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                    window.close();
+                  } else {
+                    window.location.href = '/admin';
+                  }
+                </script>
+                <p>Authentication successful. This window should close automatically.</p>
+              </body>
+            </html>
+          `);
+        });
       } catch (error) {
         console.error('Google OAuth error:', error);
         res.status(500).send('Authentication failed');
@@ -1177,9 +1201,6 @@ app.get("/api/orders/track/:token", (req, res) => {
     });
 
     function checkAdminAuth(req: any, res: any, permission?: string) {
-      // TEMPORARY BYPASS FOR TESTING
-      return true;
-
       const admin = req.session.admin;
       const user = req.session.user;
 
@@ -1189,6 +1210,7 @@ app.get("/api/orders/track/:token", (req, res) => {
       }
 
       if (!admin) {
+        console.log(`[AUTH DEBUG] Unauthorized access attempt to ${req.path}. Session ID: ${req.sessionID}, HasUser: ${!!user}`);
         res.status(401).json({ error: 'Unauthorized' });
         return false;
       }
@@ -1242,7 +1264,13 @@ app.get("/api/orders/track/:token", (req, res) => {
       const admin = db.prepare('SELECT * FROM admins WHERE username = ? AND password = ?').get(username, password) as any;
       if (admin) {
         (req.session as any).admin = admin;
-        res.json({ success: true, admin });
+        req.session.save((err) => {
+          if (err) {
+            console.error('Admin session save error:', err);
+            return res.status(500).json({ error: 'Internal Server Error' });
+          }
+          res.json({ success: true, admin });
+        });
       } else {
         res.status(401).json({ error: 'Невалидно корисничко име или лозинка' });
       }
@@ -1254,18 +1282,23 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       if (admin) {
         const freshAdmin = db.prepare('SELECT * FROM admins WHERE id = ?').get(admin.id);
-        res.json(freshAdmin);
-      } else {
-        // TEMPORARY BYPASS: Return a mock admin object for testing
-        res.json({
+        if (freshAdmin) {
+          return res.json(freshAdmin);
+        }
+      }
+      
+      if (user && user.email === 'aleksandar.busav@gmail.com') {
+        return res.json({
           id: 0,
           username: 'superadmin',
-          name: 'Test Admin',
-          email: 'test@example.com',
+          name: user.name || 'Super Admin',
+          email: user.email,
           role: 'super',
-          permissions: JSON.stringify(['restaurants', 'delivery', 'marketing', 'invoices', 'reviews', 'settings', 'admins', 'email', 'database', 'orders', 'invoicing', 'billing', 'users', 'campaigns', 'dashboard'])
+          permissions: '["*"]'
         });
       }
+
+      res.status(401).json({ error: 'Unauthorized' });
     });
 
     app.post('/api/admin/logout', (req, res) => {
@@ -1401,7 +1434,9 @@ app.get("/api/orders/track/:token", (req, res) => {
       const base_amount = roundTo2(total_with_vat / (1 + vat_rate / 100));
       const vat_amount = roundTo2(total_with_vat - base_amount);
       
-      const invoice_number = `CALC-${Date.now()}-${restaurant_id}`;
+      const shortId = Math.floor(10000 + Math.random() * 90000);
+      const yearSuffix = new Date().getFullYear().toString().slice(-2);
+      const invoice_number = `CALC-${shortId}-${yearSuffix}`;
       
       const result = db.prepare(`
         INSERT INTO invoices (
@@ -1453,7 +1488,9 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       const restaurant_id = Number(raw_id);
 
-      const invoice_number = `DEMO-${Date.now()}`;
+      const shortId = Math.floor(10000 + Math.random() * 90000);
+      const yearSuffix = new Date().getFullYear().toString().slice(-2);
+      const invoice_number = `DEMO-${shortId}-${yearSuffix}`;
       try {
         const result = db.prepare(`
           INSERT INTO invoices (
@@ -1500,7 +1537,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       const r = db.prepare('SELECT * FROM restaurants WHERE id = ?').get(restaurant.id) as any;
       
       // 2. Generate Invoice 1 (Restaurant -> PIZZATIME)
-      const inv1_number = `${r.name.replace(/\s+/g, '').toUpperCase()}-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${calculation.id}`;
+      const calcId = calculation.invoice_number.replace('CALC-', '');
+      const inv1_number = `INV-${calcId}`;
       const inv1_result = db.prepare(`
         INSERT INTO invoices (
           restaurant_id, invoice_number, period_start, period_end, 
@@ -1539,8 +1577,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       const commission_base = roundTo2(commission_total / (1 + pizzatime_vat_rate / 100));
       const commission_vat = roundTo2(commission_total - commission_base);
       
-      const inv2_number = `PIZZATIME-COMM-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${calculation.id}`;
-      db.prepare(`
+      const inv2_number = `PRO-${calcId}`;
+      const inv2_id = db.prepare(`
         INSERT INTO invoices (
           restaurant_id, invoice_number, period_start, period_end, 
           total_amount, commission_amount, net_amount, base_amount, vat_amount, 
@@ -1560,6 +1598,30 @@ app.get("/api/orders/track/:token", (req, res) => {
         commission_percentage,
         pizzatime_vat_rate,
         calculation.id
+      ).lastInsertRowid;
+
+      // 4. Generate Compensation Document
+      const comp_number = `COMP-${calcId}`;
+      db.prepare(`
+        INSERT INTO invoices (
+          restaurant_id, invoice_number, period_start, period_end, 
+          total_amount, commission_amount, net_amount, base_amount, vat_amount, 
+          contract_percentage, vat_rate, status, type, parent_id,
+          spare_1, spare_2
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Approved', 'КОМПЕНЗАЦИЈА', ?, ?, ?)
+      `).run(
+        restaurant.id,
+        comp_number,
+        calculation.period_start,
+        calculation.period_end,
+        calculation.total_amount, // Restaurant receivables
+        commission_total,         // PizzaTime receivables
+        roundTo2(calculation.total_amount - commission_total), // Difference
+        0, 0, 0, 0,
+        calculation.id,
+        inv1_number,
+        inv2_number
       );
       
       // Notify admin
@@ -1595,6 +1657,13 @@ app.get("/api/orders/track/:token", (req, res) => {
       
       db.prepare("DELETE FROM invoice_orders WHERE invoice_id = ?").run(req.params.id);
       db.prepare("DELETE FROM invoices WHERE id = ?").run(req.params.id);
+      res.json({ success: true });
+    });
+
+    app.post('/api/admin/invoices/clear-all', (req, res) => {
+      if (!checkAdminAuth(req, res, 'invoicing')) return;
+      db.prepare("DELETE FROM invoice_orders").run();
+      db.prepare("DELETE FROM invoices").run();
       res.json({ success: true });
     });
 
@@ -2683,7 +2752,7 @@ app.get("/api/orders/track/:token", (req, res) => {
       const shouldApplyCampaign = campaignCodeToUse && !campaignApplied && (!campaignRestId || Number(restaurantId) === Number(campaignRestId));
 
       if (shouldApplyCampaign) {
-        totalPrice += campaignBudget; // Add campaign price to total
+        totalPrice -= campaignBudget; // Subtract campaign discount from total
         campaignCode = campaignCodeToUse;
         db.prepare("UPDATE campaign_codes SET is_used = 1, used_at = CURRENT_TIMESTAMP WHERE code = ?").run(campaignCode);
         campaignApplied = true;
@@ -3837,6 +3906,26 @@ app.get("/api/orders/track/:token", (req, res) => {
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: "Грешка при промена на статусот" });
+    }
+  });
+
+  app.post("/api/campaigns/:id/stop", (req, res) => {
+    const restaurant = (req.session as any).restaurant;
+    if (!restaurant) {
+      return res.status(401).json({ error: "Неовластен пристап" });
+    }
+    const { id } = req.params;
+    try {
+      const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ? AND restaurant_id = ? AND status = 'active'").get(id, restaurant.id);
+      if (!campaign) {
+        return res.status(404).json({ error: "Кампањата не е пронајдена или веќе е прекината" });
+      }
+      
+      db.prepare("UPDATE campaigns SET status = 'ended' WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Грешка при прекинување на кампањата" });
     }
   });
 

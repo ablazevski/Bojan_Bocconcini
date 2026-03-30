@@ -4,6 +4,7 @@ import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, Che
 import { motion } from 'motion/react';
 import LocationPickerMap from '../components/LocationPickerMap';
 import { useTheme } from '../context/ThemeContext';
+import { safeFetchJson } from '../utils/api';
 
 interface ModifierOption {
   name: string;
@@ -50,6 +51,7 @@ export default function Customer() {
   const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
   const [deliveryFee, setDeliveryFee] = useState<number>(0);
+  const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
   const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
@@ -90,7 +92,7 @@ export default function Customer() {
       });
     }
   };
-  
+
   useEffect(() => {
     fetchSettings();
     fetchHomeSlider();
@@ -107,8 +109,7 @@ export default function Customer() {
       const rid = Number(restaurantIdParam);
       setSelectedRestaurantId(rid);
       // Fetch restaurant details to get the city
-      fetch(`/api/customer/restaurant-by-id/${rid}`)
-        .then(res => res.json())
+      safeFetchJson(`/api/customer/restaurant-by-id/${rid}`)
         .then(data => {
           if (data.city) {
             setSelectedCity(data.city);
@@ -125,13 +126,11 @@ export default function Customer() {
         .catch(err => console.error('Failed to fetch restaurant details', err));
     }
 
-    fetch('/api/customer/cities')
-      .then(res => res.json())
+    safeFetchJson('/api/customer/cities')
       .then(data => setCities(data))
       .catch(err => console.error('Failed to fetch cities', err));
       
-    fetch('/api/customer/campaigns/active')
-      .then(res => res.json())
+    safeFetchJson('/api/customer/campaigns/active')
       .then(data => {
         setActiveCampaigns(data);
         if (data.length > 0) {
@@ -310,11 +309,27 @@ export default function Customer() {
     }
   }, [homeSlider.length]);
 
+  useEffect(() => {
+    if (selectedRestaurantId) {
+      const restaurant = availableRestaurants.find(r => r.id === selectedRestaurantId);
+      if (restaurant) {
+        setDeliveryFee(Number(restaurant.delivery_fee || 0));
+        setMinOrderAmount(Number(restaurant.min_order_amount || 0));
+      }
+    } else {
+      // If no restaurant selected, use global delivery fee
+      if (globalSettings.delivery_fee) {
+        setDeliveryFee(Number(globalSettings.delivery_fee));
+      } else {
+        setDeliveryFee(0);
+      }
+      setMinOrderAmount(0);
+    }
+  }, [selectedRestaurantId, availableRestaurants, globalSettings]);
+
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/settings');
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const data = await res.json();
+      const data = await safeFetchJson('/api/settings');
       if (data.delivery_fee) setDeliveryFee(Number(data.delivery_fee));
       setGlobalSettings(data);
     } catch (err) {
@@ -324,11 +339,8 @@ export default function Customer() {
 
   const fetchHomeSlider = async () => {
     try {
-      const res = await fetch('/api/customer/home-slider');
-      if (res.ok) {
-        const data = await res.json();
-        setHomeSlider(data);
-      }
+      const data = await safeFetchJson('/api/customer/home-slider');
+      setHomeSlider(data);
     } catch (e) {
       console.error('Failed to fetch home slider', e);
     }
@@ -336,19 +348,14 @@ export default function Customer() {
 
   const fetchUser = async () => {
     try {
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data);
-        setCheckoutForm(prev => ({
-          ...prev,
-          firstName: data.name?.split(' ')[0] || '',
-          lastName: data.name?.split(' ').slice(1).join(' ') || '',
-          email: data.email || ''
-        }));
-      } else {
-        setUser(null);
-      }
+      const data = await safeFetchJson('/api/auth/me', undefined, true);
+      setUser(data);
+      setCheckoutForm(prev => ({
+        ...prev,
+        firstName: data.name?.split(' ')[0] || '',
+        lastName: data.name?.split(' ').slice(1).join(' ') || '',
+        email: data.email || ''
+      }));
     } catch (e) {
       setUser(null);
     }
@@ -356,8 +363,7 @@ export default function Customer() {
 
   const handleGoogleLogin = async () => {
     try {
-      const res = await fetch('/api/auth/google/url');
-      const { url } = await res.json();
+      const { url } = await safeFetchJson('/api/auth/google/url');
       window.open(url, 'google_oauth', 'width=600,height=700');
     } catch (e) {
       console.error('Failed to get Google Auth URL', e);
@@ -538,7 +544,8 @@ export default function Customer() {
   }, 0);
   
   const selectedCampaign = activeCampaigns.find(c => c.id === selectedCampaignId);
-  const finalTotal = Math.max(0, cartTotal + (selectedCampaign ? selectedCampaign.budget : 0) + deliveryFee + feesTotal);
+  const currentDeliveryFee = (minOrderAmount > 0 && cartTotal >= minOrderAmount) ? 0 : deliveryFee;
+  const finalTotal = Math.max(0, cartTotal - (selectedCampaign ? selectedCampaign.budget : 0) + currentDeliveryFee + feesTotal);
 
   const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
     let x = point[0], y = point[1];
@@ -1359,7 +1366,7 @@ export default function Customer() {
                           <div className="flex-1">
                             <div className="flex justify-between items-start">
                               <span className="font-bold text-slate-800 dark:text-white">{camp.name}</span>
-                              <span className="font-bold text-orange-600 dark:text-orange-500">{camp.budget > 0 ? '+' : ''}{camp.budget} ден.</span>
+                              <span className="font-bold text-orange-600 dark:text-orange-500">-{camp.budget} ден.</span>
                             </div>
                             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{camp.description}</p>
                           </div>
@@ -1374,16 +1381,22 @@ export default function Customer() {
                     <span className="text-slate-500 dark:text-slate-400">Вкупно продукти:</span>
                     <span className="font-bold text-slate-700 dark:text-slate-200">{cartTotal} ден.</span>
                   </div>
-                  {deliveryFee > 0 && (
+                  {currentDeliveryFee > 0 && (
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-slate-500 dark:text-slate-400">Достава:</span>
-                      <span className="font-bold text-slate-700 dark:text-slate-200">{deliveryFee} ден.</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{currentDeliveryFee} ден.</span>
+                    </div>
+                  )}
+                  {minOrderAmount > 0 && cartTotal >= minOrderAmount && deliveryFee > 0 && (
+                    <div className="flex justify-between items-center mb-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span>Достава:</span>
+                      <span>БЕСПЛАТНА</span>
                     </div>
                   )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
-                      <span className="font-bold">{selectedCampaign.budget > 0 ? '+' : ''}{selectedCampaign.budget} ден.</span>
+                      <span className="font-bold">-{selectedCampaign.budget} ден.</span>
                     </div>
                   )}
                   <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -1569,16 +1582,22 @@ export default function Customer() {
                     <span className="text-slate-500 dark:text-slate-400">Вкупно продукти:</span>
                     <span className="font-bold text-slate-700 dark:text-slate-200">{cartTotal} ден.</span>
                   </div>
-                  {deliveryFee > 0 && (
+                  {currentDeliveryFee > 0 && (
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-slate-500 dark:text-slate-400">Достава:</span>
-                      <span className="font-bold text-slate-700 dark:text-slate-200">{deliveryFee} ден.</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{currentDeliveryFee} ден.</span>
+                    </div>
+                  )}
+                  {minOrderAmount > 0 && cartTotal >= minOrderAmount && deliveryFee > 0 && (
+                    <div className="flex justify-between items-center mb-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span>Достава:</span>
+                      <span>БЕСПЛАТНА</span>
                     </div>
                   )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
-                      <span className="font-bold">{selectedCampaign.budget > 0 ? '+' : ''}{selectedCampaign.budget} ден.</span>
+                      <span className="font-bold">-{selectedCampaign.budget} ден.</span>
                     </div>
                   )}
                   <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100 dark:border-slate-800">

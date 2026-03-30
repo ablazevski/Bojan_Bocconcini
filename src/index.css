@@ -14,8 +14,11 @@
 
 @media print {
   /* Hide everything by default */
-  body * {
+  body {
     visibility: hidden;
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   /* Show only the print section and its children */
@@ -26,17 +29,18 @@
 
   /* Position the print section at the top left of the page */
   #print-section {
-    position: absolute;
-    left: 0;
-    top: 0;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 40px !important;
+    padding: 20px !important;
     box-shadow: none !important;
     border: none !important;
     background: white !important;
     color: black !important;
+    display: block !important;
   }
 
   /* Reset body and root for print */
@@ -47,17 +51,22 @@
   }
 
   #root {
-    height: auto !important;
+    height: 0 !important;
     overflow: visible !important;
   }
 
-  /* Hide the fixed overlay background */
+  /* Hide the fixed overlay background and reset its positioning */
   .fixed.inset-0 {
     position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    visibility: visible !important;
     background: none !important;
     backdrop-filter: none !important;
     padding: 0 !important;
     display: block !important;
+    height: 0 !important;
+    overflow: visible !important;
   }
 
   /* Force background colors to print */
@@ -69,7 +78,9 @@
   /* Hide buttons and other non-essential elements during print */
   .print-hidden,
   button,
-  .no-print {
+  .no-print,
+  [role="button"],
+  .p-2.hover\:bg-slate-200 {
     display: none !important;
   }
 }

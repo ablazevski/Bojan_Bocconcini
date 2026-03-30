@@ -21,6 +21,12 @@ export default function Portal() {
       if (permission === 'granted') {
         const registration = await navigator.serviceWorker.ready;
         const res = await fetch('/api/push/key');
+        if (!res.ok) throw new Error('Failed to fetch push key');
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await res.text();
+          throw new Error('Expected JSON but got: ' + text.substring(0, 50));
+        }
         const { publicKey } = await res.json();
         
         const subscription = await registration.pushManager.subscribe({

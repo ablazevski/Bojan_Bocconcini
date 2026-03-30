@@ -16,7 +16,16 @@ function GoogleAnalytics() {
 
   useEffect(() => {
     fetch('/api/settings')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Network response was not ok');
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          return res.text().then(text => {
+            throw new Error('Expected JSON but got: ' + text.substring(0, 50));
+          });
+        }
+        return res.json();
+      })
       .then(settings => {
         if (settings.google_analytics_id) {
           setGaId(settings.google_analytics_id);
@@ -85,6 +94,11 @@ export default function App() {
                     // Get public key from server
                     const res = await fetch('/api/push/key');
                     if (!res.ok) throw new Error('Failed to fetch push key');
+                    const contentType = res.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                      const text = await res.text();
+                      throw new Error('Expected JSON but got: ' + text.substring(0, 50));
+                    }
                     const { publicKey } = await res.json();
                     
                     // Subscribe the user

@@ -6,6 +6,7 @@ import SEO from '../components/SEO';
 import QRCode from 'qrcode';
 import { io } from 'socket.io-client';
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
+import { safeFetchJson } from '../utils/api';
 
 export default function TrackOrder() {
   const { token } = useParams<{ token: string }>();
@@ -53,9 +54,7 @@ export default function TrackOrder() {
 
   const fetchOrder = async () => {
     try {
-      const res = await fetch(`/api/orders/track/${token}`);
-      if (!res.ok) throw new Error('Нарачката не е пронајдена');
-      const data = await res.json();
+      const data = await safeFetchJson(`/api/orders/track/${token}`);
       setOrder(data);
     } catch (err: any) {
       setError(err.message);
@@ -66,8 +65,7 @@ export default function TrackOrder() {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/settings');
-      const data = await res.json();
+      const data = await safeFetchJson('/api/settings');
       setGlobalSettings(data);
     } catch (err) {
       console.error('Failed to fetch settings', err);

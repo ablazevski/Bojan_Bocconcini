@@ -5,6 +5,7 @@ import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike,
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
 import { io } from 'socket.io-client';
 import { useTheme } from '../context/ThemeContext';
+import { safeFetchJson } from '../utils/api';
 
 interface Order {
   id: number;
@@ -412,8 +413,7 @@ export default function Delivery() {
       const currentDay = days[now.getDay()];
       const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
       
-      const res = await fetch(`/api/delivery/orders?partnerId=${partner.id}&clientTime=${currentTime}&clientDay=${currentDay}`);
-      const data = await res.json();
+      const data = await safeFetchJson(`/api/delivery/orders?partnerId=${partner.id}&clientTime=${currentTime}&clientDay=${currentDay}`);
       setOrders(data);
     } catch (e) {
       console.error(e);
@@ -422,7 +422,7 @@ export default function Delivery() {
 
   const updateStatus = async (orderId: number, status: string) => {
     try {
-      const res = await fetch(`/api/delivery/orders/${orderId}/status`, {
+      await safeFetchJson(`/api/delivery/orders/${orderId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -431,15 +431,10 @@ export default function Delivery() {
           partnerName: partner.name
         })
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Грешка при ажурирање на статусот');
-        return;
-      }
       fetchOrders();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to update order status', err);
-      alert('Грешка при поврзување со серверот');
+      alert(err.message || 'Грешка при ажурирање на статусот');
     }
   };
 

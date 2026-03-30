@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
+import { safeFetchJson } from '../utils/api';
 
 interface ModifierOption {
   name: string;
@@ -215,6 +216,8 @@ export default function Restaurant() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [isStopCampaignModalOpen, setIsStopCampaignModalOpen] = useState(false);
+  const [campaignToStop, setCampaignToStop] = useState<any>(null);
   const [hasNewInvoices, setHasNewInvoices] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
   const [activeDeliveryPartners, setActiveDeliveryPartners] = useState<number>(0);
@@ -324,43 +327,36 @@ export default function Restaurant() {
     }
     console.log(`[INVOICE] Fetching invoices for restaurant ID: ${loggedInRestaurant.id}, isRetry: ${isRetry}...`);
     try {
-      const res = await fetch('/api/restaurant/invoices', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        console.log('[INVOICE] Invoices fetched successfully:', data.length);
-        setInvoices(data);
-      } else {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('[INVOICE] Failed to fetch invoices:', res.status, errorData);
-        if (res.status === 401 && !isRetry) {
-          console.warn('[INVOICE] Session might be expired or missing. Attempting auto-login...');
-          const saved = localStorage.getItem('restaurant_auth');
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (parsed.username && parsed.password) {
-               const loginRes = await fetch('/api/restaurants/login', {
+      const data = await safeFetchJson('/api/restaurant/invoices', { credentials: 'include' });
+      console.log('[INVOICE] Invoices fetched successfully:', data.length);
+      setInvoices(data);
+    } catch (e) {
+      console.error('[INVOICE] Failed to fetch invoices:', e);
+      if (e instanceof Error && e.message.includes('status: 401') && !isRetry) {
+        console.warn('[INVOICE] Session might be expired or missing. Attempting auto-login...');
+        const saved = localStorage.getItem('restaurant_auth');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.username && parsed.password) {
+             try {
+               await safeFetchJson('/api/restaurants/login', {
                  method: 'POST',
                  headers: { 'Content-Type': 'application/json' },
                  credentials: 'include',
                  body: JSON.stringify({ username: parsed.username, password: parsed.password })
                });
-               if (loginRes.ok) {
-                 console.log('[INVOICE] Auto-login successful, retrying fetchInvoices...');
-                 return fetchInvoices(true);
-               } else {
-                 console.error('[INVOICE] Auto-login failed during fetchInvoices retry');
-               }
-            } else {
-              console.warn('[INVOICE] No credentials in localStorage for auto-login');
-            }
+               console.log('[INVOICE] Auto-login successful, retrying fetchInvoices...');
+               return fetchInvoices(true);
+             } catch (loginErr) {
+               console.error('[INVOICE] Auto-login failed during fetchInvoices retry:', loginErr);
+             }
           } else {
-            console.warn('[INVOICE] No restaurant_auth in localStorage');
+            console.warn('[INVOICE] No credentials in localStorage for auto-login');
           }
+        } else {
+          console.warn('[INVOICE] No restaurant_auth in localStorage');
         }
-      }
-    } catch (e) {
-      console.error('[INVOICE] Failed to fetch invoices', e);
-      if (e instanceof Error && e.message.includes('Failed to fetch') && !isRetry) {
+      } else if (e instanceof Error && e.message.includes('Failed to fetch') && !isRetry) {
         console.warn('[INVOICE] Network error, retrying in 2 seconds...');
         setTimeout(() => fetchInvoices(true), 2000);
       }
@@ -660,6 +656,28 @@ export default function Restaurant() {
       console.error('Failed to fetch campaigns', err);
     }
   }, [loggedInRestaurant]);
+
+  const handleStopCampaign = async () => {
+    if (!campaignToStop) return;
+    
+    try {
+      const response = await fetch(`/api/campaigns/${campaignToStop.id}/stop`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        toast.success('Кампањата е успешно прекината');
+        fetchCampaigns();
+        setIsStopCampaignModalOpen(false);
+        setCampaignToStop(null);
+      } else {
+        const data = await response.json();
+        toast.error(data.error || 'Грешка при прекинување на кампањата');
+      }
+    } catch (e) {
+      toast.error('Грешка при поврзување со серверот');
+    }
+  };
 
   const fetchActiveDeliveryPartners = useCallback(async () => {
     if (!loggedInRestaurant) return;
@@ -2641,8 +2659,8 @@ export default function Restaurant() {
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Буџет (ден.)</label>
-                        <input name="budget" required type="number" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="5000" />
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Попуст по нарачка (ден.)</label>
+                        <input name="budget" required type="number" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="100" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Број на купони</label>
@@ -2687,7 +2705,7 @@ export default function Restaurant() {
                     
                     <div className="space-y-3 pt-4 border-t border-slate-50 dark:border-slate-800 transition-colors">
                       <div className="flex justify-between text-sm">
-                        <span className="text-slate-400 dark:text-slate-500 transition-colors">Буџет:</span>
+                        <span className="text-slate-400 dark:text-slate-500 transition-colors">Попуст:</span>
                         <span className="font-bold text-slate-800 dark:text-white transition-colors">{campaign.budget} ден.</span>
                       </div>
                       <div className="flex justify-between text-sm">
@@ -2699,6 +2717,19 @@ export default function Restaurant() {
                         <span className="font-medium text-slate-600 dark:text-slate-300 transition-colors">{new Date(campaign.start_date).toLocaleDateString()} - {new Date(campaign.end_date).toLocaleDateString()}</span>
                       </div>
                     </div>
+
+                    {campaign.status === 'active' && (
+                      <button 
+                        onClick={() => {
+                          setCampaignToStop(campaign);
+                          setIsStopCampaignModalOpen(true);
+                        }}
+                        className="w-full mt-4 py-2 px-4 rounded-xl border border-red-200 dark:border-red-900/30 text-red-600 dark:text-red-400 font-bold hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <X size={16} />
+                        Прекини кампања
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2755,6 +2786,47 @@ export default function Restaurant() {
         )}
       </AnimatePresence>
 
+      {/* Stop Campaign Modal */}
+      <AnimatePresence>
+        {isStopCampaignModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-md w-full shadow-2xl border border-slate-100 dark:border-slate-800"
+            >
+              <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl flex items-center justify-center mb-6">
+                <X size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Прекини кампања?</h3>
+              <p className="text-slate-500 dark:text-slate-400 mb-8">
+                Дали сте сигурни дека сакате да ја прекинете оваа кампања? Оваа акција е моментална и кампањата повеќе нема да биде достапна за корисниците.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsStopCampaignModalOpen(false)}
+                  className="flex-1 py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Откажи
+                </button>
+                <button 
+                  onClick={handleStopCampaign}
+                  className="flex-1 py-3 px-4 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-600/20"
+                >
+                  Прекини
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Invoice Detail Modal */}
       <AnimatePresence>
         {isInvoiceModalOpen && selectedInvoice && (
@@ -2762,24 +2834,27 @@ export default function Restaurant() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 print:p-0 print:bg-white print:backdrop-blur-none print:block print:static"
             onClick={() => setIsInvoiceModalOpen(false)}
           >
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col transition-colors"
+              id="print-section"
+              className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col transition-colors print:max-h-none print:shadow-none print:rounded-none print:w-full"
               onClick={e => e.stopPropagation()}
             >
-            <div className={`p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center transition-colors ${
+            <div className={`p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center transition-colors print:border-b-2 print:border-slate-200 ${
               selectedInvoice.type === 'calculation' ? 'bg-purple-50/80 dark:bg-purple-900/20' :
               selectedInvoice.type === 'invoice' ? 'bg-blue-50/80 dark:bg-blue-900/20' :
+              (selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? 'bg-emerald-50/80 dark:bg-emerald-900/20' :
               'bg-orange-50/80 dark:bg-orange-900/20'
             }`}>
               <div className="print:mb-10">
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white print:text-4xl print:mb-2">
-                  {selectedInvoice.type === 'calculation' ? 'Пресметка' : 'Фактура'} број {selectedInvoice.invoice_number}
+                  {(selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? `КОМПЕНЗАЦИЈА БРОЈ (#${selectedInvoice.invoice_number})` : 
+                   `${selectedInvoice.type === 'calculation' ? 'Пресметка' : 'Фактура'} број ${selectedInvoice.invoice_number}`}
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 print:text-xl print:text-slate-700 print:font-medium">
                   Ресторан: {selectedInvoice.restaurant_name}
@@ -2800,10 +2875,10 @@ export default function Restaurant() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12">
                 <div>
                   <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
-                    {selectedInvoice.type === 'commission' ? 'ОД (ДОБАВУВАЧ):' : 'ОД:'}
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? 'ОД (ДОБАВУВАЧ):' : 'ОД:'}
                   </h4>
                   <div className="space-y-1 text-slate-700 dark:text-slate-300 print:text-slate-900 print:text-sm">
-                    {selectedInvoice.type === 'commission' ? (
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? (
                       <>
                         <p className="font-bold">PizzaTime DOOEL</p>
                         <p>ЕДБ: {selectedInvoice.pizzatimeInfo?.pizzatime_edb || '4030020000000'}</p>
@@ -2824,10 +2899,10 @@ export default function Restaurant() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
-                    {selectedInvoice.type === 'commission' ? 'ДО (КУПУВАЧ):' : 'ДО:'}
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? 'ДО (КУПУВАЧ):' : 'ДО:'}
                   </h4>
                   <div className="space-y-1 text-slate-700 dark:text-slate-300 print:text-slate-900 print:text-sm">
-                    {selectedInvoice.type === 'commission' ? (
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? (
                       <>
                         <p className="font-bold">{selectedInvoice.restaurant_name}</p>
                         <p>ЕДБ: {selectedInvoice.restaurant_edb}</p>
@@ -2893,6 +2968,48 @@ export default function Restaurant() {
                       <p className="text-2xl font-black text-white print:text-slate-900">
                         {selectedInvoice.total_amount.toLocaleString()} ден.
                       </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {(selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') && (
+                <div className="space-y-10 py-4">
+                  <div className="text-center border-b-2 border-slate-100 dark:border-slate-800 pb-8 print:border-b-4">
+                    <h2 className="text-3xl font-black text-slate-900 dark:text-white uppercase tracking-widest mb-2 print:text-5xl">КОМПЕНЗАЦИЈА</h2>
+                    <p className="text-slate-500 dark:text-slate-400 font-bold print:text-2xl">БРОЈ {selectedInvoice.invoice_number}</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 print:bg-white print:border-b-2 print:rounded-none">
+                      <span className="text-lg font-bold text-slate-600 dark:text-slate-400 print:text-2xl">Наш долг по основ на ваша фактура {selectedInvoice.spare_1} :</span>
+                      <span className="text-2xl font-black text-slate-900 dark:text-white print:text-3xl">{selectedInvoice.total_amount.toLocaleString()} ден.</span>
+                    </div>
+
+                    <div className="flex justify-between items-center p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 print:bg-white print:border-b-2 print:rounded-none">
+                      <span className="text-lg font-bold text-slate-600 dark:text-slate-400 print:text-2xl">Ваш долг по однос на наша фактура {selectedInvoice.spare_2} :</span>
+                      <span className="text-2xl font-black text-slate-900 dark:text-white print:text-3xl">{selectedInvoice.commission_amount.toLocaleString()} ден.</span>
+                    </div>
+
+                    <div className="mt-12 p-8 bg-emerald-600 rounded-3xl shadow-xl shadow-emerald-600/20 flex justify-between items-center text-white print:bg-white print:text-slate-900 print:shadow-none print:border-t-4 print:border-slate-900 print:rounded-none">
+                      <div>
+                        <p className="text-emerald-100 font-bold uppercase tracking-widest mb-1 print:text-slate-500 print:text-xl">Разлика за уплата</p>
+                        <p className="text-sm opacity-80 print:text-slate-400">Износ кој PizzaTime треба да го префрли на ресторанот</p>
+                      </div>
+                      <span className="text-4xl font-black print:text-5xl">{selectedInvoice.net_amount.toLocaleString()} ден.</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-20 mt-20 pt-20 print:mt-32">
+                    <div className="text-center border-t border-slate-200 dark:border-slate-700 pt-4 print:border-t-2 print:border-slate-400">
+                      <p className="text-xs font-bold text-slate-400 uppercase mb-12 print:text-slate-500">За Ресторанот</p>
+                      <div className="h-px w-full bg-slate-200 dark:bg-slate-700 mb-2"></div>
+                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Потпис и печат</p>
+                    </div>
+                    <div className="text-center border-t border-slate-200 dark:border-slate-700 pt-4 print:border-t-2 print:border-slate-400">
+                      <p className="text-xs font-bold text-slate-400 uppercase mb-12 print:text-slate-500">За PizzaTime</p>
+                      <div className="h-px w-full bg-slate-200 dark:bg-slate-700 mb-2"></div>
+                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Потпис и печат</p>
                     </div>
                   </div>
                 </div>

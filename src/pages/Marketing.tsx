@@ -449,13 +449,14 @@ export default function Marketing() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">Количина (Буџет во денари)</label>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">Попуст по нарачка (ден.)</label>
                       <input 
                         type="number" 
                         required
                         value={newCampaign.budget}
                         onChange={e => setNewCampaign({...newCampaign, budget: Number(e.target.value)})}
                         className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="100"
                       />
                     </div>
                     <div>

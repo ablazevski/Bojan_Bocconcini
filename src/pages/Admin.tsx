@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
+import { safeFetchJson } from '../utils/api';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -84,6 +85,8 @@ interface PendingRestaurant {
   contract_percentage?: number;
   billing_cycle_days?: number;
   vat_rate?: number;
+  delivery_fee?: number;
+  min_order_amount?: number;
   password?: string;
   payment_config?: string;
 }
@@ -243,6 +246,8 @@ function AdminContent() {
   const [selectedDeliveryForRole, setSelectedDeliveryForRole] = useState<DeliveryPartner | null>(null);
   const [codeFormat, setCodeFormat] = useState('--- -- ---');
   const [contractPercentage, setContractPercentage] = useState<number>(15);
+  const [deliveryFee, setDeliveryFee] = useState<number>(0);
+  const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
   const [hasSignedContract, setHasSignedContract] = useState(false);
   
   const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
@@ -344,11 +349,15 @@ function AdminContent() {
 
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/admin/me');
+      const res = await fetch('/api/admin/me', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setAdmin(data);
-        fetchData();
+        if (data) {
+          setAdmin(data);
+          fetchData();
+        } else {
+          setAdmin(null);
+        }
       } else {
         setAdmin(null);
       }
@@ -365,7 +374,8 @@ function AdminContent() {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginForm)
+        body: JSON.stringify(loginForm),
+        credentials: 'include'
       });
       if (res.ok) {
         const data = await res.json();
@@ -382,7 +392,7 @@ function AdminContent() {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/admin/logout', { method: 'POST' });
+    await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' });
     setAdmin(null);
     navigate('/portal');
   };
@@ -390,7 +400,7 @@ function AdminContent() {
   const fetchAdmins = async () => {
     if (admin?.role !== 'super') return;
     try {
-      const res = await fetch('/api/admin/admins');
+      const res = await fetch('/api/admin/admins', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) setAdmins(data);
@@ -446,10 +456,40 @@ function AdminContent() {
     }
   };
 
+  const fetchSettings = async () => {
+    try {
+      const data = await safeFetchJson('/api/settings');
+      setGlobalSettings(data);
+      if (data.contract_percentage) setContractPercentage(Number(data.contract_percentage));
+      if (data.code_format) setCodeFormat(data.code_format);
+      
+      setSmtpSettings({
+        smtp_host: data.smtp_host || '',
+        smtp_port: data.smtp_port || '587',
+        smtp_user: data.smtp_user || '',
+        smtp_pass: data.smtp_pass || '',
+        smtp_secure: data.smtp_secure || 'false',
+        smtp_from: data.smtp_from || ''
+      });
+
+      setAcelleSettings({
+        apiUrl: data.acelle_api_url || '',
+        apiKey: data.acelle_api_key || '',
+        listUid: data.acelle_list_uid || ''
+      });
+    } catch (e) {
+      console.error('Failed to fetch settings:', e);
+    }
+  };
+
   const handleDeleteAdmin = async (id: number) => {
     if (!confirm('Дали сте сигурни?')) return;
-    const res = await fetch(`/api/admin/admins/${id}`, { method: 'DELETE' });
-    if (res.ok) fetchAdmins();
+    try {
+      const res = await fetch(`/api/admin/admins/${id}`, { method: 'DELETE' });
+      if (res.ok) fetchAdmins();
+    } catch (e) {
+      console.error('Failed to delete admin', e);
+    }
   };
 
   useEffect(() => {
@@ -457,35 +497,6 @@ function AdminContent() {
       fetchAdmins();
     }
   }, [activeTab]);
-
-  const fetchSettings = async () => {
-    try {
-      const res = await fetch('/api/settings');
-      if (res.ok) {
-        const data = await res.json();
-        setGlobalSettings(data);
-        if (data.contract_percentage) setContractPercentage(Number(data.contract_percentage));
-        if (data.code_format) setCodeFormat(data.code_format);
-        
-        setSmtpSettings({
-          smtp_host: data.smtp_host || '',
-          smtp_port: data.smtp_port || '587',
-          smtp_user: data.smtp_user || '',
-          smtp_pass: data.smtp_pass || '',
-          smtp_secure: data.smtp_secure || 'false',
-          smtp_from: data.smtp_from || ''
-        });
-
-        setAcelleSettings({
-          apiUrl: data.acelle_api_url || '',
-          apiKey: data.acelle_api_key || '',
-          listUid: data.acelle_list_uid || ''
-        });
-      }
-    } catch (e) {
-      console.error('Failed to fetch settings', e);
-    }
-  };
 
   const fetchEmailData = async () => {
     try {
@@ -565,12 +576,9 @@ function AdminContent() {
       if (billingStartDate) params.append('startDate', billingStartDate);
       if (billingEndDate) params.append('endDate', billingEndDate);
       
-      const res = await fetch(`/api/admin/billing?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && typeof data === 'object' && !Array.isArray(data)) {
-          setBillingData(data);
-        }
+      const data = await safeFetchJson(`/api/admin/billing?${params.toString()}`);
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        setBillingData(data);
       }
     } catch (e) {
       console.error('Failed to fetch billing', e);
@@ -585,11 +593,8 @@ function AdminContent() {
       if (orderFilterStartDate) params.append('startDate', orderFilterStartDate);
       if (orderFilterEndDate) params.append('endDate', orderFilterEndDate);
       
-      const resOrders = await fetch(`/api/admin/orders?${params.toString()}`);
-      if (resOrders.ok) {
-        const data = await resOrders.json();
-        if (Array.isArray(data)) setOrders(data);
-      }
+      const data = await safeFetchJson(`/api/admin/orders?${params.toString()}`);
+      if (Array.isArray(data)) setOrders(data);
     } catch (e) {
       console.error('Failed to fetch orders', e);
     }
@@ -597,82 +602,45 @@ function AdminContent() {
 
   const fetchInvoices = async () => {
     try {
-      const res = await fetch('/api/admin/invoices');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) setInvoices(data);
-      }
+      const data = await safeFetchJson('/api/admin/invoices');
+      if (Array.isArray(data)) setInvoices(data);
     } catch (e) {
       console.error('Failed to fetch invoices', e);
     }
   };
 
+  const handleClearAllInvoices = async () => {
+    if (!window.confirm('Дали сте сигурни дека сакате да ги избришете сите генерирани фактури?')) return;
+    try {
+      const res = await fetch('/api/admin/invoices/clear-all', { method: 'POST' });
+      if (res.ok) {
+        fetchInvoices();
+      }
+    } catch (e) {
+      console.error('Failed to clear invoices', e);
+    }
+  };
+
   const fetchData = async () => {
     try {
-      const resPending = await fetch('/api/admin/restaurants/pending');
-      if (resPending.ok) {
-        const data = await resPending.json();
-        if (Array.isArray(data)) setPendingRestaurants(data);
-      }
-      
-      const resApproved = await fetch('/api/admin/restaurants/approved');
-      if (resApproved.ok) {
-        const data = await resApproved.json();
-        if (Array.isArray(data)) setApprovedRestaurants(data);
-      }
+      const fetchActions = [
+        safeFetchJson('/api/admin/restaurants/pending').then(data => { if (Array.isArray(data)) setPendingRestaurants(data); }),
+        safeFetchJson('/api/admin/restaurants/approved').then(data => { if (Array.isArray(data)) setApprovedRestaurants(data); }),
+        safeFetchJson('/api/admin/delivery/pending').then(data => { if (Array.isArray(data)) setPendingDelivery(data); }),
+        safeFetchJson('/api/admin/delivery/approved').then(data => { if (Array.isArray(data)) setApprovedDelivery(data); }),
+        safeFetchJson('/api/admin/delivery/inactive').then(data => { if (Array.isArray(data)) setInactiveDelivery(data); }),
+        safeFetchJson('/api/admin/delivery/all').then(data => { if (Array.isArray(data)) setAllDeliveryPartners(data); }),
+        safeFetchJson('/api/admin/marketing-associates').then(data => { if (Array.isArray(data)) setMarketingAssociates(data); }),
+        safeFetchJson('/api/admin/campaigns').then(data => { if (Array.isArray(data)) setCampaigns(data); }),
+        safeFetchJson('/api/admin/users').then(data => { if (Array.isArray(data)) setUsers(data); }),
+        safeFetchJson('/api/admin/reviews').then(data => { if (Array.isArray(data)) setReviews(data); }),
+        fetchOrders(),
+        fetchBilling(),
+        fetchInvoices(),
+        fetchHomeSlider()
+      ];
 
-      fetchOrders();
-      fetchBilling();
-      fetchInvoices();
-
-      const resPendingDel = await fetch('/api/admin/delivery/pending');
-      if (resPendingDel.ok) {
-        const data = await resPendingDel.json();
-        if (Array.isArray(data)) setPendingDelivery(data);
-      }
-
-      const resApprovedDel = await fetch('/api/admin/delivery/approved');
-      if (resApprovedDel.ok) {
-        const data = await resApprovedDel.json();
-        if (Array.isArray(data)) setApprovedDelivery(data);
-      }
-
-      const resInactiveDel = await fetch('/api/admin/delivery/inactive');
-      if (resInactiveDel.ok) {
-        const data = await resInactiveDel.json();
-        if (Array.isArray(data)) setInactiveDelivery(data);
-      }
-
-      const resAllDel = await fetch('/api/admin/delivery/all');
-      if (resAllDel.ok) {
-        const data = await resAllDel.json();
-        if (Array.isArray(data)) setAllDeliveryPartners(data);
-      }
-
-      const resMarketing = await fetch('/api/admin/marketing-associates');
-      if (resMarketing.ok) {
-        const data = await resMarketing.json();
-        if (Array.isArray(data)) setMarketingAssociates(data);
-      }
-
-      const resCampaigns = await fetch('/api/admin/campaigns');
-      if (resCampaigns.ok) {
-        const data = await resCampaigns.json();
-        if (Array.isArray(data)) setCampaigns(data);
-      }
-
-      const resUsers = await fetch('/api/admin/users');
-      if (resUsers.ok) {
-        const data = await resUsers.json();
-        if (Array.isArray(data)) setUsers(data);
-      }
-
-      const resReviews = await fetch('/api/admin/reviews');
-      if (resReviews.ok) {
-        const data = await resReviews.json();
-        if (Array.isArray(data)) setReviews(data);
-      }
-      fetchHomeSlider();
+      await Promise.allSettled(fetchActions);
     } catch (e) {
       console.error('Failed to fetch data', e);
     }
@@ -680,14 +648,9 @@ function AdminContent() {
 
   const fetchHomeSlider = async () => {
     try {
-      const res = await fetch('/api/admin/home-slider');
-      if (res.ok) {
-        const data = await res.json();
-        console.log('Fetched home slider:', data);
-        setHomeSlider(data);
-      } else {
-        console.error('Failed to fetch home slider:', await res.text());
-      }
+      const data = await safeFetchJson('/api/admin/home-slider');
+      console.log('Fetched home slider:', data);
+      setHomeSlider(data);
     } catch (e) {
       console.error('Failed to fetch home slider', e);
     }
@@ -746,6 +709,8 @@ function AdminContent() {
     setContractPercentage(rest.contract_percentage || 15);
     setBillingCycleDays(rest.billing_cycle_days || 7);
     setVatRate(rest.vat_rate || 0);
+    setDeliveryFee(rest.delivery_fee || 0);
+    setMinOrderAmount(rest.min_order_amount || 0);
     setCredentials({
       username: rest.username || `rest_${rest.id}_${Math.random().toString(36).substring(2, 6)}`,
       password: rest.password || Math.random().toString(36).substring(2, 8)
@@ -816,6 +781,8 @@ function AdminContent() {
         contract_percentage: contractPercentage,
         billing_cycle_days: billingCycleDays,
         vat_rate: vatRate,
+        delivery_fee: deliveryFee,
+        min_order_amount: minOrderAmount,
         username: credentials.username,
         password: credentials.password,
         payment_config: JSON.stringify(paymentConfig),
@@ -1670,6 +1637,13 @@ function AdminContent() {
                   Генерирај Нова
                 </button>
                 <button 
+                  onClick={handleClearAllInvoices}
+                  className="p-2 hover:bg-red-50 rounded-lg text-red-600 transition-colors"
+                  title="Избриши ги сите фактури"
+                >
+                  <Trash2 size={20} />
+                </button>
+                <button 
                   onClick={fetchInvoices}
                   className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
                   title="Освежи"
@@ -1804,7 +1778,7 @@ function AdminContent() {
                                 child.type === 'invoice' ? 'bg-blue-100 text-blue-700' :
                                 'bg-orange-100 text-orange-700'
                               }`}>
-                                {child.type === 'invoice' ? 'Фактура' : 'Провизија'}
+                                {child.type === 'invoice' ? 'Фактура' : (child.type === 'compensation' || child.type === 'КОМПЕНЗАЦИЈА') ? 'КОМПЕНЗАЦИЈА' : 'Провизија'}
                               </span>
                             </td>
                             <td className="p-4 text-slate-500">{child.restaurant_name}</td>
@@ -2160,7 +2134,7 @@ function AdminContent() {
                   <tr className="bg-slate-50 border-b border-slate-100">
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Кампања</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Соработник</th>
-                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Буџет</th>
+                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Попуст</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Период</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Локација</th>
                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Статус</th>
@@ -4094,6 +4068,28 @@ function AdminContent() {
                       className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-orange-900 mb-2">Достава (ден.)</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      value={deliveryFee} 
+                      onChange={e => setDeliveryFee(Number(e.target.value))}
+                      className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                      placeholder="пр. 100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-orange-900 mb-2">Минимум за достава (ден.)</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      value={minOrderAmount} 
+                      onChange={e => setMinOrderAmount(Number(e.target.value))}
+                      className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                      placeholder="пр. 300"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -4161,7 +4157,7 @@ function AdminContent() {
                 <h3 className="font-bold text-slate-800 mb-2">{selectedCampaign.name}</h3>
                 <p className="text-sm text-slate-600 mb-4">{selectedCampaign.description}</p>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div><span className="text-slate-400 block">Буџет</span><span className="font-bold">{selectedCampaign.budget} ден.</span></div>
+                  <div><span className="text-slate-400 block">Попуст</span><span className="font-bold">{selectedCampaign.budget} ден.</span></div>
                   <div><span className="text-slate-400 block">Количина кодови</span><span className="font-bold">{selectedCampaign.quantity}</span></div>
                 </div>
               </div>
@@ -4265,13 +4261,14 @@ function AdminContent() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="block text-sm font-bold text-slate-700">Буџет (ден.) *</label>
+                  <label className="block text-sm font-bold text-slate-700">Попуст по нарачка (ден.) *</label>
                   <input 
                     type="number"
                     required
                     value={newCampaign.budget || ''}
                     onChange={e => setNewCampaign({...newCampaign, budget: e.target.value})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="100"
                   />
                 </div>
                 <div className="space-y-2">
@@ -4724,18 +4721,20 @@ function AdminContent() {
 
       {/* Invoice Details Modal */}
       {isInvoiceModalOpen && selectedInvoice && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:p-0 print:bg-white print:backdrop-blur-none">
-          <div id="print-section" className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden print:max-h-none print:shadow-none print:rounded-none print:w-full print:static">
-            <div className={`p-6 border-b border-slate-100 flex justify-between items-center transition-colors print:border-b-2 print:border-slate-200 ${
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:p-0 print:bg-white print:backdrop-blur-none print:block print:static">
+          <div id="print-section" className="bg-white rounded-3xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden print:max-h-none print:shadow-none print:rounded-none print:w-full">
+            <div className={`p-6 border-b border-slate-100 flex justify-between items-center transition-colors print:border-b-2 print:border-slate-200 print:bg-slate-50 ${
               selectedInvoice.type === 'calculation' ? 'bg-purple-50' :
               selectedInvoice.type === 'invoice' ? 'bg-blue-50' :
+              (selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? 'bg-slate-50' :
               'bg-orange-50'
             }`}>
-              <div className="print:mb-10">
-                <h3 className="text-xl font-bold text-slate-800 print:text-4xl print:mb-2">
-                  {selectedInvoice.type === 'calculation' ? 'Пресметка' : 'Фактура'} број {selectedInvoice.invoice_number}
+              <div className="print:mb-4">
+                <h3 className="text-xl font-bold text-slate-800 print:text-lg print:mb-1">
+                  {(selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? `КОМПЕНЗАЦИЈА број ${selectedInvoice.invoice_number}` : 
+                   `${selectedInvoice.type === 'calculation' ? 'Пресметка' : 'Фактура'} број ${selectedInvoice.invoice_number}`}
                 </h3>
-                <p className="text-sm text-slate-500 print:text-xl print:text-slate-700 print:font-medium">
+                <p className="text-sm text-slate-500 print:text-xs print:text-slate-700 print:font-medium">
                   Ресторан: {selectedInvoice.restaurant_name}
                 </p>
               </div>
@@ -4744,14 +4743,14 @@ function AdminContent() {
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 space-y-8 print:overflow-visible print:p-8 print:space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12">
+            <div className="p-6 overflow-y-auto flex-1 space-y-8 print:overflow-visible print:p-6 print:space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 print:grid-cols-2 print:gap-4 print:mb-4">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
-                    {selectedInvoice.type === 'commission' ? 'ОД (ДОБАВУВАЧ):' : 'ОД:'}
+                  <h4 className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2 print:text-slate-500">
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? 'ОД (ДОБАВУВАЧ):' : 'ОД:'}
                   </h4>
-                  <div className="space-y-1 text-slate-700 dark:text-slate-300 text-sm print:text-slate-900 print:text-sm">
-                    {selectedInvoice.type === 'commission' ? (
+                  <div className="space-y-0.5 text-slate-700 dark:text-slate-300 text-xs print:text-slate-900">
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? (
                       <>
                         <p className="font-bold">PizzaTime DOOEL</p>
                         <p>ЕДБ: {selectedInvoice.pizzatimeInfo?.pizzatime_edb || '4030020000000'}</p>
@@ -4771,11 +4770,11 @@ function AdminContent() {
                   </div>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 print:text-slate-500 print:text-[10px]">
-                    {selectedInvoice.type === 'commission' ? 'ДО (КУПУВАЧ):' : 'ДО:'}
+                  <h4 className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2 print:text-slate-500">
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? 'ДО (КУПУВАЧ):' : 'ДО:'}
                   </h4>
-                  <div className="space-y-1 text-slate-700 dark:text-slate-300 text-sm print:text-slate-900 print:text-sm">
-                    {selectedInvoice.type === 'commission' ? (
+                  <div className="space-y-0.5 text-slate-700 dark:text-slate-300 text-xs print:text-slate-900">
+                    {(selectedInvoice.type === 'commission' || selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') ? (
                       <>
                         <p className="font-bold">{selectedInvoice.restaurant_name}</p>
                         <p>ЕДБ: {selectedInvoice.restaurant_edb}</p>
@@ -4796,10 +4795,10 @@ function AdminContent() {
               </div>
 
               {selectedInvoice.type === 'calculation' && (
-                <div className="space-y-6">
-                  <div className="py-4 border-b border-slate-100 print:border-b-2 print:border-slate-200">
-                    <h4 className="text-lg font-bold text-slate-800 mb-2">Листа на нарачки</h4>
-                    <p className="text-slate-600 font-medium">
+                <div className="space-y-6 print:space-y-2">
+                  <div className="py-4 border-b border-slate-100 print:border-b-2 print:border-slate-200 print:py-1">
+                    <h4 className="text-base font-bold text-slate-800 mb-1 print:text-xs">Листа на нарачки</h4>
+                    <p className="text-slate-600 font-medium print:text-[10px]">
                       Период: <span className="text-slate-900">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
                     </p>
                   </div>
@@ -4808,39 +4807,39 @@ function AdminContent() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 print:bg-white print:border-b-2">
-                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">ID</th>
-                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Датум</th>
-                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Клиент</th>
-                          <th className="p-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Износ</th>
+                          <th className="p-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider print:p-1 print:text-[8px]">ID</th>
+                          <th className="p-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider print:p-1 print:text-[8px]">Датум</th>
+                          <th className="p-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider print:p-1 print:text-[8px]">Клиент</th>
+                          <th className="p-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right print:p-1 print:text-[8px]">Износ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {selectedInvoice.orders?.map((order: any) => (
                           <tr key={order.id} className="text-sm">
-                            <td className="p-3 text-slate-600">#{order.id}</td>
-                            <td className="p-3 text-slate-600">{new Date(order.created_at).toLocaleDateString('mk-MK')}</td>
-                            <td className="p-3 text-slate-600">{order.customer_name}</td>
-                            <td className="p-3 text-slate-900 font-bold text-right">{order.total_price.toLocaleString()} ден.</td>
+                            <td className="p-2 text-slate-600 print:p-1 print:text-[10px]">#{order.id}</td>
+                            <td className="p-2 text-slate-600 print:p-1 print:text-[10px]">{new Date(order.created_at).toLocaleDateString('mk-MK')}</td>
+                            <td className="p-2 text-slate-600 print:p-1 print:text-[10px]">{order.customer_name}</td>
+                            <td className="p-2 text-slate-900 font-bold text-right print:p-1 print:text-[10px]">{order.total_price.toLocaleString()} ден.</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3 mt-8">
+                  <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-slate-100 print:mt-2 print:pt-2 print:border-t-2 print:border-slate-200">
                     <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-[8px] print:text-slate-400">
                         Основица
                       </p>
-                      <p className="text-lg font-bold text-slate-800">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-sm">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
                     </div>
                     <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">ДДВ ({selectedInvoice.vat_rate}%)</p>
-                      <p className="text-lg font-bold text-slate-800">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-[8px] print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-sm">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
                     </div>
                     <div className="p-4 bg-purple-600 rounded-xl shadow-lg shadow-purple-600/20 flex flex-col justify-center print:bg-white print:shadow-none print:p-0 print:border-t-2 print:border-slate-200 print:rounded-none">
-                      <p className="text-[10px] font-bold text-purple-100 uppercase tracking-wider mb-0.5 print:text-slate-500">Вкупно за плаќање</p>
-                      <p className="text-2xl font-black text-white print:text-slate-900">
+                      <p className="text-[10px] font-bold text-purple-100 uppercase tracking-wider mb-0.5 print:text-[8px] print:text-slate-400">Вкупно за плаќање</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-base">
                         {selectedInvoice.total_amount.toLocaleString()} ден.
                       </p>
                     </div>
@@ -4848,31 +4847,68 @@ function AdminContent() {
                 </div>
               )}
 
+              {(selectedInvoice.type === 'compensation' || selectedInvoice.type === 'КОМПЕНЗАЦИЈА') && (
+                <div className="space-y-6 py-4 print:space-y-4 print:py-4">
+                  <div className="space-y-4 print:space-y-2">
+                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-b print:rounded-none print:p-1">
+                      <span className="text-base font-bold text-slate-600 print:text-[10px]">Наш долг по основ на ваша фактура {selectedInvoice.spare_1} :</span>
+                      <span className="text-lg font-bold text-slate-900 print:text-xs">{selectedInvoice.total_amount.toLocaleString()} ден.</span>
+                    </div>
+
+                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-b print:rounded-none print:p-1">
+                      <span className="text-base font-bold text-slate-600 print:text-[10px]">Ваш долг по однос на наша фактура {selectedInvoice.spare_2} :</span>
+                      <span className="text-lg font-bold text-slate-900 print:text-xs">{selectedInvoice.commission_amount.toLocaleString()} ден.</span>
+                    </div>
+
+                    <div className="mt-8 p-6 bg-slate-800 rounded-2xl shadow-lg shadow-slate-800/20 flex justify-between items-center text-white print:bg-white print:text-slate-900 print:shadow-none print:border-t-2 print:border-slate-900 print:rounded-none print:p-2 print:mt-4">
+                      <div>
+                        <p className="text-slate-300 font-bold uppercase tracking-widest mb-0.5 print:text-slate-500 print:text-xs">Разлика за уплата</p>
+                        <p className="text-xs opacity-80 print:text-slate-400 print:text-[8px]">Износ кој PizzaTime треба да го префрли на ресторанот</p>
+                      </div>
+                      <span className="text-2xl font-black print:text-base">{selectedInvoice.net_amount.toLocaleString()} ден.</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-20 mt-10 pt-10 print:mt-4 print:pt-4 print:gap-8">
+                    <div className="text-center border-t border-slate-200 pt-4 print:border-t-2 print:border-slate-400">
+                      <p className="text-xs font-bold text-slate-400 uppercase mb-12 print:text-slate-500 print:text-[8px] print:mb-8">За Ресторанот</p>
+                      <div className="h-px w-full bg-slate-200 mb-2"></div>
+                      <p className="text-sm font-medium text-slate-600 print:text-[10px]">Потпис и печат</p>
+                    </div>
+                    <div className="text-center border-t border-slate-200 pt-4 print:border-t-2 print:border-slate-400">
+                      <p className="text-xs font-bold text-slate-400 uppercase mb-12 print:text-slate-500 print:text-[8px] print:mb-8">За PizzaTime</p>
+                      <div className="h-px w-full bg-slate-200 mb-2"></div>
+                      <p className="text-sm font-medium text-slate-600 print:text-[10px]">Потпис и печат</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {selectedInvoice.type === 'invoice' && (
-                <div className="space-y-8">
-                  <div className="py-6 border-b border-slate-100 print:border-b-2 print:border-slate-200">
-                    <h4 className="text-lg font-bold text-slate-800 mb-2 print:text-xl">Опис на услугата</h4>
-                    <p className="text-slate-600 font-medium leading-relaxed print:text-slate-900">
+                <div className="space-y-4 print:space-y-1">
+                  <div className="py-4 border-b border-slate-100 print:border-b-2 print:border-slate-200 print:py-1">
+                    <h4 className="text-base font-bold text-slate-800 mb-1 print:text-xs">Опис на услугата</h4>
+                    <p className="text-slate-600 font-medium leading-relaxed print:text-slate-900 print:text-sm">
                       Вкупна остварена продажба за период: <span className="text-slate-900">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
                       <br />
                       согласно број на пресметка: <span className="text-slate-900 print:font-bold">#{selectedInvoice.parent_invoice_number || '---'}</span>
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
+                  <div className="grid grid-cols-3 gap-6 pt-6 border-t border-slate-100 print:grid-cols-3 print:gap-4 print:pt-4 print:border-t-2 print:border-slate-200">
                     <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-[8px] print:text-slate-400">
                         Основица
                       </p>
-                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-sm">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
                     </div>
                     <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
-                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-[8px] print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-sm">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
                     </div>
                     <div className="p-4 bg-blue-600 rounded-xl shadow-lg shadow-blue-600/20 flex flex-col justify-center print:bg-white print:shadow-none print:p-0 print:border-t-2 print:border-slate-200 print:rounded-none">
-                      <p className="text-[10px] font-bold text-blue-100 uppercase tracking-wider mb-0.5 print:text-slate-400">Вкупно за плаќање</p>
-                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-4xl">
+                      <p className="text-[10px] font-bold text-blue-100 uppercase tracking-wider mb-0.5 print:text-[8px] print:text-slate-400">Вкупно за плаќање</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-base">
                         {selectedInvoice.total_amount.toLocaleString()} ден.
                       </p>
                     </div>
@@ -4881,30 +4917,30 @@ function AdminContent() {
               )}
               
               {selectedInvoice.type === 'commission' && (
-                <div className="space-y-8">
-                  <div className="py-6 border-b border-slate-100 print:border-b-2 print:border-slate-200">
-                    <h4 className="text-lg font-bold text-slate-800 mb-2 print:text-xl">Опис на услугата</h4>
-                    <p className="text-slate-600 font-medium leading-relaxed print:text-slate-900">
+                <div className="space-y-4 print:space-y-1">
+                  <div className="py-4 border-b border-slate-100 print:border-b-2 print:border-slate-200 print:py-1">
+                    <h4 className="text-base font-bold text-slate-800 mb-1 print:text-xs">Опис на услугата</h4>
+                    <p className="text-slate-600 font-medium leading-relaxed print:text-slate-900 print:text-sm">
                       Провизија за користење на платформата PizzaTime за период: <span className="text-slate-900">{new Date(selectedInvoice.period_start).toLocaleDateString('mk-MK')} - {new Date(selectedInvoice.period_end).toLocaleDateString('mk-MK')}</span>
                       <br />
                       согласно број на пресметка: <span className="text-slate-900 print:font-bold">#{selectedInvoice.parent_invoice_number || '---'}</span>
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
+                  <div className="grid grid-cols-3 gap-6 pt-6 border-t border-slate-100 print:grid-cols-3 print:gap-4 print:pt-4 print:border-t-2 print:border-slate-200">
                     <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-[8px] print:text-slate-400">
                         Основица (Провизија)
                       </p>
-                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-sm">{selectedInvoice.base_amount.toLocaleString()} ден.</p>
                     </div>
                     <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-none print:p-0">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
-                      <p className="text-lg font-bold text-slate-800 print:text-2xl">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-[8px] print:text-slate-400">ДДВ ({selectedInvoice.vat_rate}%)</p>
+                      <p className="text-lg font-bold text-slate-800 print:text-sm">{selectedInvoice.vat_amount.toLocaleString()} ден.</p>
                     </div>
                     <div className="p-4 bg-emerald-600 rounded-xl shadow-lg shadow-emerald-600/20 flex flex-col justify-center print:bg-white print:shadow-none print:p-0 print:border-t-2 print:border-slate-200 print:rounded-none">
-                      <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-wider mb-0.5 print:text-slate-400">Вкупно со ДДВ</p>
-                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-4xl">
+                      <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-wider mb-0.5 print:text-[8px] print:text-slate-400">Вкупно со ДДВ</p>
+                      <p className="text-2xl font-black text-white print:text-slate-900 print:text-base">
                         {selectedInvoice.total_amount.toLocaleString()} ден.
                       </p>
                     </div>
