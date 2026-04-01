@@ -151,12 +151,20 @@ db.exec(`
       vat_rate REAL DEFAULT 0,
       edb TEXT,
       delivery_fee REAL DEFAULT 0,
-      min_order_amount REAL DEFAULT 0
+      min_order_amount REAL DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      has_admin_access INTEGER DEFAULT 1
     );
   `);
 
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN edb TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN is_active INTEGER DEFAULT 1");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN has_admin_access INTEGER DEFAULT 1");
   } catch (e) {}
 
   try {
@@ -1708,7 +1716,7 @@ app.get("/api/orders/track/:token", (req, res) => {
     app.get('/api/restaurant/me', (req, res) => {
       const sessionRest = (req.session as any).restaurant;
       if (sessionRest && sessionRest.id) {
-        const restaurant = db.prepare('SELECT * FROM restaurants WHERE id = ?').get(sessionRest.id) as any;
+        const restaurant = db.prepare('SELECT * FROM restaurants WHERE id = ? AND has_admin_access = 1').get(sessionRest.id) as any;
         if (restaurant) {
           restaurant.id = Number(restaurant.id);
           return res.json({ restaurant });
@@ -2278,7 +2286,8 @@ app.get("/api/orders/track/:token", (req, res) => {
     const { 
       name, city, address, phone, email, bank_account, lat, lng,
       contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
-      username, password, payment_config, logo_url, cover_url, header_image 
+      username, password, payment_config, logo_url, cover_url, header_image,
+      is_active, has_admin_access
     } = req.body;
     
     db.prepare(`
@@ -2287,7 +2296,8 @@ app.get("/api/orders/track/:token", (req, res) => {
         bank_account = ?, lat = ?, lng = ?, username = ?, password = ?, 
         contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, 
         delivery_fee = ?, min_order_amount = ?, payment_config = ?, 
-        logo_url = ?, cover_url = ?, header_image = ? 
+        logo_url = ?, cover_url = ?, header_image = ?,
+        is_active = ?, has_admin_access = ?
       WHERE id = ?
     `).run(
       name,
@@ -2309,6 +2319,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       logo_url || null,
       cover_url || null,
       header_image || null,
+      is_active ?? 1,
+      has_admin_access ?? 1,
       id
     );
     
@@ -2321,7 +2333,8 @@ app.get("/api/orders/track/:token", (req, res) => {
     const { 
       name, city, address, phone, email, bank_account, lat, lng,
       contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
-      username, password, payment_config, logo_url, cover_url, header_image, status 
+      username, password, payment_config, logo_url, cover_url, header_image, status,
+      is_active, has_admin_access
     } = req.body;
     
     db.prepare(`
@@ -2329,7 +2342,7 @@ app.get("/api/orders/track/:token", (req, res) => {
         name = ?, city = ?, address = ?, phone = ?, email = ?, bank_account = ?, lat = ?, lng = ?,
         username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, 
         delivery_fee = ?, min_order_amount = ?, payment_config = ?, logo_url = ?, cover_url = ?, 
-        header_image = ?, status = ? 
+        header_image = ?, status = ?, is_active = ?, has_admin_access = ? 
       WHERE id = ?
     `).run(
       name,
@@ -2352,6 +2365,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       cover_url || null,
       header_image || null,
       status || 'approved',
+      is_active ?? 1,
+      has_admin_access ?? 1,
       id
     );
     
@@ -2727,7 +2742,7 @@ app.get("/api/orders/track/:token", (req, res) => {
   // --- RESTAURANT LOGIN & SETTINGS ---
   app.post("/api/restaurants/login", (req, res) => {
     const { username, password } = req.body;
-    const restaurant = db.prepare("SELECT * FROM restaurants WHERE username = ? AND password = ? AND status = 'approved'").get(username, password) as any;
+    const restaurant = db.prepare("SELECT * FROM restaurants WHERE username = ? AND password = ? AND status = 'approved' AND has_admin_access = 1").get(username, password) as any;
     if (restaurant) {
       restaurant.id = Number(restaurant.id);
       (req.session as any).restaurant = { id: restaurant.id };
@@ -2772,7 +2787,7 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.get("/api/customer/restaurant/:username", (req, res) => {
-    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, header_image, has_own_delivery, working_hours, payment_config, delivery_zones, delivery_fee, min_order_amount FROM restaurants WHERE LOWER(username) = LOWER(?) AND status = 'approved'").get(req.params.username) as any;
+    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, header_image, has_own_delivery, working_hours, payment_config, delivery_zones, delivery_fee, min_order_amount FROM restaurants WHERE LOWER(username) = LOWER(?) AND status = 'approved' AND has_admin_access = 1").get(req.params.username) as any;
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
@@ -2792,7 +2807,7 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.get("/api/customer/restaurant-by-id/:id", (req, res) => {
-    const restaurant = db.prepare("SELECT * FROM restaurants WHERE id = ? AND status = 'approved'").get(req.params.id) as any;
+    const restaurant = db.prepare("SELECT * FROM restaurants WHERE id = ? AND status = 'approved' AND has_admin_access = 1").get(req.params.id) as any;
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
@@ -2815,7 +2830,7 @@ app.get("/api/orders/track/:token", (req, res) => {
     const { city, lat, lng } = req.body;
     const latNum = Number(lat);
     const lngNum = Number(lng);
-    const restaurants = db.prepare("SELECT * FROM restaurants WHERE status = 'approved' AND city = ?").all(city) as any[];
+    const restaurants = db.prepare("SELECT * FROM restaurants WHERE status = 'approved' AND is_active = 1 AND city = ?").all(city) as any[];
     
     const isPointInPolygon = (point: number[], vs: number[][]) => {
       let x = point[0], y = point[1];

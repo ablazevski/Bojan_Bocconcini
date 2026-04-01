@@ -848,7 +848,7 @@ export default function Customer() {
         <header className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-orange-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-20 transition-colors duration-300">
           <div className="flex items-center gap-4">
             {globalSettings.company_logo_url ? (
-              <img src={globalSettings.company_logo_url} alt="Logo" className="h-8 object-contain" />
+              <img src={globalSettings.company_logo_url || null} alt="Logo" className="h-8 object-contain" />
             ) : (
               <h1 className="text-xl font-extrabold text-orange-600 dark:text-orange-500 tracking-tight">{globalSettings.company_name || 'PizzaTime'}</h1>
             )}
@@ -1060,23 +1060,23 @@ export default function Customer() {
           <>
             {/* Home Slider */}
             {homeSlider.length > 0 && (
-              <div className="mb-12 relative overflow-hidden rounded-[2.5rem] shadow-2xl shadow-orange-500/10 group">
+              <div className="mb-6 md:mb-12 relative overflow-hidden rounded-2xl md:rounded-[2.5rem] shadow-xl shadow-orange-500/10 group">
                 <div className="flex transition-transform duration-700 ease-in-out" style={{ transform: `translateX(-${currentSlide * 100}%)` }}>
                   {homeSlider.map((slide, idx) => (
-                    <div key={idx} className="min-w-full relative aspect-[21/9] md:aspect-[21/7]">
+                    <div key={idx} className="min-w-full relative aspect-[16/9] md:aspect-[21/7]">
                       <img 
-                        src={slide.image_url} 
+                        src={slide.image_url || null} 
                         alt={slide.cta_text} 
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-transparent flex items-center p-8 md:p-16">
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent flex items-center p-4 md:p-16">
                         <div className="max-w-xl">
                           <motion.h2 
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.2 }}
-                            className="text-3xl md:text-5xl font-black text-white mb-6 leading-tight drop-shadow-lg"
+                            className="text-lg md:text-5xl font-black text-white mb-3 md:mb-6 leading-tight drop-shadow-lg"
                             dangerouslySetInnerHTML={{ __html: slide.title }}
                           />
                           {slide.cta_link && (
@@ -1085,10 +1085,10 @@ export default function Customer() {
                               initial={{ opacity: 0, y: 20 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ delay: 0.4 }}
-                              className="inline-flex items-center gap-3 bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-2xl font-black text-lg transition-all shadow-xl shadow-orange-500/30 hover:scale-105 active:scale-95 group/btn"
+                              className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 md:px-8 md:py-4 rounded-lg md:rounded-2xl font-black text-xs md:text-lg transition-all shadow-xl shadow-orange-500/30 hover:scale-105 active:scale-95 group/btn"
                             >
                               {slide.cta_text || 'Нарачај веднаш'}
-                              <ArrowRight className="group-hover/btn:translate-x-1 transition-transform" />
+                              <ArrowRight size={14} className="md:w-[18px] md:h-[18px] group-hover/btn:translate-x-1 transition-transform" />
                             </motion.a>
                           )}
                         </div>
@@ -1101,22 +1101,22 @@ export default function Customer() {
                   <>
                     <button 
                       onClick={() => setCurrentSlide(prev => (prev - 1 + homeSlider.length) % homeSlider.length)}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full flex items-center justify-center hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
+                      className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 w-8 h-8 md:w-12 md:h-12 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full flex items-center justify-center hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
                     >
-                      <ChevronLeft size={24} />
+                      <ChevronLeft size={20} className="md:w-[24px] md:h-[24px]" />
                     </button>
                     <button 
                       onClick={() => setCurrentSlide(prev => (prev + 1) % homeSlider.length)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full flex items-center justify-center hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
+                      className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 w-8 h-8 md:w-12 md:h-12 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full flex items-center justify-center hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
                     >
-                      <ChevronRight size={24} />
+                      <ChevronRight size={20} className="md:w-[24px] md:h-[24px]" />
                     </button>
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2">
+                    <div className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 flex gap-1.5 md:gap-2">
                       {homeSlider.map((_, idx) => (
                         <button 
                           key={idx}
                           onClick={() => setCurrentSlide(idx)}
-                          className={`w-2.5 h-2.5 rounded-full transition-all ${currentSlide === idx ? 'bg-orange-500 w-8' : 'bg-white/40 hover:bg-white/60'}`}
+                          className={`w-1.5 h-1.5 md:w-2.5 md:h-2.5 rounded-full transition-all ${currentSlide === idx ? 'bg-orange-500 w-4 md:w-8' : 'bg-white/40 hover:bg-white/60'}`}
                         />
                       ))}
                     </div>
@@ -1125,25 +1125,25 @@ export default function Customer() {
               </div>
             )}
 
-            <div className="mb-8">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-                <div className="flex items-center justify-center gap-2 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-xl border border-orange-100 dark:border-slate-800 shadow-sm cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors whitespace-nowrap" onClick={() => setStep('location')}>
-                  <MapPin size={18} className="text-orange-500" />
-                  <span className="text-sm font-medium">Локација: {selectedCity} (Промени)</span>
+            <div className="mb-4 md:mb-8">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 mb-4 md:mb-6">
+                <div className="flex items-center justify-center gap-2 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2 md:p-3 rounded-xl border border-orange-100 dark:border-slate-800 shadow-sm cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors whitespace-nowrap" onClick={() => setStep('location')}>
+                  <MapPin size={14} className="text-orange-500 md:w-[16px] md:h-[16px]" />
+                  <span className="text-[10px] md:text-sm font-medium">Локација: {selectedCity} (Промени)</span>
                 </div>
                 
                 <div className="relative flex-1 max-w-2xl mx-auto w-full">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={20} />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
                   <input 
                     type="text" 
                     placeholder="Пребарај пица, паста, салата..." 
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-800 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-slate-800 dark:text-white text-base transition-colors"
+                    className="w-full pl-10 pr-4 py-2 md:py-3 bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-800 rounded-xl md:rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-slate-800 dark:text-white text-xs md:text-base transition-colors"
                   />
                 </div>
 
-                <div className="text-sm text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 shadow-sm px-4 py-3 rounded-xl whitespace-nowrap text-center transition-colors">
+                <div className="hidden md:block text-sm text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 shadow-sm px-4 py-3 rounded-xl whitespace-nowrap text-center transition-colors">
                   Достапни ресторани: <span className="font-bold text-slate-800 dark:text-white">{availableRestaurants.length}</span>
                 </div>
               </div>
@@ -1297,7 +1297,7 @@ export default function Customer() {
                                 onClick={() => restaurant?.is_open && openItemModal(item)}
                               >
                                 <div className="h-48 overflow-hidden relative">
-                                  <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
+                                  <img src={item.image_url || null} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                   <div className="absolute top-3 left-3 flex flex-col gap-2">
                                     <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm px-3 py-1 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 shadow-sm flex items-center gap-1.5 transition-colors">
@@ -1378,7 +1378,7 @@ export default function Customer() {
                 <div className="space-y-4 mb-8">
                   {cart.map(item => (
                     <div key={item.cartId} className="flex gap-4 p-4 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50 dark:bg-slate-800/50 transition-colors">
-                      <img src={item.image_url} alt={item.name} className="w-20 h-20 object-cover rounded-xl" referrerPolicy="no-referrer" />
+                      <img src={item.image_url || null} alt={item.name} className="w-20 h-20 object-cover rounded-xl" referrerPolicy="no-referrer" />
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
                           <h3 className="font-bold text-slate-800 dark:text-white">{item.name}</h3>
@@ -1846,7 +1846,7 @@ export default function Customer() {
         <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-10">
           <div className="space-y-4">
             {globalSettings.company_logo_url ? (
-              <img src={globalSettings.company_logo_url} alt="Logo" className="h-10 object-contain" />
+              <img src={globalSettings.company_logo_url || null} alt="Logo" className="h-10 object-contain" />
             ) : (
               <h2 className="font-black text-xl text-slate-900 dark:text-white tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h2>
             )}
@@ -1909,7 +1909,7 @@ export default function Customer() {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 dark:bg-slate-950/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95">
             <div className="relative h-48 sm:h-64 flex-shrink-0">
-              <img src={selectedItem.image_url} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <img src={selectedItem.image_url || null} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-2 rounded-full text-slate-800 dark:text-white hover:bg-white dark:hover:bg-slate-700 transition-colors">
                 <X size={20} />
               </button>

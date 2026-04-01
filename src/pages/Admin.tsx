@@ -90,6 +90,8 @@ interface PendingRestaurant {
   min_order_amount?: number;
   password?: string;
   payment_config?: string;
+  is_active?: number;
+  has_admin_access?: number;
 }
 
 interface DeliveryPartner {
@@ -691,7 +693,8 @@ function AdminContent() {
         fetchBilling(),
         fetchInvoices(),
         fetchHomeSlider(),
-        fetchPendingBundles()
+        fetchPendingBundles(),
+        fetchAllBundles()
       ];
 
       await Promise.allSettled(fetchActions);
@@ -817,7 +820,6 @@ function AdminContent() {
   };
 
   const handleApproveBundle = async (id: number) => {
-    if (!confirm('Дали сте сигурни дека сакате да го одобрите овој пакет?')) return;
     try {
       const res = await fetch(`/api/admin/bundles/${id}/approve`, { 
         method: 'POST',
@@ -837,14 +839,12 @@ function AdminContent() {
   };
 
   const handleRejectBundle = async (id: number) => {
-    const reason = prompt('Причина за одбивање:');
-    if (reason === null) return;
     try {
       const res = await fetch(`/api/admin/bundles/${id}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ reason })
+        body: JSON.stringify({ reason: 'Одбиено од администратор' })
       });
       if (res.ok) {
         toast.success('Пакетот е одбиен.');
@@ -860,7 +860,6 @@ function AdminContent() {
   };
 
   const handleClearAllBundles = async () => {
-    if (!confirm('ВНИМАНИЕ: Дали сте сигурни дека сакате да ги избришете СИТЕ пакети од сите ресторани? Оваа акција е неповратна.')) return;
     try {
       const res = await fetch('/api/admin/bundles/clear', { 
         method: 'POST',
@@ -882,7 +881,7 @@ function AdminContent() {
   const handleSaveRestaurant = async () => {
     if (!selectedRestaurant) return;
     if (!credentials.username || !credentials.password) {
-      alert('Внесете корисничко име и лозинка!');
+      toast.error('Внесете корисничко име и лозинка!');
       return;
     }
     
@@ -914,12 +913,14 @@ function AdminContent() {
         logo_url: restaurantImages.logo_url,
         cover_url: restaurantImages.cover_url,
         header_image: restaurantImages.header_image,
-        status: selectedRestaurant.status
+        status: selectedRestaurant.status,
+        is_active: selectedRestaurant.is_active,
+        has_admin_access: selectedRestaurant.has_admin_access
       })
     });
     
     if (res.ok) {
-      alert(isUpdate ? 'Поставките се успешно зачувани!' : 'Ресторанот е успешно одобрен!');
+      toast.success(isUpdate ? 'Поставките се успешно зачувани!' : 'Ресторанот е успешно одобрен!');
       setSelectedRestaurant(null);
       fetchData();
     }
@@ -3368,7 +3369,7 @@ function AdminContent() {
                   {homeSlider.map(item => (
                     <div key={item.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden group shadow-sm hover:shadow-md transition-shadow">
                       <div className="aspect-video relative overflow-hidden">
-                        <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                        <img src={item.image_url || null} alt="" className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                           <button 
                             onClick={() => {
@@ -4286,6 +4287,37 @@ function AdminContent() {
                   </div>
                 </div>
               )}
+
+              {/* Status and Access */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Settings2 className="text-slate-600" /> Статус и Пристап</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <label className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-blue-300 transition-all">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedRestaurant.is_active === 1}
+                      onChange={(e) => setSelectedRestaurant({...selectedRestaurant, is_active: e.target.checked ? 1 : 0})}
+                      className="w-6 h-6 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="block font-bold text-slate-800">Активен ресторан</span>
+                      <span className="text-xs text-slate-500">Прикажи го ресторанот во листата на корисници</span>
+                    </div>
+                  </label>
+                  <label className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-blue-300 transition-all">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedRestaurant.has_admin_access === 1}
+                      onChange={(e) => setSelectedRestaurant({...selectedRestaurant, has_admin_access: e.target.checked ? 1 : 0})}
+                      className="w-6 h-6 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="block font-bold text-slate-800">Администраторски пристап</span>
+                      <span className="text-xs text-slate-500">Дозволи пристап до индивидуалниот панел на ресторанот</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
 
               {/* Payment Configuration */}
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">

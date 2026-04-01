@@ -579,7 +579,7 @@ export default function RestaurantProfile() {
               className={`${theme === 'dark' ? 'bg-slate-900' : 'bg-white'} rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]`}
             >
               <div className="relative h-64 flex-shrink-0">
-                <img src={selectedItem.image_url} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <img src={selectedItem.image_url || null} alt={selectedItem.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 <button 
                   onClick={() => setSelectedItem(null)}
                   className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-md transition-colors"

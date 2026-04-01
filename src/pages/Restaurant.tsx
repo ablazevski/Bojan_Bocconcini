@@ -2448,7 +2448,7 @@ export default function Restaurant() {
               {menuItems.map(item => (
                 <div key={item.id} className="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-sm border border-slate-100 dark:border-slate-800 group flex flex-col transition-colors">
                   <div className="h-48 overflow-hidden relative bg-slate-100 dark:bg-slate-800 transition-colors">
-                    <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
+                    <img src={item.image_url || null} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
                     <div className="absolute top-3 right-3 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-bold text-slate-800 dark:text-white shadow-sm transition-colors">
                       {item.price} ден.
                     </div>
