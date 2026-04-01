@@ -11,6 +11,7 @@ export default function RestaurantProfile() {
   const { theme, toggleTheme } = useTheme();
   const [restaurant, setRestaurant] = useState<any>(null);
   const [menu, setMenu] = useState<any[]>([]);
+  const [bundles, setBundles] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<any[]>([]);
@@ -26,6 +27,7 @@ export default function RestaurantProfile() {
       })
       .then(data => {
         setRestaurant(data.restaurant);
+        setBundles(data.bundles || []);
         // Parse modifiers from JSON string
         const parsedMenu = data.menu.map((item: any) => ({
           ...item,
@@ -37,6 +39,8 @@ export default function RestaurantProfile() {
         if (parsedMenu.length > 0) {
           const firstCat = parsedMenu[0].category || 'Останато';
           setActiveCategory(firstCat);
+        } else if (data.bundles && data.bundles.length > 0) {
+          setActiveCategory('Пакети');
         }
         
         // Fetch reviews
@@ -108,14 +112,54 @@ export default function RestaurantProfile() {
     return price;
   };
 
+  const isBundleAvailable = (bundle: any) => {
+    try {
+      const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
+      const macedoniaTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"});
+      const now = new Date(macedoniaTime);
+      const dayName = days[now.getDay()];
+      
+      const availabilityDays = Array.isArray(bundle.available_days) 
+        ? bundle.available_days 
+        : (typeof bundle.available_days === 'string' ? JSON.parse(bundle.available_days) : []);
+      
+      if (availabilityDays.length > 0 && !availabilityDays.includes(dayName)) {
+        return false;
+      }
+      
+      if (bundle.start_time && bundle.end_time) {
+        const [startH, startM] = bundle.start_time.split(':').map(Number);
+        const [endH, endM] = bundle.end_time.split(':').map(Number);
+        const currentH = now.getHours();
+        const currentM = now.getMinutes();
+        
+        const startTotal = startH * 60 + startM;
+        const endTotal = endH * 60 + endM;
+        const currentTotal = currentH * 60 + currentM;
+        
+        if (currentTotal < startTotal || currentTotal > endTotal) {
+          return false;
+        }
+      }
+      
+      return true;
+    } catch (e) {
+      console.error("Error checking bundle availability", e);
+      return true;
+    }
+  };
+
   const handleAddToCart = () => {
     if (!selectedItem) return;
 
-    const finalPrice = calculateItemPrice(selectedItem, selectedModifiers);
+    const finalPrice = selectedItem.isBundle 
+      ? selectedItem.price 
+      : calculateItemPrice(selectedItem, selectedModifiers);
+      
     const newCartItem = {
       ...selectedItem,
       cartId: Math.random().toString(36).substr(2, 9),
-      selectedModifiers: { ...selectedModifiers },
+      selectedModifiers: selectedItem.isBundle ? {} : { ...selectedModifiers },
       finalPrice
     };
 
@@ -161,6 +205,14 @@ export default function RestaurantProfile() {
     acc[category][subcategory].push(item);
     return acc;
   }, {});
+
+  // Add bundles to grouped menu
+  const availableBundles = bundles.filter(isBundleAvailable);
+  if (availableBundles.length > 0) {
+    groupedMenu['Пакети'] = {
+      'Промотивни пакети': availableBundles.map(b => ({ ...b, isBundle: true }))
+    };
+  }
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.finalPrice || item.price), 0);
 
@@ -224,6 +276,8 @@ export default function RestaurantProfile() {
               )}
               <span className="flex items-center gap-1"><MapPin size={18} className="text-orange-500" /> {restaurant.address}, {restaurant.city}</span>
               <span className="flex items-center gap-1"><Phone size={18} className="text-orange-500" /> {restaurant.phone}</span>
+              <span className="flex items-center gap-1"><ShoppingBag size={18} className="text-orange-500" /> Достава: {restaurant.delivery_fee} ден.</span>
+              <span className="flex items-center gap-1"><Info size={18} className="text-orange-500" /> Минимум: {restaurant.min_order_amount} ден.</span>
               <div className="relative group">
                 <span className="flex items-center gap-1 cursor-help">
                   <Clock size={18} className="text-orange-500" /> 
@@ -540,7 +594,7 @@ export default function RestaurantProfile() {
                   <p className={`${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'} leading-relaxed`}>{selectedItem.description}</p>
                 </div>
 
-                {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
+                {selectedItem.modifiers && selectedItem.modifiers.length > 0 && !selectedItem.isBundle && (
                   <div className="space-y-8">
                     {selectedItem.modifiers.map((group: any) => (
                       <div key={group.name} className={`${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'} p-6 rounded-3xl border`}>
@@ -580,13 +634,40 @@ export default function RestaurantProfile() {
                     ))}
                   </div>
                 )}
+
+                {selectedItem.isBundle && selectedItem.items && (
+                  <div className="space-y-4">
+                    <h4 className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'} text-lg mb-4`}>Производи во пакетот:</h4>
+                    <div className="grid grid-cols-1 gap-3">
+                      {selectedItem.items.map((bi: any) => (
+                        <div key={bi.id} className={`${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'} p-4 rounded-2xl border flex flex-col gap-2`}>
+                          <div className="flex justify-between items-center">
+                            <span className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{bi.name}</span>
+                            <span className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Количина: {bi.quantity}</span>
+                          </div>
+                          {bi.modifiers && bi.modifiers.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {bi.modifiers.map((group: any) => (
+                                group.options.map((opt: any) => (
+                                  <span key={opt.name} className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${theme === 'dark' ? 'bg-slate-900 text-slate-400 border border-slate-700' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                                    {opt.name}
+                                  </span>
+                                ))
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className={`${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'} p-6 md:p-8 border-t flex items-center justify-between gap-6`}>
                 <div className="flex flex-col">
                   <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Вкупна цена</span>
                   <span className={`text-3xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-                    {calculateItemPrice(selectedItem, selectedModifiers)} <span className="text-lg font-bold text-slate-500">ден.</span>
+                    {selectedItem.isBundle ? selectedItem.price : calculateItemPrice(selectedItem, selectedModifiers)} <span className="text-lg font-bold text-slate-500">ден.</span>
                   </span>
                 </div>
                 <button 

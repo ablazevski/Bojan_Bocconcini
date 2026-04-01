@@ -4,6 +4,7 @@ import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, F
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { safeFetchJson } from '../utils/api';
+import LocationPickerMap from '../components/LocationPickerMap';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -120,6 +121,26 @@ interface MarketingAssociate {
   created_at: string;
 }
 
+interface PendingBundle {
+  id: number;
+  restaurant_id: number;
+  restaurant_name: string;
+  name: string;
+  description: string;
+  price: number;
+  image_url: string;
+  status: 'pending' | 'approved' | 'rejected';
+  start_time: string;
+  end_time: string;
+  available_days: string;
+  items: {
+    menu_item_id: number;
+    quantity: number;
+    name: string;
+    price: number;
+  }[];
+}
+
 const DAYS_MAP: Record<string, string> = {
   monday: 'Понеделник', tuesday: 'Вторник', wednesday: 'Среда',
   thursday: 'Четврток', friday: 'Петок', saturday: 'Сабота', sunday: 'Недела'
@@ -178,9 +199,14 @@ function AdminContent() {
   });
   const [newUser, setNewUser] = useState({ name: '', email: '' });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing' | 'admins'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing' | 'admins' | 'bundles'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
+  const [pendingBundles, setPendingBundles] = useState<PendingBundle[]>([]);
+  const [allBundles, setAllBundles] = useState<any[]>([]);
+  const [bundleFilterRestaurant, setBundleFilterRestaurant] = useState('');
+  const [bundleFilterStartDate, setBundleFilterStartDate] = useState('');
+  const [bundleFilterEndDate, setBundleFilterEndDate] = useState('');
   const [invoices, setInvoices] = useState<any[]>([]);
   const [expandedInvoices, setExpandedInvoices] = useState<Set<number>>(new Set());
 
@@ -563,12 +589,16 @@ function AdminContent() {
   };
 
   useEffect(() => {
-    fetchOrders();
-  }, [orderFilterRestaurant, orderFilterDelivery, orderFilterStartDate, orderFilterEndDate]);
+    if (admin) fetchOrders();
+  }, [orderFilterRestaurant, orderFilterDelivery, orderFilterStartDate, orderFilterEndDate, admin]);
 
   useEffect(() => {
-    fetchBilling();
-  }, [billingStartDate, billingEndDate]);
+    if (admin) fetchAllBundles();
+  }, [bundleFilterRestaurant, bundleFilterStartDate, bundleFilterEndDate, admin]);
+
+  useEffect(() => {
+    if (admin) fetchBilling();
+  }, [billingStartDate, billingEndDate, admin]);
 
   const fetchBilling = async () => {
     try {
@@ -621,6 +651,29 @@ function AdminContent() {
     }
   };
 
+  const fetchPendingBundles = async () => {
+    try {
+      const data = await safeFetchJson('/api/admin/bundles/pending');
+      if (Array.isArray(data)) setPendingBundles(data);
+    } catch (e) {
+      console.error('Failed to fetch pending bundles', e);
+    }
+  };
+
+  const fetchAllBundles = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (bundleFilterRestaurant) params.append('restaurant_id', bundleFilterRestaurant);
+      if (bundleFilterStartDate) params.append('start_date', bundleFilterStartDate);
+      if (bundleFilterEndDate) params.append('end_date', bundleFilterEndDate);
+      
+      const data = await safeFetchJson(`/api/admin/bundles?${params.toString()}`);
+      if (Array.isArray(data)) setAllBundles(data);
+    } catch (e) {
+      console.error('Failed to fetch all bundles', e);
+    }
+  };
+
   const fetchData = async () => {
     try {
       const fetchActions = [
@@ -637,7 +690,8 @@ function AdminContent() {
         fetchOrders(),
         fetchBilling(),
         fetchInvoices(),
-        fetchHomeSlider()
+        fetchHomeSlider(),
+        fetchPendingBundles()
       ];
 
       await Promise.allSettled(fetchActions);
@@ -762,6 +816,69 @@ function AdminContent() {
     }
   };
 
+  const handleApproveBundle = async (id: number) => {
+    if (!confirm('Дали сте сигурни дека сакате да го одобрите овој пакет?')) return;
+    try {
+      const res = await fetch(`/api/admin/bundles/${id}/approve`, { 
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        toast.success('Пакетот е успешно одобрен!');
+        fetchPendingBundles();
+        fetchAllBundles();
+      } else {
+        toast.error('Грешка при одобрување на пакетот.');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Грешка при комуникација со серверот.');
+    }
+  };
+
+  const handleRejectBundle = async (id: number) => {
+    const reason = prompt('Причина за одбивање:');
+    if (reason === null) return;
+    try {
+      const res = await fetch(`/api/admin/bundles/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ reason })
+      });
+      if (res.ok) {
+        toast.success('Пакетот е одбиен.');
+        fetchPendingBundles();
+        fetchAllBundles();
+      } else {
+        toast.error('Грешка при одбивање на пакетот.');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Грешка при комуникација со серверот.');
+    }
+  };
+
+  const handleClearAllBundles = async () => {
+    if (!confirm('ВНИМАНИЕ: Дали сте сигурни дека сакате да ги избришете СИТЕ пакети од сите ресторани? Оваа акција е неповратна.')) return;
+    try {
+      const res = await fetch('/api/admin/bundles/clear', { 
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        toast.success('Сите пакети се избришани!');
+        fetchPendingBundles();
+        fetchAllBundles();
+      } else {
+        toast.error('Грешка при бришење на пакетите.');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Грешка при комуникација со серверот.');
+    }
+  };
+
   const handleSaveRestaurant = async () => {
     if (!selectedRestaurant) return;
     if (!credentials.username || !credentials.password) {
@@ -778,6 +895,14 @@ function AdminContent() {
       method: isUpdate ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
+        name: selectedRestaurant.name,
+        city: selectedRestaurant.city,
+        address: selectedRestaurant.address,
+        phone: selectedRestaurant.phone,
+        email: selectedRestaurant.email,
+        bank_account: selectedRestaurant.bank_account,
+        lat: selectedRestaurant.lat,
+        lng: selectedRestaurant.lng,
         contract_percentage: contractPercentage,
         billing_cycle_days: billingCycleDays,
         vat_rate: vatRate,
@@ -1328,6 +1453,20 @@ function AdminContent() {
                 {pendingRestaurants.length > 0 && (
                   <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-bold px-1 py-0.5 rounded-full border border-slate-50">
                     {pendingRestaurants.length}
+                  </span>
+                )}
+              </button>
+            )}
+            {hasPermission('restaurants') && (
+              <button 
+                onClick={() => setActiveTab('bundles')}
+                className={`relative px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'bundles' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Award size={14} />
+                Пакети
+                {pendingBundles.length > 0 && (
+                  <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[8px] font-bold px-1 py-0.5 rounded-full border border-slate-50">
+                    {pendingBundles.length}
                   </span>
                 )}
               </button>
@@ -3607,6 +3746,218 @@ function AdminContent() {
               </table>
             </div>
           </div>
+        ) : activeTab === 'bundles' ? (
+          <div className="space-y-8">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Award className="text-orange-500" />
+                  Барања за нови пакети
+                  {pendingBundles.length > 0 && (
+                    <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-xs font-bold ml-2">
+                      {pendingBundles.length}
+                    </span>
+                  )}
+                </h2>
+                <button 
+                  onClick={handleClearAllBundles}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-sm font-bold transition-all"
+                >
+                  <Trash2 size={16} />
+                  Избриши ги сите пакети
+                </button>
+              </div>
+              
+              {pendingBundles.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <p>Нема нови барања за пакети.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6">
+                  {pendingBundles.map(bundle => (
+                    <div key={bundle.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden hover:border-orange-300 transition-all flex flex-col md:flex-row">
+                      <div className="w-full md:w-48 h-48 md:h-auto relative bg-slate-100">
+                        {bundle.image_url ? (
+                          <img src={bundle.image_url} alt={bundle.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400">
+                            <Store size={48} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 p-6 flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h3 className="text-xl font-bold text-slate-800">{bundle.name}</h3>
+                              <p className="text-sm text-emerald-600 font-bold">{bundle.restaurant_name}</p>
+                            </div>
+                            <div className="text-2xl font-black text-orange-600">
+                              {bundle.price} ден.
+                            </div>
+                          </div>
+                          <p className="text-slate-600 text-sm mb-4">{bundle.description}</p>
+                          
+                          <div className="bg-slate-50 rounded-xl p-4 mb-4">
+                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Производи во пакетот:</h4>
+                            <div className="space-y-1">
+                              {bundle.items.map((item, idx) => (
+                                <div key={idx} className="flex justify-between text-sm">
+                                  <span className="text-slate-700">{item.quantity}x {item.name}</span>
+                                  <span className="text-slate-400">{item.price} ден.</span>
+                                </div>
+                              ))}
+                              <div className="pt-2 mt-2 border-t border-slate-200 flex justify-between font-bold">
+                                <span className="text-slate-800">Вкупна вредност:</span>
+                                <span className="text-slate-800">
+                                  {bundle.items.reduce((sum, item) => sum + (item.price * item.quantity), 0)} ден.
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-xs text-emerald-600 font-bold">
+                                <span>Заштеда за корисникот:</span>
+                                <span>
+                                  {bundle.items.reduce((sum, item) => sum + (item.price * item.quantity), 0) - bundle.price} ден.
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-4 text-xs text-slate-500">
+                            <div className="flex items-center gap-1">
+                              <Clock size={14} />
+                              Достапно: {bundle.start_time} - {bundle.end_time}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Activity size={14} />
+                              Денови: {(() => {
+                                try {
+                                  const days = typeof bundle.available_days === 'string' ? JSON.parse(bundle.available_days) : bundle.available_days;
+                                  return Array.isArray(days) ? days.join(', ') : bundle.available_days;
+                                } catch (e) {
+                                  return bundle.available_days;
+                                }
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-3 mt-6">
+                          <button 
+                            onClick={() => handleApproveBundle(bundle.id)}
+                            className="flex-1 bg-emerald-600 text-white py-2 rounded-xl font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Check size={18} /> Одобри
+                          </button>
+                          <button 
+                            onClick={() => handleRejectBundle(bundle.id)}
+                            className="flex-1 bg-red-50 text-red-600 py-2 rounded-xl font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <X size={18} /> Одбиј
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <FileText className="text-blue-500" />
+                Историја на пакети
+              </h2>
+
+              <div className="flex flex-wrap gap-4 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ресторан</label>
+                  <select 
+                    value={bundleFilterRestaurant}
+                    onChange={(e) => setBundleFilterRestaurant(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Сите ресторани</option>
+                    {approvedRestaurants.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Од датум</label>
+                  <input 
+                    type="date"
+                    value={bundleFilterStartDate}
+                    onChange={(e) => setBundleFilterStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">До датум</label>
+                  <input 
+                    type="date"
+                    value={bundleFilterEndDate}
+                    onChange={(e) => setBundleFilterEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Пакет</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Ресторан</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Цена</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Статус</th>
+                      <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Датум</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {allBundles.map(bundle => (
+                      <tr key={bundle.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0">
+                              {bundle.image_url ? (
+                                <img src={bundle.image_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                  <Award size={16} />
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">{bundle.name}</p>
+                              <p className="text-[10px] text-slate-500 line-clamp-1">{bundle.description}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4 text-sm text-slate-600">{bundle.restaurant_name}</td>
+                        <td className="p-4 text-sm font-bold text-slate-800">{bundle.price} ден.</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
+                            bundle.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                            bundle.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {bundle.status === 'approved' ? 'Одобрен' :
+                             bundle.status === 'pending' ? 'Во чекање' : 'Одбиен'}
+                          </span>
+                        </td>
+                        <td className="p-4 text-xs text-slate-400">
+                          {new Date(bundle.created_at).toLocaleDateString('mk-MK')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {allBundles.length === 0 && (
+                  <div className="p-12 text-center text-slate-400">Нема пронајдено пакети.</div>
+                )}
+              </div>
+            </div>
+          </div>
         ) : activeTab === 'restaurants' ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -3816,10 +4167,34 @@ function AdminContent() {
               <div>
                 <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Store className="text-orange-500" /> Основни податоци</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div><span className="text-slate-500 text-sm block">Назив</span><span className="font-medium">{selectedRestaurant.name}</span></div>
-                  <div><span className="text-slate-500 text-sm block">Град</span><span className="font-medium">{selectedRestaurant.city}</span></div>
+                  <div>
+                    <span className="text-slate-500 text-sm block">Назив</span>
+                    <input 
+                      type="text" 
+                      value={selectedRestaurant.name || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, name: e.target.value})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-slate-500 text-sm block">Град</span>
+                    <input 
+                      type="text" 
+                      value={selectedRestaurant.city || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, city: e.target.value})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                   <div><span className="text-slate-500 text-sm block">Поштенски број</span><span className="font-medium">{selectedRestaurant.spare_3 || 'Нема'}</span></div>
-                  <div className="md:col-span-2"><span className="text-slate-500 text-sm block">Адреса</span><span className="font-medium">{selectedRestaurant.address}</span></div>
+                  <div className="md:col-span-2">
+                    <span className="text-slate-500 text-sm block">Адреса</span>
+                    <input 
+                      type="text" 
+                      value={selectedRestaurant.address || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, address: e.target.value})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                   <div>
                     <span className="text-slate-500 text-sm block">Географска ширина (Lat)</span>
                     <input 
@@ -3842,9 +4217,44 @@ function AdminContent() {
                       placeholder="21.1234"
                     />
                   </div>
-                  <div><span className="text-slate-500 text-sm block">Е-маил</span><span className="font-medium">{selectedRestaurant.email}</span></div>
-                  <div><span className="text-slate-500 text-sm block">Телефон</span><span className="font-medium">{selectedRestaurant.phone}</span></div>
-                  <div className="md:col-span-2"><span className="text-slate-500 text-sm block">Жиро сметка</span><span className="font-medium font-mono">{selectedRestaurant.bank_account}</span></div>
+                  <div className="md:col-span-2">
+                    <span className="text-slate-500 text-sm block mb-2 font-bold">Изберете локација на мапа</span>
+                    <div className="h-64 rounded-xl overflow-hidden border border-slate-200">
+                      <LocationPickerMap 
+                        location={selectedRestaurant.lat && selectedRestaurant.lng ? [selectedRestaurant.lat, selectedRestaurant.lng] : null}
+                        setLocation={(loc) => setSelectedRestaurant({...selectedRestaurant, lat: loc[0], lng: loc[1]})}
+                        city={selectedRestaurant.city}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1 italic">Кликнете на мапата за да ја одредите точната локација на ресторанот.</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 text-sm block">Е-маил</span>
+                    <input 
+                      type="email" 
+                      value={selectedRestaurant.email || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, email: e.target.value})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-slate-500 text-sm block">Телефон</span>
+                    <input 
+                      type="text" 
+                      value={selectedRestaurant.phone || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, phone: e.target.value})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <span className="text-slate-500 text-sm block">Жиро сметка</span>
+                    <input 
+                      type="text" 
+                      value={selectedRestaurant.bank_account || ''} 
+                      onChange={e => setSelectedRestaurant({...selectedRestaurant, bank_account: e.target.value})}
+                      className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
                 </div>
               </div>
 

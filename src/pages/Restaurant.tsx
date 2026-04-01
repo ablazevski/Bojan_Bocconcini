@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Settings, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { io } from 'socket.io-client';
@@ -9,6 +9,7 @@ import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { safeFetchJson } from '../utils/api';
+import LocationPickerMap from '../components/LocationPickerMap';
 
 interface ModifierOption {
   name: string;
@@ -50,6 +51,32 @@ interface Order {
   ready_at?: string;
   payment_method: string;
   selected_fees: string;
+}
+
+interface BundleItem {
+  id?: number;
+  bundle_id?: number;
+  menu_item_id: number;
+  quantity: number;
+  name?: string;
+  price?: number;
+  modifiers?: any[];
+  available_modifiers?: any[];
+}
+
+interface Bundle {
+  id: number;
+  restaurant_id: number;
+  name: string;
+  description: string;
+  price: number;
+  image_url: string;
+  status: 'pending' | 'approved' | 'rejected';
+  start_time: string;
+  end_time: string;
+  available_days: string[];
+  created_at: string;
+  items: BundleItem[];
 }
 
 const MACEDONIAN_CITIES = [
@@ -184,7 +211,7 @@ export default function Restaurant() {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings' | 'reviews' | 'campaigns' | 'invoicing'>('orders');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings' | 'reviews' | 'campaigns' | 'invoicing' | 'bundles'>('orders');
   const [invoices, setInvoices] = useState<any[]>([]);
   const [expandedInvoices, setExpandedInvoices] = useState<Set<number>>(new Set());
 
@@ -231,6 +258,20 @@ export default function Restaurant() {
   const [deliveryZones, setDeliveryZones] = useState<[number, number][][]>([]);
   const [isSavingZones, setIsSavingZones] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [bundles, setBundles] = useState<Bundle[]>([]);
+  const [isAddingBundle, setIsAddingBundle] = useState(false);
+  const [editingBundleId, setEditingBundleId] = useState<number | null>(null);
+  const [selectedBundleItemForModifiers, setSelectedBundleItemForModifiers] = useState<{item: MenuItem, bundleItemIndex: number} | null>(null);
+  const [bundleForm, setBundleForm] = useState<Partial<Bundle>>({
+    name: '',
+    description: '',
+    price: 0,
+    image_url: '',
+    start_time: '00:00',
+    end_time: '23:59',
+    available_days: ['Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота', 'Недела'],
+    items: []
+  });
   const [orderView, setOrderView] = useState<'active' | 'completed'>('active');
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [hasNewOrders, setHasNewOrders] = useState(false);
@@ -305,6 +346,7 @@ export default function Restaurant() {
     }
   };
   const [settingsForm, setSettingsForm] = useState({
+    name: '',
     password: '',
     phone: '',
     bank_account: '',
@@ -317,7 +359,11 @@ export default function Restaurant() {
     spare_2: '',
     spare_3: '',
     spare_4: '',
-    working_hours: '{}'
+    working_hours: '{}',
+    delivery_fee: 0,
+    min_order_amount: 0,
+    lat: 0,
+    lng: 0
   });
 
   const fetchInvoices = useCallback(async (isRetry = false) => {
@@ -360,6 +406,16 @@ export default function Restaurant() {
         console.warn('[INVOICE] Network error, retrying in 2 seconds...');
         setTimeout(() => fetchInvoices(true), 2000);
       }
+    }
+  }, [loggedInRestaurant]);
+
+  const fetchBundles = useCallback(async () => {
+    if (!loggedInRestaurant) return;
+    try {
+      const data = await safeFetchJson(`/api/restaurants/${loggedInRestaurant.id}/bundles`);
+      setBundles(data);
+    } catch (e) {
+      console.error('Failed to fetch bundles:', e);
     }
   }, [loggedInRestaurant]);
 
@@ -432,6 +488,7 @@ export default function Restaurant() {
   useEffect(() => {
     if (loggedInRestaurant) {
       setSettingsForm({
+        name: loggedInRestaurant.name || '',
         password: loggedInRestaurant.password || '',
         phone: loggedInRestaurant.phone || '',
         bank_account: loggedInRestaurant.bank_account || '',
@@ -444,6 +501,10 @@ export default function Restaurant() {
         spare_2: loggedInRestaurant.spare_2 || '',
         spare_3: loggedInRestaurant.spare_3 || '',
         spare_4: loggedInRestaurant.spare_4 || '',
+        lat: loggedInRestaurant.lat || 0,
+        lng: loggedInRestaurant.lng || 0,
+        delivery_fee: loggedInRestaurant.delivery_fee || 0,
+        min_order_amount: loggedInRestaurant.min_order_amount || 0,
         working_hours: typeof loggedInRestaurant.working_hours === 'string' 
           ? loggedInRestaurant.working_hours 
           : JSON.stringify(loggedInRestaurant.working_hours || {}, null, 2)
@@ -779,6 +840,7 @@ export default function Restaurant() {
 
       const interval = setInterval(() => {
         fetchOrders(true);
+        fetchBundles();
       }, 30000); // Keep as fallback but less frequent
       
       return () => {
@@ -786,7 +848,7 @@ export default function Restaurant() {
         clearInterval(interval);
       };
     }
-  }, [loggedInRestaurant, fetchMenu, fetchOrders, fetchReviews, fetchCampaigns, fetchActiveDeliveryPartners, fetchInvoices, isSessionSynced]);
+  }, [loggedInRestaurant, fetchMenu, fetchOrders, fetchReviews, fetchCampaigns, fetchActiveDeliveryPartners, fetchInvoices, fetchBundles, isSessionSynced]);
 
   const updateOrderDelay = async (orderId: number, delayMinutes: number) => {
     const res = await fetch(`/api/orders/${orderId}/delay`, {
@@ -1173,6 +1235,12 @@ export default function Restaurant() {
               Промоции
             </button>
             <button 
+              onClick={() => setActiveTab('bundles')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'bundles' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            >
+              Пакети
+            </button>
+            <button 
               onClick={() => setActiveTab('invoicing')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'invoicing' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             >
@@ -1242,6 +1310,12 @@ export default function Restaurant() {
           className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'menu' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Мени
+        </button>
+        <button 
+          onClick={() => setActiveTab('bundles')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'bundles' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
+        >
+          Пакети
         </button>
         <button 
           onClick={() => setActiveTab('invoicing')}
@@ -1940,6 +2014,10 @@ export default function Restaurant() {
               <form onSubmit={handleSaveSettings} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Назив на ресторан *</label>
+                    <input type="text" required value={settingsForm.name} onChange={e => setSettingsForm({...settingsForm, name: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="Пр. Пицерија 5" />
+                  </div>
+                  <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Град *</label>
                     <select 
                       required 
@@ -1996,6 +2074,17 @@ export default function Restaurant() {
                       </label>
                     </div>
                   </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Локација на мапа</label>
+                    <div className="h-64 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                      <LocationPickerMap 
+                        location={settingsForm.lat && settingsForm.lng ? [settingsForm.lat, settingsForm.lng] : null}
+                        setLocation={(loc) => setSettingsForm({...settingsForm, lat: loc[0], lng: loc[1]})}
+                        city={settingsForm.city}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 italic">Кликнете на мапата за да ја одредите точната локација на вашиот ресторан.</p>
+                  </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">HEADER PHOTO</label>
                     <div className="flex gap-2">
@@ -2021,6 +2110,14 @@ export default function Restaurant() {
                   <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Резервно поле 4</label>
                     <input type="text" value={settingsForm.spare_4} onChange={e => setSettingsForm({...settingsForm, spare_4: e.target.value})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Достава (ден.)</label>
+                    <input type="number" value={settingsForm.delivery_fee} onChange={e => setSettingsForm({...settingsForm, delivery_fee: Number(e.target.value)})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Минимум за достава (ден.)</label>
+                    <input type="number" value={settingsForm.min_order_amount} onChange={e => setSettingsForm({...settingsForm, min_order_amount: Number(e.target.value)})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
@@ -2743,7 +2840,529 @@ export default function Restaurant() {
             </div>
           </div>
         )}
+
+        {activeTab === 'bundles' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <ShoppingBag className="text-red-500" />
+                Пакети на производи
+              </h2>
+              {!isAddingBundle && (
+                <button 
+                  onClick={() => {
+                    setIsAddingBundle(true);
+                    setEditingBundleId(null);
+                    setBundleForm({
+                      name: '',
+                      description: '',
+                      price: 0,
+                      image_url: '',
+                      start_time: '00:00',
+                      end_time: '23:59',
+                      available_days: ['Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота', 'Недела'],
+                      items: []
+                    });
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-red-600/20"
+                >
+                  <Plus size={20} />
+                  Нов пакет
+                </button>
+              )}
+            </div>
+
+            {isAddingBundle ? (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800"
+              >
+                <div className="flex justify-between items-center mb-8">
+                  <h3 className="text-xl font-bold text-slate-800 dark:text-white">
+                    {editingBundleId ? 'Уреди пакет' : 'Креирај нов пакет'}
+                  </h3>
+                  <button onClick={() => setIsAddingBundle(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+                    <X size={24} className="text-slate-400" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Име на пакетот</label>
+                      <input 
+                        type="text" 
+                        value={bundleForm.name}
+                        onChange={e => setBundleForm({...bundleForm, name: e.target.value})}
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl focus:ring-2 focus:ring-red-500 outline-none text-slate-800 dark:text-white"
+                        placeholder="Пр. Семеен Пакет"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Опис</label>
+                      <textarea 
+                        value={bundleForm.description}
+                        onChange={e => setBundleForm({...bundleForm, description: e.target.value})}
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl focus:ring-2 focus:ring-red-500 outline-none text-slate-800 dark:text-white h-32"
+                        placeholder="Опишете што содржи пакетот..."
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Цена (ден.)</label>
+                        <input 
+                          type="number" 
+                          value={bundleForm.price}
+                          onChange={e => setBundleForm({...bundleForm, price: Number(e.target.value)})}
+                          className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl focus:ring-2 focus:ring-red-500 outline-none text-slate-800 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Слика</label>
+                        <div className="relative group">
+                          <input 
+                            type="file" 
+                            onChange={async (e) => {
+                              if (!e.target.files?.[0]) return;
+                              const formData = new FormData();
+                              formData.append('image', e.target.files[0]);
+                              const res = await fetch('/api/upload', { 
+                                method: 'POST', 
+                                body: formData,
+                                credentials: 'include'
+                              });
+                              const data = await res.json();
+                              setBundleForm({...bundleForm, image_url: data.url});
+                            }}
+                            className="hidden" 
+                            id="bundle-image-upload"
+                          />
+                          <label 
+                            htmlFor="bundle-image-upload"
+                            className="flex items-center justify-center gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-500 dark:text-slate-400 font-medium"
+                          >
+                            {bundleForm.image_url ? (
+                              <img src={bundleForm.image_url} alt="Bundle" className="w-8 h-8 rounded-lg object-cover" />
+                            ) : (
+                              <ImageIcon size={20} />
+                            )}
+                            Промени слика
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+                      <h4 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                        <Clock size={18} className="text-red-500" />
+                        Достапност
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Од час</label>
+                          <input 
+                            type="time" 
+                            value={bundleForm.start_time}
+                            onChange={e => setBundleForm({...bundleForm, start_time: e.target.value})}
+                            className="w-full p-3 bg-white dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-slate-800 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-2">До час</label>
+                          <input 
+                            type="time" 
+                            value={bundleForm.end_time}
+                            onChange={e => setBundleForm({...bundleForm, end_time: e.target.value})}
+                            className="w-full p-3 bg-white dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-slate-800 dark:text-white"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-3">Денови во неделата</label>
+                        <div className="flex flex-wrap gap-2">
+                          {['Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота', 'Недела'].map(day => {
+                            const days = bundleForm.available_days || [];
+                            const isSelected = days.includes(day);
+                            return (
+                              <button
+                                key={day}
+                                onClick={() => {
+                                  const newDays = isSelected 
+                                    ? days.filter((d: string) => d !== day)
+                                    : [...days, day];
+                                  setBundleForm({...bundleForm, available_days: newDays});
+                                }}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                                  isSelected 
+                                    ? 'bg-red-600 text-white shadow-md shadow-red-600/20' 
+                                    : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-100 dark:border-slate-800'
+                                }`}
+                              >
+                                {day.substring(0, 3)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-4">Производи во пакетот</label>
+                      <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        {menuItems.map(item => {
+                          const bundleItem = bundleForm.items?.find(bi => bi.menu_item_id === item.id);
+                          return (
+                            <div key={item.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 transition-all hover:border-red-200 dark:hover:border-red-900/30">
+                              <div className="flex items-center gap-3">
+                                {item.image_url && <img src={item.image_url} alt={item.name} className="w-10 h-10 rounded-lg object-cover" />}
+                                <div>
+                                  <p className="font-bold text-slate-800 dark:text-white text-sm">{item.name}</p>
+                                  <p className="text-xs text-slate-400">{item.price} ден.</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                {bundleItem ? (
+                                  <div className="flex items-center gap-3">
+                                    {item.modifiers && item.modifiers.length > 0 && (
+                                      <button 
+                                        onClick={() => {
+                                          const index = bundleForm.items?.findIndex(bi => bi.menu_item_id === item.id);
+                                          if (index !== undefined && index !== -1) {
+                                            setSelectedBundleItemForModifiers({ item, bundleItemIndex: index });
+                                          }
+                                        }}
+                                        className={`p-2 rounded-xl border transition-all flex items-center gap-2 text-xs font-bold ${
+                                          bundleItem.modifiers && bundleItem.modifiers.length > 0
+                                            ? 'bg-orange-50 border-orange-200 text-orange-600'
+                                            : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-slate-400 hover:text-red-600'
+                                        }`}
+                                      >
+                                        <Settings size={16} />
+                                        {bundleItem.modifiers && bundleItem.modifiers.length > 0 ? 'Уредено' : 'Опции'}
+                                      </button>
+                                    )}
+                                    <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-100 dark:border-slate-800">
+                                      <button 
+                                        onClick={() => {
+                                          const newItems = bundleItem.quantity > 1 
+                                            ? bundleForm.items?.map(bi => bi.menu_item_id === item.id ? {...bi, quantity: bi.quantity - 1} : bi)
+                                            : bundleForm.items?.filter(bi => bi.menu_item_id !== item.id);
+                                          setBundleForm({...bundleForm, items: newItems});
+                                        }}
+                                        className="w-8 h-8 flex items-center justify-center text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                      >
+                                        -
+                                      </button>
+                                      <span className="w-6 text-center font-bold text-slate-800 dark:text-white">{bundleItem.quantity}</span>
+                                      <button 
+                                        onClick={() => {
+                                          const newItems = bundleForm.items?.map(bi => bi.menu_item_id === item.id ? {...bi, quantity: bi.quantity + 1} : bi);
+                                          setBundleForm({...bundleForm, items: newItems});
+                                        }}
+                                        className="w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    onClick={() => {
+                                      const newItems = [...(bundleForm.items || []), { menu_item_id: item.id, quantity: 1, modifiers: [] }];
+                                      setBundleForm({...bundleForm, items: newItems});
+                                    }}
+                                    className="p-2 bg-white dark:bg-slate-900 text-slate-400 hover:text-red-600 rounded-xl border border-slate-100 dark:border-slate-800 transition-all"
+                                  >
+                                    <Plus size={20} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex justify-between items-center mb-6">
+                        <div>
+                          <p className="text-xs font-bold text-slate-400 uppercase">Вкупна вредност на производите</p>
+                          <p className="text-lg font-bold text-slate-800 dark:text-white">
+                            {bundleForm.items?.reduce((sum, bi) => {
+                              const item = menuItems.find(m => m.id === bi.menu_item_id);
+                              const basePrice = (item?.price || 0);
+                              const modifiersPrice = bi.modifiers?.reduce((mSum: number, group: any) => {
+                                return mSum + group.options.reduce((oSum: number, opt: any) => oSum + (opt.price || 0), 0);
+                              }, 0) || 0;
+                              return sum + (basePrice + modifiersPrice) * bi.quantity;
+                            }, 0)} ден.
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Заштеда за корисникот</p>
+                          <p className="text-lg font-bold text-emerald-600">
+                            {Math.max(0, (bundleForm.items?.reduce((sum, bi) => {
+                              const item = menuItems.find(m => m.id === bi.menu_item_id);
+                              const basePrice = (item?.price || 0);
+                              const modifiersPrice = bi.modifiers?.reduce((mSum: number, group: any) => {
+                                return mSum + group.options.reduce((oSum: number, opt: any) => oSum + (opt.price || 0), 0);
+                              }, 0) || 0;
+                              return sum + (basePrice + modifiersPrice) * bi.quantity;
+                            }, 0) || 0) - (bundleForm.price || 0))} ден.
+                          </p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={async () => {
+                          if (!bundleForm.name || !bundleForm.price || !bundleForm.items?.length) {
+                            toast.error('Ве молиме пополнете ги сите задолжителни полиња');
+                            return;
+                          }
+                          const url = editingBundleId 
+                            ? `/api/restaurants/${loggedInRestaurant?.id}/bundles/${editingBundleId}`
+                            : `/api/restaurants/${loggedInRestaurant?.id}/bundles`;
+                          const method = editingBundleId ? 'PUT' : 'POST';
+                          
+                          const res = await fetch(url, {
+                            method,
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify(bundleForm)
+                          });
+                          if (res.ok) {
+                            toast.success(editingBundleId ? 'Пакетот е ажуриран и чека одобрување' : 'Пакетот е креиран и чека одобрување');
+                            setIsAddingBundle(false);
+                            fetchBundles();
+                          }
+                        }}
+                        className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-2xl transition-all shadow-lg shadow-red-600/20"
+                      >
+                        {editingBundleId ? 'Зачувај промени' : 'Испрати за одобрување'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {bundles.map(bundle => (
+                  <div key={bundle.id} className="bg-white dark:bg-slate-900 rounded-3xl overflow-hidden shadow-sm border border-slate-100 dark:border-slate-800 group transition-all hover:shadow-xl hover:-translate-y-1">
+                    <div className="h-48 relative overflow-hidden">
+                      <img 
+                        src={bundle.image_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&q=80&w=800'} 
+                        alt={bundle.name} 
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute top-4 right-4">
+                        <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-lg ${
+                          bundle.status === 'approved' ? 'bg-emerald-500 text-white' :
+                          bundle.status === 'pending' ? 'bg-amber-500 text-white' :
+                          'bg-red-500 text-white'
+                        }`}>
+                          {bundle.status === 'approved' ? 'Одобрен' :
+                           bundle.status === 'pending' ? 'Во чекање' : 'Одбиен'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-bold text-slate-800 dark:text-white text-lg">{bundle.name}</h3>
+                        <p className="font-black text-red-600">{bundle.price} ден.</p>
+                      </div>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 line-clamp-2">{bundle.description}</p>
+                      
+                      <div className="space-y-2 mb-6">
+                        {bundle.items.map((item, idx) => {
+                          const modifiersPrice = item.modifiers?.reduce((mSum: number, group: any) => {
+                            return mSum + group.options.reduce((oSum: number, opt: any) => oSum + (opt.price || 0), 0);
+                          }, 0) || 0;
+                          return (
+                            <div key={idx} className="flex flex-col gap-1">
+                              <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
+                                <span>{item.quantity}x {item.name}</span>
+                                <span className="font-medium">{((item.price || 0) + modifiersPrice) * item.quantity} ден.</span>
+                              </div>
+                              {item.modifiers && item.modifiers.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {item.modifiers.map((group: any) => (
+                                    group.options.map((opt: any) => (
+                                      <span key={opt.name} className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-500">
+                                        {opt.name}
+                                      </span>
+                                    ))
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            setEditingBundleId(bundle.id);
+                            setBundleForm({
+                              ...bundle,
+                              items: bundle.items.map(bi => ({ 
+                                menu_item_id: bi.menu_item_id, 
+                                quantity: bi.quantity,
+                                modifiers: bi.modifiers || []
+                              }))
+                            });
+                            setIsAddingBundle(true);
+                          }}
+                          className="flex-1 py-2.5 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Pencil size={16} />
+                          Уреди
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            if (confirm('Дали сте сигурни дека сакате да го избришете овој пакет?')) {
+                              const res = await fetch(`/api/restaurants/${loggedInRestaurant?.id}/bundles/${bundle.id}`, { 
+                                method: 'DELETE',
+                                credentials: 'include'
+                              });
+                              if (res.ok) {
+                                toast.success('Пакетот е избришан');
+                                fetchBundles();
+                              }
+                            }
+                          }}
+                          className="p-2.5 text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {bundles.length === 0 && !isAddingBundle && (
+                  <div className="col-span-full text-center py-20 bg-white dark:bg-slate-900 rounded-[3rem] border border-dashed border-slate-200 dark:border-slate-800">
+                    <ShoppingBag className="mx-auto text-slate-200 dark:text-slate-700 mb-4" size={48} />
+                    <p className="text-slate-500 dark:text-slate-400 font-medium">Сè уште немате креирано пакети.</p>
+                    <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">Креирајте пакети за да ги зголемите вашите продажби.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </main>
+
+      {/* Bundle Item Modifiers Modal */}
+      <AnimatePresence>
+        {selectedBundleItemForModifiers && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+            >
+              <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800 dark:text-white">Опции за {selectedBundleItemForModifiers.item.name}</h2>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm">Изберете ги опциите што ќе бидат вклучени во овој пакет</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedBundleItemForModifiers(null)}
+                  className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors text-slate-400"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="p-8 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                <div className="space-y-8">
+                  {selectedBundleItemForModifiers.item.modifiers?.map((group: any) => (
+                    <div key={group.name} className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                      <div className="flex justify-between items-center mb-4">
+                        <h4 className="font-bold text-slate-800 dark:text-white text-lg">{group.name}</h4>
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-2 py-1 rounded-lg">
+                          {group.type === 'single' ? 'Еден избор' : 'Повеќе избори'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {group.options.map((option: any) => {
+                          const bundleItem = bundleForm.items?.[selectedBundleItemForModifiers.bundleItemIndex];
+                          const selectedGroup = bundleItem?.modifiers?.find((m: any) => m.name === group.name);
+                          const isSelected = selectedGroup?.options.some((o: any) => o.name === option.name);
+                          
+                          return (
+                            <button
+                              key={option.name}
+                              onClick={() => {
+                                const currentItems = [...(bundleForm.items || [])];
+                                const currentItem = { ...currentItems[selectedBundleItemForModifiers.bundleItemIndex] };
+                                let currentModifiers = [...(currentItem.modifiers || [])];
+                                
+                                let groupIndex = currentModifiers.findIndex((m: any) => m.name === group.name);
+                                
+                                if (groupIndex === -1) {
+                                  currentModifiers.push({ name: group.name, type: group.type, options: [option] });
+                                } else {
+                                  const groupToUpdate = { ...currentModifiers[groupIndex] };
+                                  if (group.type === 'single') {
+                                    groupToUpdate.options = [option];
+                                  } else {
+                                    const optionIndex = groupToUpdate.options.findIndex((o: any) => o.name === option.name);
+                                    if (optionIndex === -1) {
+                                      groupToUpdate.options = [...groupToUpdate.options, option];
+                                    } else {
+                                      groupToUpdate.options = groupToUpdate.options.filter((o: any) => o.name !== option.name);
+                                    }
+                                  }
+                                  
+                                  if (groupToUpdate.options.length === 0) {
+                                    currentModifiers = currentModifiers.filter((_, i) => i !== groupIndex);
+                                  } else {
+                                    currentModifiers[groupIndex] = groupToUpdate;
+                                  }
+                                }
+                                
+                                currentItem.modifiers = currentModifiers;
+                                currentItems[selectedBundleItemForModifiers.bundleItemIndex] = currentItem;
+                                setBundleForm({ ...bundleForm, items: currentItems });
+                              }}
+                              className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                                isSelected 
+                                  ? 'border-red-500 bg-red-50 text-red-700 shadow-md shadow-red-200' 
+                                  : 'border-white dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-red-200 text-slate-600 dark:text-slate-400'
+                              }`}
+                            >
+                              <span className="font-bold">{option.name}</span>
+                              {option.price > 0 && (
+                                <span className={`text-sm font-black ${isSelected ? 'text-red-600' : 'text-slate-400'}`}>
+                                  +{option.price} ден.
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-8 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button 
+                  onClick={() => setSelectedBundleItemForModifiers(null)}
+                  className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-2xl transition-all shadow-lg shadow-red-600/20"
+                >
+                  Зачувај
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Confirm Approve Modal */}
       <AnimatePresence>

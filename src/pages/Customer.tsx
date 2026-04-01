@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info } from 'lucide-react';
 import { motion } from 'motion/react';
+import { toast } from 'sonner';
 import LocationPickerMap from '../components/LocationPickerMap';
 import { useTheme } from '../context/ThemeContext';
 import { safeFetchJson } from '../utils/api';
@@ -27,6 +28,10 @@ interface MenuItem {
   category: string;
   subcategory: string;
   modifiers: ModifierGroup[];
+  isBundle?: boolean;
+  items?: any[];
+  availability_days?: string;
+  availability_times?: string;
 }
 
 interface CartItem extends MenuItem {
@@ -47,6 +52,7 @@ export default function Customer() {
   const [availableRestaurants, setAvailableRestaurants] = useState<any[]>([]);
   
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [bundles, setBundles] = useState<any[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
@@ -310,22 +316,53 @@ export default function Customer() {
   }, [homeSlider.length]);
 
   useEffect(() => {
-    if (selectedRestaurantId) {
-      const restaurant = availableRestaurants.find(r => r.id === selectedRestaurantId);
-      if (restaurant) {
-        setDeliveryFee(Number(restaurant.delivery_fee || 0));
-        setMinOrderAmount(Number(restaurant.min_order_amount || 0));
+    const updateFees = async () => {
+      // Get all unique restaurant IDs from the cart
+      const cartRestaurantIds = Array.from(new Set(cart.map(item => item.restaurant_id)));
+      
+      // Also include selectedRestaurantId if it's not in the cart
+      const allNeededIds = Array.from(new Set([...cartRestaurantIds, ...(selectedRestaurantId ? [selectedRestaurantId] : [])]));
+
+      // Fetch any missing restaurants
+      for (const rid of allNeededIds) {
+        if (!availableRestaurants.find(r => r.id === rid)) {
+          try {
+            const restaurant = await safeFetchJson(`/api/customer/restaurant-by-id/${rid}`);
+            if (restaurant) {
+              setAvailableRestaurants(prev => {
+                if (prev.some(r => r.id === restaurant.id)) return prev;
+                return [...prev, restaurant];
+              });
+            }
+          } catch (err) {
+            console.error(`Failed to fetch restaurant ${rid} for fees:`, err);
+          }
+        }
       }
-    } else {
-      // If no restaurant selected, use global delivery fee
-      if (globalSettings.delivery_fee) {
-        setDeliveryFee(Number(globalSettings.delivery_fee));
+
+      // Update UI states for the "active" restaurant or first cart restaurant
+      const activeId = selectedRestaurantId || (cart.length > 0 ? cart[0].restaurant_id : null);
+      
+      if (activeId) {
+        const restaurant = availableRestaurants.find(r => r.id === activeId);
+        if (restaurant) {
+          console.log(`Setting fees for restaurant ${restaurant.id}: fee=${restaurant.delivery_fee}, min=${restaurant.min_order_amount}`);
+          setDeliveryFee(Number(restaurant.delivery_fee || 0));
+          setMinOrderAmount(Number(restaurant.min_order_amount || 0));
+        }
       } else {
-        setDeliveryFee(0);
+        // If no restaurant selected and cart empty, use global delivery fee
+        if (globalSettings.delivery_fee) {
+          setDeliveryFee(Number(globalSettings.delivery_fee));
+        } else {
+          setDeliveryFee(0);
+        }
+        setMinOrderAmount(0);
       }
-      setMinOrderAmount(0);
-    }
-  }, [selectedRestaurantId, availableRestaurants, globalSettings]);
+    };
+
+    updateFees();
+  }, [selectedRestaurantId, availableRestaurants.length, globalSettings, cart.length]);
 
   const fetchSettings = async () => {
     try {
@@ -419,6 +456,7 @@ export default function Customer() {
       const data = await res.json();
       
       setAvailableRestaurants(data.restaurants);
+      setBundles(data.bundles || []);
       
       // Parse modifiers from JSON string
       const parsedItems = data.items.map((item: any) => ({
@@ -501,13 +539,50 @@ export default function Customer() {
     return total;
   };
 
+  const isBundleAvailable = (bundle: any) => {
+    try {
+      const days = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
+      const macedoniaTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"});
+      const now = new Date(macedoniaTime);
+      const dayName = days[now.getDay()];
+      
+      const availabilityDays = Array.isArray(bundle.available_days) 
+        ? bundle.available_days 
+        : (typeof bundle.available_days === 'string' ? JSON.parse(bundle.available_days) : []);
+      
+      if (availabilityDays.length > 0 && !availabilityDays.includes(dayName)) {
+        return false;
+      }
+      
+      if (bundle.start_time && bundle.end_time) {
+        const [startH, startM] = bundle.start_time.split(':').map(Number);
+        const [endH, endM] = bundle.end_time.split(':').map(Number);
+        const currentH = now.getHours();
+        const currentM = now.getMinutes();
+        
+        const startTotal = startH * 60 + startM;
+        const endTotal = endH * 60 + endM;
+        const currentTotal = currentH * 60 + currentM;
+        
+        if (currentTotal < startTotal || currentTotal > endTotal) {
+          return false;
+        }
+      }
+      
+      return true;
+    } catch (e) {
+      console.error("Error checking bundle availability", e);
+      return true;
+    }
+  };
+
   const addToCart = () => {
     if (!selectedItem) return;
     
-    const finalPrice = calculateFinalPrice();
+    const finalPrice = selectedItem.isBundle ? selectedItem.price : calculateFinalPrice();
 
     if (groupOrderCode) {
-      addGroupItem(selectedItem, selectedModifiers, finalPrice);
+      addGroupItem(selectedItem, selectedItem.isBundle ? {} : selectedModifiers, finalPrice);
       setSelectedItem(null);
       return;
     }
@@ -515,7 +590,7 @@ export default function Customer() {
     const cartItem: CartItem = {
       ...selectedItem,
       cartId: Math.random().toString(36).substr(2, 9),
-      selectedModifiers,
+      selectedModifiers: selectedItem.isBundle ? {} : selectedModifiers,
       finalPrice: finalPrice
     };
     
@@ -528,6 +603,33 @@ export default function Customer() {
   };
 
   const cartTotal = cart.reduce((sum, item) => sum + item.finalPrice, 0);
+  
+  // Calculate delivery fee per restaurant in cart
+  const cartByRestaurant = cart.reduce((acc, item) => {
+    if (!acc[item.restaurant_id]) acc[item.restaurant_id] = [];
+    acc[item.restaurant_id].push(item);
+    return acc;
+  }, {} as Record<number, CartItem[]>);
+
+  const currentDeliveryFee = Object.entries(cartByRestaurant).reduce((total, [restId, items]) => {
+    const restaurant = availableRestaurants.find(r => r.id === Number(restId));
+    const restTotal = items.reduce((sum, item) => sum + item.finalPrice, 0);
+    const fee = Number(restaurant?.delivery_fee || 0);
+    const min = Number(restaurant?.min_order_amount || 0);
+    
+    // If min order met, fee is 0 for this restaurant
+    const restFee = (min > 0 && restTotal >= min) ? 0 : fee;
+    return total + restFee;
+  }, 0);
+
+  // Check if all restaurants in cart meet their minimum order amount
+  const isMinOrderMet = Object.entries(cartByRestaurant).every(([restId, items]) => {
+    const restaurant = availableRestaurants.find(r => r.id === Number(restId));
+    const restTotal = items.reduce((sum, item) => sum + item.finalPrice, 0);
+    const min = Number(restaurant?.min_order_amount || 0);
+    return min === 0 || restTotal >= min;
+  });
+
   const feesTotal = Object.entries(selectedFees).reduce((total, [restId, feeNames]) => {
     const restaurant = availableRestaurants.find(r => r.id === Number(restId));
     if (!restaurant || !restaurant.payment_config) return total;
@@ -544,7 +646,6 @@ export default function Customer() {
   }, 0);
   
   const selectedCampaign = activeCampaigns.find(c => c.id === selectedCampaignId);
-  const currentDeliveryFee = (minOrderAmount > 0 && cartTotal >= minOrderAmount) ? 0 : deliveryFee;
   const finalTotal = Math.max(0, cartTotal - (selectedCampaign ? selectedCampaign.budget : 0) + currentDeliveryFee + feesTotal);
 
   const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
@@ -710,6 +811,10 @@ export default function Customer() {
     ? menuItems.filter(item => item.restaurant_id === selectedRestaurantId)
     : menuItems;
 
+  const restaurantBundles = selectedRestaurantId
+    ? bundles.filter(b => b.restaurant_id === selectedRestaurantId && isBundleAvailable(b))
+    : bundles.filter(isBundleAvailable);
+
   const filteredItems = restaurantItems.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -724,6 +829,11 @@ export default function Customer() {
     acc[cat][sub].push(item);
     return acc;
   }, {} as Record<string, Record<string, MenuItem[]>>);
+
+  if (restaurantBundles.length > 0) {
+    if (!groupedItems['Пакети']) groupedItems['Пакети'] = {};
+    groupedItems['Пакети']['Промотивни пакети'] = restaurantBundles.map(b => ({ ...b, isBundle: true }));
+  }
 
   return (
     <div 
@@ -1387,7 +1497,11 @@ export default function Customer() {
                       <span className="font-bold text-slate-700 dark:text-slate-200">{currentDeliveryFee} ден.</span>
                     </div>
                   )}
-                  {minOrderAmount > 0 && cartTotal >= minOrderAmount && deliveryFee > 0 && (
+                  {isMinOrderMet && Object.values(cartByRestaurant).some(items => {
+                    const r = availableRestaurants.find(res => res.id === items[0].restaurant_id);
+                    const total = items.reduce((s, i) => s + i.finalPrice, 0);
+                    return Number(r?.min_order_amount || 0) > 0 && total >= Number(r?.min_order_amount || 0) && Number(r?.delivery_fee || 0) > 0;
+                  }) && (
                     <div className="flex justify-between items-center mb-2 text-emerald-600 dark:text-emerald-400 font-bold">
                       <span>Достава:</span>
                       <span>БЕСПЛАТНА</span>
@@ -1410,10 +1524,51 @@ export default function Customer() {
                     </div>
                   )}
                   <button 
-                    onClick={() => setStep('checkout')}
-                    className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-colors shadow-lg shadow-orange-500/30 text-lg"
+                    onClick={() => {
+                      if (!isMinOrderMet) {
+                        const failedRest = Object.entries(cartByRestaurant).find(([restId, items]) => {
+                          const restaurant = availableRestaurants.find(r => r.id === Number(restId));
+                          const restTotal = items.reduce((sum, item) => sum + item.finalPrice, 0);
+                          const min = Number(restaurant?.min_order_amount || 0);
+                          return min > 0 && restTotal < min;
+                        });
+                        
+                        if (failedRest) {
+                          const restaurant = availableRestaurants.find(r => r.id === Number(failedRest[0]));
+                          const restTotal = failedRest[1].reduce((sum, item) => sum + item.finalPrice, 0);
+                          const min = Number(restaurant?.min_order_amount || 0);
+                          toast.error(`Минимална нарачка за ${restaurant?.name || 'ресторанот'} е ${min} ден. Ви недостигаат уште ${min - restTotal} ден.`);
+                        }
+                        return;
+                      }
+                      setStep('checkout');
+                    }}
+                    disabled={!isMinOrderMet}
+                    className={`w-full font-bold py-4 rounded-2xl transition-colors shadow-lg text-lg ${
+                      !isMinOrderMet
+                        ? 'bg-slate-300 cursor-not-allowed text-slate-500'
+                        : 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-500/30'
+                    }`}
                   >
-                    Продолжи кон наплата
+                    {!isMinOrderMet ? (
+                      (() => {
+                        const failedRest = Object.entries(cartByRestaurant).find(([restId, items]) => {
+                          const restaurant = availableRestaurants.find(r => r.id === Number(restId));
+                          const restTotal = items.reduce((sum, item) => sum + item.finalPrice, 0);
+                          const min = Number(restaurant?.min_order_amount || 0);
+                          return min > 0 && restTotal < min;
+                        });
+                        if (failedRest) {
+                          const restaurant = availableRestaurants.find(r => r.id === Number(failedRest[0]));
+                          const restTotal = failedRest[1].reduce((sum, item) => sum + item.finalPrice, 0);
+                          const min = Number(restaurant?.min_order_amount || 0);
+                          return `Минимум ${min} ден. (фалат ${min - restTotal})`;
+                        }
+                        return 'Минимум за достава';
+                      })()
+                    ) : (
+                      'Продолжи кон наплата'
+                    )}
                   </button>
                 </div>
               </>
@@ -1588,7 +1743,11 @@ export default function Customer() {
                       <span className="font-bold text-slate-700 dark:text-slate-200">{currentDeliveryFee} ден.</span>
                     </div>
                   )}
-                  {minOrderAmount > 0 && cartTotal >= minOrderAmount && deliveryFee > 0 && (
+                  {isMinOrderMet && Object.values(cartByRestaurant).some(items => {
+                    const r = availableRestaurants.find(res => res.id === items[0].restaurant_id);
+                    const total = items.reduce((s, i) => s + i.finalPrice, 0);
+                    return Number(r?.min_order_amount || 0) > 0 && total >= Number(r?.min_order_amount || 0) && Number(r?.delivery_fee || 0) > 0;
+                  }) && (
                     <div className="flex justify-between items-center mb-2 text-emerald-600 dark:text-emerald-400 font-bold">
                       <span>Достава:</span>
                       <span>БЕСПЛАТНА</span>
@@ -1763,7 +1922,7 @@ export default function Customer() {
               </div>
               <p className="text-slate-500 dark:text-slate-400 mb-6">{selectedItem.description}</p>
 
-              {selectedItem.modifiers && selectedItem.modifiers.length > 0 && (
+              {selectedItem.modifiers && selectedItem.modifiers.length > 0 && !selectedItem.isBundle && (
                 <div className="space-y-6">
                   {selectedItem.modifiers.map((group, gIndex) => (
                     <div key={gIndex}>
@@ -1804,12 +1963,39 @@ export default function Customer() {
                   ))}
                 </div>
               )}
+
+              {selectedItem.isBundle && selectedItem.items && (
+                <div className="space-y-4">
+                  <h3 className="font-bold text-slate-800 dark:text-white mb-4">Производи во пакетот:</h3>
+                  <div className="space-y-2">
+                    {selectedItem.items.map((bi: any) => (
+                      <div key={bi.id} className="flex flex-col gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium text-slate-700 dark:text-slate-300">{bi.name}</span>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">x{bi.quantity}</span>
+                        </div>
+                        {bi.modifiers && bi.modifiers.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {bi.modifiers.map((group: any) => (
+                              group.options.map((opt: any) => (
+                                <span key={opt.name} className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                                  {opt.name}
+                                </span>
+                              ))
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             
             <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0">
               <button onClick={addToCart} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-2xl flex items-center justify-between px-6 transition-colors shadow-lg shadow-orange-500/30">
                 <span>Додади во кошничка</span>
-                <span>{calculateFinalPrice()} ден.</span>
+                <span>{selectedItem.isBundle ? selectedItem.price : calculateFinalPrice()} ден.</span>
               </button>
             </div>
           </div>

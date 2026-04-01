@@ -84,6 +84,34 @@ db.exec(`
 `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS bundles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      restaurant_id INTEGER,
+      name TEXT,
+      description TEXT,
+      price REAL,
+      image_url TEXT,
+      status TEXT DEFAULT 'pending',
+      start_time TEXT,
+      end_time TEXT,
+      available_days TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS bundle_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bundle_id INTEGER,
+      menu_item_id INTEGER,
+      quantity INTEGER DEFAULT 1,
+      modifiers TEXT DEFAULT '[]'
+    );
+  `);
+
+  try {
+    db.exec("ALTER TABLE bundle_items ADD COLUMN modifiers TEXT DEFAULT '[]'");
+  } catch (e) {}
+
+  db.exec(`
   CREATE TABLE IF NOT EXISTS reviews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER,
@@ -599,9 +627,9 @@ if (count.count === 0) {
 // Seed one approved restaurant for demo purposes
 const restCount = db.prepare('SELECT COUNT(*) as count FROM restaurants').get() as {count: number};
 if (restCount.count === 0) {
-  db.prepare(`INSERT INTO restaurants (name, city, address, email, phone, bank_account, has_own_delivery, status, username, password) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    'Demo Pizza', 'Скопје', 'Ул. Македонија 1', 'demo@pizza.mk', '070123456', '210000000000001', 1, 'approved', 'demo', 'demo123'
+  db.prepare(`INSERT INTO restaurants (name, city, address, email, phone, bank_account, has_own_delivery, status, username, password, lat, lng) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    'Demo Pizza', 'Скопје', 'Ул. Македонија 1', 'demo@pizza.mk', '070123456', '210000000000001', 1, 'approved', 'demo', 'demo123', 41.9981, 21.4254
   );
 }
 
@@ -1002,7 +1030,7 @@ app.get("/api/orders/track/:token", (req, res) => {
       }
 
       // Calculate ETA if order is in delivery
-      if (order.status === 'delivering' && order.restaurant_lat && order.restaurant_lng && order.delivery_lat && order.delivery_lng) {
+      if ((order.status === 'delivering' || order.status === 'ready') && order.restaurant_lat && order.restaurant_lng && order.delivery_lat && order.delivery_lng) {
         // Simple distance calculation (Haversine)
         const R = 6371; // Earth radius in km
         const dLat = (order.delivery_lat - order.restaurant_lat) * Math.PI / 180;
@@ -1017,9 +1045,14 @@ app.get("/api/orders/track/:token", (req, res) => {
         const travelTimeMinutes = Math.round((distance / 30) * 60);
         // Add some buffer for traffic
         order.eta_minutes = travelTimeMinutes + 5;
+        
+        // If it's ready but not yet delivering, it's still about 20 mins away
+        if (order.status === 'ready') {
+          order.eta_minutes = Math.max(20, order.eta_minutes);
+        }
       } else if (order.status === 'accepted' || order.status === 'preparing') {
-        // Assume 20 mins preparation time
-        order.eta_minutes = 20;
+        // Assume 30 mins preparation time initially
+        order.eta_minutes = 30;
       }
       
       res.json(order);
@@ -1210,7 +1243,7 @@ app.get("/api/orders/track/:token", (req, res) => {
       }
 
       if (!admin) {
-        console.log(`[AUTH DEBUG] Unauthorized access attempt to ${req.path}. Session ID: ${req.sessionID}, HasUser: ${!!user}`);
+        console.log(`[AUTH DEBUG] Unauthorized access attempt to ${req.path}. Session ID: ${req.sessionID}, HasUser: ${!!user}, UserEmail: ${user?.email}`);
         res.status(401).json({ error: 'Unauthorized' });
         return false;
       }
@@ -2242,14 +2275,36 @@ app.get("/api/orders/track/:token", (req, res) => {
   app.post("/api/admin/restaurants/:id/approve", (req, res) => {
     if (!checkAdminAuth(req, res, 'restaurants')) return;
     const id = req.params.id;
-    const { contract_percentage, billing_cycle_days, vat_rate, username, password, payment_config, logo_url, cover_url, header_image } = req.body;
+    const { 
+      name, city, address, phone, email, bank_account, lat, lng,
+      contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
+      username, password, payment_config, logo_url, cover_url, header_image 
+    } = req.body;
     
-    db.prepare("UPDATE restaurants SET status = 'approved', username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ? WHERE id = ?").run(
+    db.prepare(`
+      UPDATE restaurants SET 
+        status = 'approved', name = ?, city = ?, address = ?, phone = ?, email = ?, 
+        bank_account = ?, lat = ?, lng = ?, username = ?, password = ?, 
+        contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, 
+        delivery_fee = ?, min_order_amount = ?, payment_config = ?, 
+        logo_url = ?, cover_url = ?, header_image = ? 
+      WHERE id = ?
+    `).run(
+      name,
+      city,
+      address,
+      phone,
+      email,
+      bank_account,
+      lat || null,
+      lng || null,
       username, 
       password, 
       contract_percentage || 0, 
       billing_cycle_days || 7,
       vat_rate || 0,
+      delivery_fee || 0,
+      min_order_amount || 0,
       payment_config || '{"methods":["cash"],"fees":[]}',
       logo_url || null,
       cover_url || null,
@@ -2263,14 +2318,35 @@ app.get("/api/orders/track/:token", (req, res) => {
   app.put("/api/admin/restaurants/:id", (req, res) => {
     if (!checkAdminAuth(req, res, 'restaurants')) return;
     const id = req.params.id;
-    const { contract_percentage, billing_cycle_days, vat_rate, username, password, payment_config, logo_url, cover_url, header_image, status } = req.body;
+    const { 
+      name, city, address, phone, email, bank_account, lat, lng,
+      contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
+      username, password, payment_config, logo_url, cover_url, header_image, status 
+    } = req.body;
     
-    db.prepare("UPDATE restaurants SET username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, payment_config = ?, logo_url = ?, cover_url = ?, header_image = ?, status = ? WHERE id = ?").run(
+    db.prepare(`
+      UPDATE restaurants SET 
+        name = ?, city = ?, address = ?, phone = ?, email = ?, bank_account = ?, lat = ?, lng = ?,
+        username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, 
+        delivery_fee = ?, min_order_amount = ?, payment_config = ?, logo_url = ?, cover_url = ?, 
+        header_image = ?, status = ? 
+      WHERE id = ?
+    `).run(
+      name,
+      city,
+      address,
+      phone,
+      email,
+      bank_account,
+      lat || null,
+      lng || null,
       username,
       password,
       contract_percentage || 0,
       billing_cycle_days || 7,
       vat_rate || 0,
+      delivery_fee || 0,
+      min_order_amount || 0,
       payment_config || '{"methods":["cash"],"fees":[]}',
       logo_url || null,
       cover_url || null,
@@ -2285,6 +2361,204 @@ app.get("/api/orders/track/:token", (req, res) => {
   app.post("/api/admin/restaurants/:id/reject", (req, res) => {
     if (!checkAdminAuth(req, res, 'restaurants')) return;
     db.prepare("UPDATE restaurants SET status = 'rejected' WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  // --- BUNDLE ADMIN ---
+  app.get("/api/admin/bundles/pending", (req, res) => {
+    if (!checkAdminAuth(req, res, 'restaurants')) return;
+    const bundles = db.prepare(`
+      SELECT b.*, r.name as restaurant_name 
+      FROM bundles b 
+      JOIN restaurants r ON b.restaurant_id = r.id 
+      WHERE b.status = 'pending'
+    `).all() as any[];
+    
+    for (const b of bundles) {
+      try {
+        b.available_days = JSON.parse(b.available_days || '[]');
+      } catch (e) {
+        b.available_days = [];
+      }
+      b.items = db.prepare(`
+        SELECT bi.*, mi.name, mi.price 
+        FROM bundle_items bi 
+        JOIN menu_items mi ON bi.menu_item_id = mi.id 
+        WHERE bi.bundle_id = ?
+      `).all(b.id);
+      for (const item of b.items) {
+        try {
+          item.modifiers = JSON.parse(item.modifiers || '[]');
+        } catch (e) {
+          item.modifiers = [];
+        }
+      }
+    }
+    res.json(bundles);
+  });
+
+  app.post("/api/admin/bundles/:id/approve", (req, res) => {
+    if (!checkAdminAuth(req, res, 'restaurants')) return;
+    db.prepare("UPDATE bundles SET status = 'approved' WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/bundles/:id/reject", (req, res) => {
+    if (!checkAdminAuth(req, res, 'restaurants')) return;
+    db.prepare("UPDATE bundles SET status = 'rejected' WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/bundles/clear", (req, res) => {
+    if (!checkAdminAuth(req, res, 'restaurants')) return;
+    
+    db.transaction(() => {
+      db.prepare("DELETE FROM bundle_items").run();
+      db.prepare("DELETE FROM bundles").run();
+    })();
+    
+    res.json({ success: true, message: "Сите пакети се избришани." });
+  });
+
+  app.get("/api/admin/bundles", (req, res) => {
+    if (!checkAdminAuth(req, res, 'restaurants')) return;
+    const { restaurant_id, start_date, end_date } = req.query;
+    
+    let query = "SELECT b.*, r.name as restaurant_name FROM bundles b JOIN restaurants r ON b.restaurant_id = r.id WHERE 1=1";
+    const params: any[] = [];
+    
+    if (restaurant_id) {
+      query += " AND b.restaurant_id = ?";
+      params.push(restaurant_id);
+    }
+    if (start_date) {
+      query += " AND b.created_at >= ?";
+      params.push(start_date);
+    }
+    if (end_date) {
+      query += " AND b.created_at <= ?";
+      params.push(end_date + " 23:59:59");
+    }
+    
+    query += " ORDER BY b.created_at DESC";
+    
+    const bundles = db.prepare(query).all(...params) as any[];
+    for (const b of bundles) {
+      try {
+        b.available_days = JSON.parse(b.available_days || '[]');
+      } catch (e) {
+        b.available_days = [];
+      }
+      b.items = db.prepare(`
+        SELECT bi.*, mi.name, mi.price 
+        FROM bundle_items bi 
+        JOIN menu_items mi ON bi.menu_item_id = mi.id 
+        WHERE bi.bundle_id = ?
+      `).all(b.id);
+      for (const item of b.items) {
+        try {
+          item.modifiers = JSON.parse(item.modifiers || '[]');
+        } catch (e) {
+          item.modifiers = [];
+        }
+      }
+    }
+    res.json(bundles);
+  });
+
+  // --- RESTAURANT BUNDLES ---
+  app.get("/api/restaurants/:id/bundles", (req, res) => {
+    const bundles = db.prepare("SELECT * FROM bundles WHERE restaurant_id = ?").all(req.params.id) as any[];
+    for (const b of bundles) {
+      try {
+        b.available_days = JSON.parse(b.available_days || '[]');
+      } catch (e) {
+        b.available_days = [];
+      }
+      b.items = db.prepare(`
+        SELECT bi.*, mi.name, mi.price, mi.modifiers as available_modifiers
+        FROM bundle_items bi 
+        JOIN menu_items mi ON bi.menu_item_id = mi.id 
+        WHERE bi.bundle_id = ?
+      `).all(b.id);
+      for (const item of b.items) {
+        try {
+          item.modifiers = JSON.parse(item.modifiers || '[]');
+          item.available_modifiers = JSON.parse(item.available_modifiers || '[]');
+        } catch (e) {
+          item.modifiers = [];
+          item.available_modifiers = [];
+        }
+      }
+    }
+    res.json(bundles);
+  });
+
+  app.post("/api/restaurants/:id/bundles", (req, res) => {
+    const { name, description, price, image_url, start_time, end_time, available_days, items } = req.body;
+    const restaurantId = req.params.id;
+    
+    const result = db.prepare(`
+      INSERT INTO bundles (restaurant_id, name, description, price, image_url, start_time, end_time, available_days, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `).run(
+      restaurantId, 
+      name, 
+      description, 
+      price, 
+      image_url, 
+      start_time, 
+      end_time, 
+      typeof available_days === 'string' ? available_days : JSON.stringify(available_days || [])
+    );
+    
+    const bundleId = result.lastInsertRowid;
+    
+    if (items && Array.isArray(items)) {
+      const insertItem = db.prepare("INSERT INTO bundle_items (bundle_id, menu_item_id, quantity, modifiers) VALUES (?, ?, ?, ?)");
+      for (const item of items) {
+        insertItem.run(bundleId, item.menu_item_id, item.quantity || 1, JSON.stringify(item.modifiers || []));
+      }
+    }
+    
+    res.json({ success: true, id: bundleId });
+  });
+
+  app.put("/api/restaurants/:id/bundles/:bundleId", (req, res) => {
+    const { name, description, price, image_url, start_time, end_time, available_days, items } = req.body;
+    const bundleId = req.params.bundleId;
+    
+    db.prepare(`
+      UPDATE bundles 
+      SET name = ?, description = ?, price = ?, image_url = ?, start_time = ?, end_time = ?, available_days = ?, status = 'pending'
+      WHERE id = ? AND restaurant_id = ?
+    `).run(
+      name, 
+      description, 
+      price, 
+      image_url, 
+      start_time, 
+      end_time, 
+      typeof available_days === 'string' ? available_days : JSON.stringify(available_days || []), 
+      bundleId, 
+      req.params.id
+    );
+    
+    // Refresh items
+    db.prepare("DELETE FROM bundle_items WHERE bundle_id = ?").run(bundleId);
+    if (items && Array.isArray(items)) {
+      const insertItem = db.prepare("INSERT INTO bundle_items (bundle_id, menu_item_id, quantity, modifiers) VALUES (?, ?, ?, ?)");
+      for (const item of items) {
+        insertItem.run(bundleId, item.menu_item_id, item.quantity || 1, JSON.stringify(item.modifiers || []));
+      }
+    }
+    
+    res.json({ success: true });
+  });
+
+  app.delete("/api/restaurants/:id/bundles/:bundleId", (req, res) => {
+    db.prepare("DELETE FROM bundles WHERE id = ? AND restaurant_id = ?").run(req.params.bundleId, req.params.id);
+    db.prepare("DELETE FROM bundle_items WHERE bundle_id = ?").run(req.params.bundleId);
     res.json({ success: true });
   });
 
@@ -2484,9 +2758,10 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.put("/api/restaurants/:id/settings", (req, res) => {
-    const { password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
-    db.prepare("UPDATE restaurants SET password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, header_image = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ?, working_hours = ? WHERE id = ?")
-      .run(password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, req.params.id);
+    const { name, password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, delivery_fee, min_order_amount, lat, lng } = req.body;
+    console.log(`Updating settings for restaurant ${req.params.id}: name=${name}, delivery_fee=${delivery_fee}, min_order_amount=${min_order_amount}`);
+    db.prepare("UPDATE restaurants SET name = ?, password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, header_image = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ?, working_hours = ?, delivery_fee = ?, min_order_amount = ?, lat = ?, lng = ? WHERE id = ?")
+      .run(name, password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, delivery_fee || 0, min_order_amount || 0, lat || null, lng || null, req.params.id);
     res.json({ success: true });
   });
 
@@ -2497,12 +2772,23 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.get("/api/customer/restaurant/:username", (req, res) => {
-    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, header_image, has_own_delivery, working_hours, payment_config, delivery_zones FROM restaurants WHERE LOWER(username) = LOWER(?) AND status = 'approved'").get(req.params.username) as any;
+    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, header_image, has_own_delivery, working_hours, payment_config, delivery_zones, delivery_fee, min_order_amount FROM restaurants WHERE LOWER(username) = LOWER(?) AND status = 'approved'").get(req.params.username) as any;
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
     const menu = db.prepare("SELECT * FROM menu_items WHERE restaurant_id = ? AND is_available = 1 ORDER BY category, subcategory, name").all(restaurant.id);
-    res.json({ restaurant, menu });
+    
+    const bundles = db.prepare("SELECT * FROM bundles WHERE restaurant_id = ? AND status = 'approved'").all(restaurant.id) as any[];
+    for (const b of bundles) {
+      b.items = db.prepare(`
+        SELECT bi.*, mi.name, mi.price 
+        FROM bundle_items bi 
+        JOIN menu_items mi ON bi.menu_item_id = mi.id 
+        WHERE bi.bundle_id = ?
+      `).all(b.id);
+    }
+    
+    res.json({ restaurant, menu, bundles });
   });
 
   app.get("/api/customer/restaurant-by-id/:id", (req, res) => {
@@ -2510,7 +2796,19 @@ app.get("/api/orders/track/:token", (req, res) => {
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
-    res.json(restaurant);
+    const menu = db.prepare("SELECT * FROM menu_items WHERE restaurant_id = ? AND is_available = 1 ORDER BY category, subcategory, name").all(restaurant.id);
+    
+    const bundles = db.prepare("SELECT * FROM bundles WHERE restaurant_id = ? AND status = 'approved'").all(restaurant.id) as any[];
+    for (const b of bundles) {
+      b.items = db.prepare(`
+        SELECT bi.*, mi.name, mi.price 
+        FROM bundle_items bi 
+        JOIN menu_items mi ON bi.menu_item_id = mi.id 
+        WHERE bi.bundle_id = ?
+      `).all(b.id);
+    }
+    
+    res.json({ restaurant, menu, bundles });
   });
 
   app.post("/api/customer/available", (req, res) => {
@@ -2555,6 +2853,16 @@ app.get("/api/orders/track/:token", (req, res) => {
     const restaurantIds = availableRestaurants.map(r => r.id);
     const placeholders = restaurantIds.map(() => '?').join(',');
     const items = db.prepare(`SELECT * FROM menu_items WHERE restaurant_id IN (${placeholders}) AND is_available = 1`).all(...restaurantIds) as any[];
+    
+    const bundles = db.prepare(`SELECT * FROM bundles WHERE restaurant_id IN (${placeholders}) AND status = 'approved'`).all(...restaurantIds) as any[];
+    for (const b of bundles) {
+      b.items = db.prepare(`
+        SELECT bi.*, mi.name, mi.price 
+        FROM bundle_items bi 
+        JOIN menu_items mi ON bi.menu_item_id = mi.id 
+        WHERE bi.bundle_id = ?
+      `).all(b.id);
+    }
     
     res.json({ 
       restaurants: availableRestaurants.map(r => {
@@ -2613,7 +2921,8 @@ app.get("/api/orders/track/:token", (req, res) => {
           delivery_delay: deliveryDelay
         };
       }), 
-      items: items 
+      items: items,
+      bundles: bundles
     });
   });
 
@@ -2661,7 +2970,7 @@ app.get("/api/orders/track/:token", (req, res) => {
 
     for (const [restaurantId, restItems] of Object.entries(itemsByRestaurant)) {
       // Check if restaurant is open
-      const restaurant = db.prepare("SELECT working_hours, name, payment_config FROM restaurants WHERE id = ?").get(restaurantId) as any;
+      const restaurant = db.prepare("SELECT id, working_hours, name, payment_config, delivery_fee, min_order_amount, email FROM restaurants WHERE id = ?").get(restaurantId) as any;
       if (restaurant && restaurant.working_hours) {
         try {
           const workingHours = JSON.parse(restaurant.working_hours);
@@ -2702,6 +3011,14 @@ app.get("/api/orders/track/:token", (req, res) => {
       }
 
       let totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
+      
+      // Check min order amount
+      if (restaurant && restaurant.min_order_amount > 0 && totalPrice < restaurant.min_order_amount) {
+        return res.status(400).json({ error: `Минималниот износ за нарачка од "${restaurant.name}" е ${restaurant.min_order_amount} ден.` });
+      }
+
+      // Determine delivery fee for this restaurant
+      const restDeliveryFee = restaurant ? (restaurant.delivery_fee || 0) : deliveryFee;
       
       // Add selected fees for this restaurant
       let restFees = [];
@@ -2760,7 +3077,7 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       const trackingToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const info = insert.run(
-        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees), deliveryFee, payment_method === 'card' ? 'pending' : 'paid'
+        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees), restDeliveryFee, payment_method === 'card' ? 'pending' : 'paid'
       );
       orderIds.push(info.lastInsertRowid);
       trackingTokens[Number(info.lastInsertRowid)] = trackingToken;
@@ -3938,6 +4255,9 @@ app.get("/api/orders/track/:token", (req, res) => {
     app.use(vite.middlewares);
   } else {
     app.use(express.static("dist"));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(process.cwd(), "dist", "index.html"));
+    });
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {

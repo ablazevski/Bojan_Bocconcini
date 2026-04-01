@@ -309,11 +309,11 @@ export default function TrackOrder() {
               }).format(date);
             })()}</p>
 
-            {order.status === 'delivering' && (
+            {order.status !== 'pending' && order.status !== 'cancelled' && order.status !== 'completed' && (
               <div className="mb-12">
                 <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-4 flex items-center justify-center gap-2">
-                  <Navigation size={14} className="animate-pulse" />
-                  Следење во живо
+                  <Navigation size={14} className={order.status === 'delivering' ? "animate-pulse" : ""} />
+                  {order.status === 'delivering' ? 'Следење во живо' : 'Локација на достава'}
                 </h3>
                 <DeliveryRouteMap 
                   restaurantCoords={[order.restaurant_lat || 41.9981, order.restaurant_lng || 21.4254]}
@@ -333,9 +333,9 @@ export default function TrackOrder() {
                   className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-600 transition-all duration-1000"
                   style={{ 
                     width: order.status === 'pending' ? '0%' : 
-                           order.status === 'accepted' ? '25%' : 
-                           order.status === 'ready' ? '50%' :
-                           order.status === 'delivering' ? '75%' : 
+                           order.status === 'accepted' ? '30%' : 
+                           order.status === 'ready' ? '60%' :
+                           order.status === 'delivering' ? '85%' : 
                            order.status === 'completed' ? '100%' : '0%' 
                   }}
                 ></div>
