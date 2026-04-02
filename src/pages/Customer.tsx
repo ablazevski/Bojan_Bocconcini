@@ -896,7 +896,7 @@ export default function Customer() {
           {step !== 'city' && step !== 'success' && (
             <div className="hidden md:flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-sm font-medium">
               <span className="text-orange-600 dark:text-orange-400 font-bold capitalize">
-                {new Intl.DateTimeFormat('mk-MK', { weekday: 'long' }).format(currentTime)}
+                {['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'][currentTime.getDay()]}
               </span>
               <span>
                 {new Intl.DateTimeFormat('mk-MK', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(currentTime)} • {new Intl.DateTimeFormat('mk-MK', { hour: '2-digit', minute: '2-digit', hour12: false }).format(currentTime)}
