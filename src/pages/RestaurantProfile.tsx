@@ -223,9 +223,11 @@ export default function RestaurantProfile() {
   return (
     <div className={`min-h-screen ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'} pb-24 transition-colors duration-300`}>
       <SEO 
-        title={`${restaurant.name} - Достава на храна во ${restaurant.city}`}
-        description={`Нарачајте храна од ${restaurant.name} во ${restaurant.city}. Проверете го менито и нарачајте брза достава до вашиот дом.`}
+        title={restaurant.seo_title || `${restaurant.name} - Достава на храна во ${restaurant.city}`}
+        description={restaurant.meta_description || `Нарачајте храна од ${restaurant.name} во ${restaurant.city}. Проверете го менито и нарачајте брза достава до вашиот дом.`}
+        keywords={restaurant.meta_keywords}
         ogImage={restaurant.cover_url || restaurant.logo_url}
+        schema={restaurant.schema_json}
       />
       {/* Cover Image */}
       <div className="h-64 md:h-80 w-full relative bg-slate-800">

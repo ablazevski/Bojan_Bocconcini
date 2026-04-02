@@ -1651,8 +1651,8 @@ export default function Restaurant() {
           </div>
         ) : activeTab === 'orders' ? (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-              <div className="flex items-center gap-4">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+              <div className="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-start">
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
                   <Clock className="text-orange-500" />
                   Нарачки
@@ -1666,7 +1666,7 @@ export default function Restaurant() {
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto justify-between lg:justify-end">
                 <div className="flex items-center gap-4 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-lg border border-emerald-100 dark:border-emerald-800 transition-colors">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2 w-2">
@@ -1724,9 +1724,9 @@ export default function Restaurant() {
                   );
                 }
                 return (
-                  <div className="grid gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {completedOrders.map(order => (
-                      <div key={order.id} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center transition-colors">
+                      <div key={order.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 flex justify-between items-center transition-colors shadow-sm hover:shadow-md">
                         <div>
                           <p className="font-bold text-slate-800 dark:text-white">#{order.id} - {order.customer_name}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(order.created_at).toLocaleString()}</p>
@@ -1751,7 +1751,7 @@ export default function Restaurant() {
               ];
 
               return (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 items-start">
                   {columns.map(col => {
                     const colOrders = activeOrders.filter(o => o.status === col.id);
                     return (
@@ -1800,84 +1800,84 @@ export default function Restaurant() {
                                   <h4 className="font-bold text-slate-800 dark:text-white truncate">{order.customer_name}</h4>
                                   <p className="text-xs text-slate-500 dark:text-slate-400 truncate mb-3">{order.delivery_address}</p>
                                   
-                                    <div className="flex justify-between items-center mb-3">
-                                      <span className="font-bold text-indigo-600 dark:text-indigo-400 text-sm">{order.total_price} ден.</span>
-                                      <div className="flex gap-1">
-                                        {order.status === 'pending' && (
-                                          <div className="flex gap-1">
-                                            <button 
-                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'accepted'); }}
-                                              className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
-                                              title="Прифати"
-                                            >
-                                              <Check size={16} />
-                                            </button>
-                                            <button 
-                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
-                                              className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                                              title="Одбиј"
-                                            >
-                                              <X size={16} />
-                                            </button>
-                                          </div>
-                                        )}
-                                        {order.status === 'accepted' && (
-                                          <div className="flex gap-1">
-                                            <button 
-                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'ready'); }}
-                                              className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
-                                              title="Подготвено"
-                                            >
-                                              <CheckCircle size={16} />
-                                            </button>
-                                            <button 
-                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
-                                              className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                                              title="Откажи"
-                                            >
-                                              <X size={16} />
-                                            </button>
-                                          </div>
-                                        )}
-                                        {order.status === 'ready' && (
-                                          <div className="flex gap-1">
-                                            <button 
-                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
-                                              className="p-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
-                                              title="Во достава"
-                                            >
-                                              <MapPin size={16} />
-                                            </button>
-                                            {activeDeliveryPartners === 0 && (
+                                      <div className="flex justify-between items-center mb-3">
+                                        <span className="font-bold text-indigo-600 dark:text-indigo-400 text-sm">{order.total_price} ден.</span>
+                                        <div className="flex gap-2">
+                                          {order.status === 'pending' && (
+                                            <div className="flex gap-2">
+                                              <button 
+                                                onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'accepted'); }}
+                                                className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors shadow-sm"
+                                                title="Прифати"
+                                              >
+                                                <Check size={18} />
+                                              </button>
+                                              <button 
+                                                onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
+                                                className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors shadow-sm"
+                                                title="Одбиј"
+                                              >
+                                                <X size={18} />
+                                              </button>
+                                            </div>
+                                          )}
+                                          {order.status === 'accepted' && (
+                                            <div className="flex gap-2">
+                                              <button 
+                                                onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'ready'); }}
+                                                className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors shadow-sm"
+                                                title="Подготвено"
+                                              >
+                                                <CheckCircle size={18} />
+                                              </button>
+                                              <button 
+                                                onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'cancelled'); }}
+                                                className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors shadow-sm"
+                                                title="Откажи"
+                                              >
+                                                <X size={18} />
+                                              </button>
+                                            </div>
+                                          )}
+                                          {order.status === 'ready' && (
+                                            <div className="flex gap-2">
                                               <button 
                                                 onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
-                                                className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors text-[10px] font-bold flex items-center gap-1"
-                                                title="Сопствена достава"
+                                                className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors shadow-sm"
+                                                title="Во достава"
                                               >
-                                                <Truck size={12} /> Сопствена
+                                                <MapPin size={18} />
                                               </button>
-                                            )}
-                                          </div>
-                                        )}
-                                        {order.status === 'delivering' && (
-                                          <button 
-                                            onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'completed'); }}
-                                            className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
-                                            title="Заврши"
-                                          >
-                                            <CheckCircle size={16} />
-                                          </button>
-                                        )}
+                                              {activeDeliveryPartners === 0 && (
+                                                <button 
+                                                  onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
+                                                  className="px-3 py-2 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-xl hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors text-[11px] font-bold flex items-center gap-1 shadow-sm"
+                                                  title="Сопствена достава"
+                                                >
+                                                  <Truck size={14} /> Сопствена
+                                                </button>
+                                              )}
+                                            </div>
+                                          )}
+                                          {order.status === 'delivering' && (
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'completed'); }}
+                                              className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors shadow-sm"
+                                              title="Заврши"
+                                            >
+                                              <CheckCircle size={18} />
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
 
-                                    {order.status === 'pending' && (
-                                      <div className="flex gap-1 mt-2">
-                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 5); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">+5м</button>
-                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 10); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">+10м</button>
-                                        <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 20); }} className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">+20м</button>
-                                      </div>
-                                    )}
+                                      {order.status === 'pending' && (
+                                        <div className="flex gap-2 mt-3">
+                                          <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 5); }} className="flex-1 py-2 rounded-xl text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm">+5м</button>
+                                          <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 10); }} className="flex-1 py-2 rounded-xl text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm">+10м</button>
+                                          <button onClick={(e) => { e.stopPropagation(); updateOrderDelay(order.id, 20); }} className="flex-1 py-2 rounded-xl text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm">+20м</button>
+                                        </div>
+                                      )}
                                   </div>
 
                                   {(isExpanded || ['pending', 'accepted', 'ready', 'delivering'].includes(order.status)) && (

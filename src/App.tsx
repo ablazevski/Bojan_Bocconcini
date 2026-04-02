@@ -72,6 +72,7 @@ import Marketing from './pages/Marketing';
 import RestaurantProfile from './pages/RestaurantProfile';
 import TrackOrder from './pages/TrackOrder';
 import Contract from './pages/Contract';
+import { PrivacyPolicy, PaymentTerms, DeliveryTerms } from './pages/Legal';
 
 import { Toaster } from 'sonner';
 
@@ -150,6 +151,9 @@ export default function App() {
           <Route path="/r/:username" element={<RestaurantProfile />} />
           <Route path="/track/:token" element={<TrackOrder />} />
           <Route path="/contract/:id" element={<Contract />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/payment-terms" element={<PaymentTerms />} />
+          <Route path="/delivery-terms" element={<DeliveryTerms />} />
         </Routes>
         </BrowserRouter>
       </ThemeProvider>

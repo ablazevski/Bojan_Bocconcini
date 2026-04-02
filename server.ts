@@ -124,6 +124,22 @@ db.exec(`
   );
 `);
 
+  // Initialize default settings if not exists
+  const defaultSettings = [
+    { key: 'delivery_fee', value: '100' },
+    { key: 'special_badge_name', value: 'Студент' },
+    { key: 'special_badge_amount', value: '180' }
+  ];
+
+  const checkStmt = db.prepare('SELECT 1 FROM global_settings WHERE key = ?');
+  const insertStmt = db.prepare('INSERT INTO global_settings (key, value) VALUES (?, ?)');
+
+  defaultSettings.forEach(setting => {
+    if (!checkStmt.get(setting.key)) {
+      insertStmt.run(setting.key, setting.value);
+    }
+  });
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS restaurants (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -153,7 +169,11 @@ db.exec(`
       delivery_fee REAL DEFAULT 0,
       min_order_amount REAL DEFAULT 0,
       is_active INTEGER DEFAULT 1,
-      has_admin_access INTEGER DEFAULT 1
+      has_admin_access INTEGER DEFAULT 1,
+      seo_title TEXT,
+      meta_description TEXT,
+      meta_keywords TEXT,
+      schema_json TEXT
     );
   `);
 
@@ -165,6 +185,18 @@ db.exec(`
   } catch (e) {}
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN has_admin_access INTEGER DEFAULT 1");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN seo_title TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN meta_description TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN meta_keywords TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN schema_json TEXT");
   } catch (e) {}
 
   try {
@@ -2287,7 +2319,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       name, city, address, phone, email, bank_account, lat, lng,
       contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
       username, password, payment_config, logo_url, cover_url, header_image,
-      is_active, has_admin_access
+      is_active, has_admin_access,
+      seo_title, meta_description, meta_keywords, schema_json
     } = req.body;
     
     db.prepare(`
@@ -2297,7 +2330,8 @@ app.get("/api/orders/track/:token", (req, res) => {
         contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, 
         delivery_fee = ?, min_order_amount = ?, payment_config = ?, 
         logo_url = ?, cover_url = ?, header_image = ?,
-        is_active = ?, has_admin_access = ?
+        is_active = ?, has_admin_access = ?,
+        seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?
       WHERE id = ?
     `).run(
       name,
@@ -2321,6 +2355,10 @@ app.get("/api/orders/track/:token", (req, res) => {
       header_image || null,
       is_active ?? 1,
       has_admin_access ?? 1,
+      seo_title || null,
+      meta_description || null,
+      meta_keywords || null,
+      schema_json || null,
       id
     );
     
@@ -2334,7 +2372,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       name, city, address, phone, email, bank_account, lat, lng,
       contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
       username, password, payment_config, logo_url, cover_url, header_image, status,
-      is_active, has_admin_access
+      is_active, has_admin_access,
+      seo_title, meta_description, meta_keywords, schema_json
     } = req.body;
     
     db.prepare(`
@@ -2342,7 +2381,8 @@ app.get("/api/orders/track/:token", (req, res) => {
         name = ?, city = ?, address = ?, phone = ?, email = ?, bank_account = ?, lat = ?, lng = ?,
         username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, 
         delivery_fee = ?, min_order_amount = ?, payment_config = ?, logo_url = ?, cover_url = ?, 
-        header_image = ?, status = ?, is_active = ?, has_admin_access = ? 
+        header_image = ?, status = ?, is_active = ?, has_admin_access = ?,
+        seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?
       WHERE id = ?
     `).run(
       name,
@@ -2367,6 +2407,10 @@ app.get("/api/orders/track/:token", (req, res) => {
       status || 'approved',
       is_active ?? 1,
       has_admin_access ?? 1,
+      seo_title || null,
+      meta_description || null,
+      meta_keywords || null,
+      schema_json || null,
       id
     );
     
@@ -2787,7 +2831,7 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.get("/api/customer/restaurant/:username", (req, res) => {
-    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, header_image, has_own_delivery, working_hours, payment_config, delivery_zones, delivery_fee, min_order_amount FROM restaurants WHERE LOWER(username) = LOWER(?) AND status = 'approved' AND has_admin_access = 1").get(req.params.username) as any;
+    const restaurant = db.prepare("SELECT id, name, city, address, phone, logo_url, cover_url, header_image, has_own_delivery, working_hours, payment_config, delivery_zones, delivery_fee, min_order_amount, seo_title, meta_description, meta_keywords, schema_json FROM restaurants WHERE LOWER(username) = LOWER(?) AND status = 'approved' AND has_admin_access = 1").get(req.params.username) as any;
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import LocationPickerMap from '../components/LocationPickerMap';
@@ -799,7 +799,43 @@ export default function Customer() {
   };
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [recommendedItems, setRecommendedItems] = useState<MenuItem[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    if (menuItems.length > 0) {
+      const orderHistory = JSON.parse(localStorage.getItem('orderHistory') || '[]');
+      let recommendations: MenuItem[] = [];
+      
+      if (orderHistory.length > 0) {
+        const itemCounts: Record<number, number> = {};
+        orderHistory.forEach((order: any) => {
+          try {
+            const items = JSON.parse(order.items || '[]');
+            items.forEach((item: any) => {
+              itemCounts[item.id] = (itemCounts[item.id] || 0) + 1;
+            });
+          } catch (e) {}
+        });
+        
+        const sortedItemIds = Object.entries(itemCounts)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 6)
+          .map(([id]) => parseInt(id));
+          
+        recommendations = menuItems.filter(item => sortedItemIds.includes(item.id));
+      }
+      
+      if (recommendations.length < 6) {
+        const popular = menuItems
+          .filter(item => !recommendations.find(r => r.id === item.id))
+          .slice(0, 6 - recommendations.length);
+        recommendations = [...recommendations, ...popular];
+      }
+      
+      setRecommendedItems(recommendations);
+    }
+  }, [menuItems]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -810,6 +846,9 @@ export default function Customer() {
   const restaurantItems = selectedRestaurantId 
     ? menuItems.filter(item => item.restaurant_id === selectedRestaurantId)
     : menuItems;
+
+  const specialBadgeName = globalSettings.special_badge_name || 'Студент';
+  const specialBadgeAmount = Number(globalSettings.special_badge_amount || '180');
 
   const restaurantBundles = selectedRestaurantId
     ? bundles.filter(b => b.restaurant_id === selectedRestaurantId && isBundleAvailable(b))
@@ -1277,6 +1316,47 @@ export default function Customer() {
               </div>
             ) : (
               <>
+                {/* AI Recommendations Section */}
+                {!searchTerm && !selectedRestaurantId && globalSettings.show_recommendations !== 'false' && recommendedItems.length > 0 && (
+                  <div className="mb-12">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl md:text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+                        <Sparkles className="text-orange-500" />
+                        Препорачано за Вас
+                      </h2>
+                      <span className="text-xs font-bold text-orange-500 uppercase tracking-widest bg-orange-50 dark:bg-orange-900/20 px-3 py-1 rounded-full">AI Powered</span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                      {recommendedItems.map(item => (
+                        <div 
+                          key={item.id} 
+                          onClick={() => openItemModal(item)}
+                          className="group cursor-pointer bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 hover:border-orange-200 dark:hover:border-orange-900/50 transition-all hover:shadow-xl hover:shadow-orange-500/10 flex flex-col"
+                        >
+                          <div className="h-32 overflow-hidden relative">
+                            <img src={item.image_url || null} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                            {item.price <= specialBadgeAmount && (
+                              <div className="absolute top-2 left-2 bg-indigo-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter shadow-lg">
+                                {specialBadgeName}
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-3 flex-1 flex flex-col">
+                            <h4 className="font-bold text-slate-800 dark:text-white text-xs line-clamp-1 mb-1 group-hover:text-orange-500 transition-colors">{item.name}</h4>
+                            <div className="flex justify-between items-center mt-auto">
+                              <span className="text-orange-600 dark:text-orange-400 font-black text-xs">{item.price} ден.</span>
+                              <div className="w-6 h-6 bg-slate-50 dark:bg-slate-800 rounded-lg flex items-center justify-center text-slate-400 group-hover:bg-orange-500 group-hover:text-white transition-all">
+                                <Plus size={14} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {Object.entries(groupedItems).map(([category, subcategories]) => (
                   <div key={category} className="mb-12">
                     <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white mb-6 border-b-2 border-orange-200 dark:border-orange-900/50 pb-2 inline-block transition-colors">{category}</h2>
@@ -1304,6 +1384,12 @@ export default function Customer() {
                                       <div className={`w-1.5 h-1.5 rounded-full ${restaurant?.is_open ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
                                       {restaurant?.name || 'Ресторан'}
                                     </div>
+                                    {item.price <= specialBadgeAmount && (
+                                      <div className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-lg flex items-center gap-1.5">
+                                        <GraduationCap size={12} />
+                                        {specialBadgeName}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="p-5 flex-1 flex flex-col">
@@ -1843,21 +1929,16 @@ export default function Customer() {
         )}
       </main>
       <footer className="mt-12 pt-12 border-t border-orange-100 dark:border-slate-800 relative z-10 pb-12">
-        <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-10">
+        <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-10">
           <div className="space-y-4">
             {globalSettings.company_logo_url ? (
-              <img src={globalSettings.company_logo_url || null} alt="Logo" className="h-10 object-contain" />
+              <img src={globalSettings.company_logo_url || null} alt="Logo" className="h-10 object-contain mb-4" />
             ) : (
-              <h2 className="font-black text-xl text-slate-900 dark:text-white tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h2>
+              <h2 className="font-black text-xl text-slate-900 dark:text-white tracking-tight mb-4">{globalSettings.company_name || 'PIZZA TIME'}</h2>
             )}
-            <p className="text-slate-500 dark:text-slate-400 text-sm max-w-xs">
-              {globalSettings.company_address || 'Вашиот омилен сервис за нарачка на храна.'}
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase text-xs tracking-widest">Контакт</h4>
-            <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
+            <div className="space-y-1 text-sm text-slate-500 dark:text-slate-400">
+              <p className="font-bold text-slate-700 dark:text-slate-300">{globalSettings.company_name}</p>
+              <p>{globalSettings.company_address}</p>
               {globalSettings.company_phone && <p>Тел: {globalSettings.company_phone}</p>}
               {globalSettings.company_website && (
                 <a href={globalSettings.company_website} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">
@@ -1867,9 +1948,18 @@ export default function Customer() {
             </div>
           </div>
 
-          <div className="space-y-4 md:text-right">
+          <div className="space-y-4">
+            <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase text-xs tracking-widest">Информации</h4>
+            <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
+              <Link to="/privacy-policy" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">Политика за приватност</Link>
+              <Link to="/payment-terms" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">Услови за плаќање</Link>
+              <Link to="/delivery-terms" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">Начини на достава и враќање на средствата</Link>
+            </div>
+          </div>
+
+          <div className="space-y-4">
             <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase text-xs tracking-widest">Следете не</h4>
-            <div className="flex gap-4 md:justify-end">
+            <div className="flex gap-4">
               {globalSettings.company_facebook && (
                 <a href={globalSettings.company_facebook} target="_blank" rel="noopener noreferrer" className="p-2 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-orange-50 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                   <Facebook size={18} />
@@ -1891,15 +1981,28 @@ export default function Customer() {
                 </a>
               )}
             </div>
-            <div className="pt-4">
-              <p className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-2">
-                © {new Date().getFullYear()} {globalSettings.company_name || 'PizzaTime'}. Сите права се задржани.
-              </p>
-              <Link to="/portal" className="text-[10px] text-slate-300 dark:text-slate-600 hover:text-orange-300 dark:hover:text-orange-500 transition-colors uppercase font-bold tracking-widest">
-                Портал за соработници
-              </Link>
+          </div>
+
+          <div className="space-y-6">
+            {globalSettings.bank_logo_url && (
+              <img src={globalSettings.bank_logo_url} alt="Bank Logo" className="h-10 object-contain" />
+            )}
+            <div className="flex flex-wrap gap-3">
+              {globalSettings.visa_logo_url && <img src={globalSettings.visa_logo_url} alt="Visa" className="h-6 object-contain" />}
+              {globalSettings.mastercard_logo_url && <img src={globalSettings.mastercard_logo_url} alt="Mastercard" className="h-6 object-contain" />}
+              {globalSettings.diners_logo_url && <img src={globalSettings.diners_logo_url} alt="Diners" className="h-6 object-contain" />}
+              {globalSettings.maestro_logo_url && <img src={globalSettings.maestro_logo_url} alt="Maestro" className="h-6 object-contain" />}
             </div>
           </div>
+        </div>
+
+        <div className="max-w-6xl mx-auto px-6 mt-12 pt-8 border-t border-slate-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+            © {new Date().getFullYear()} Сите права се задржани.
+          </p>
+          <Link to="/portal" className="text-[10px] text-slate-300 dark:text-slate-600 hover:text-orange-300 dark:hover:text-orange-500 transition-colors uppercase font-bold tracking-widest">
+            Портал за соработници
+          </Link>
         </div>
       </footer>
       </div>

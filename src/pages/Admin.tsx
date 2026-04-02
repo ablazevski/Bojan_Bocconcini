@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, ReactNode, Component, ErrorInfo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { safeFetchJson } from '../utils/api';
@@ -92,6 +92,10 @@ interface PendingRestaurant {
   payment_config?: string;
   is_active?: number;
   has_admin_access?: number;
+  seo_title?: string;
+  meta_description?: string;
+  meta_keywords?: string;
+  schema_json?: string;
 }
 
 interface DeliveryPartner {
@@ -276,6 +280,12 @@ function AdminContent() {
   const [contractPercentage, setContractPercentage] = useState<number>(15);
   const [deliveryFee, setDeliveryFee] = useState<number>(0);
   const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
+  const [seoSettings, setSeoSettings] = useState({
+    title: '',
+    description: '',
+    keywords: '',
+    schema_json: ''
+  });
   const [hasSignedContract, setHasSignedContract] = useState(false);
   
   const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
@@ -768,6 +778,12 @@ function AdminContent() {
     setVatRate(rest.vat_rate || 0);
     setDeliveryFee(rest.delivery_fee || 0);
     setMinOrderAmount(rest.min_order_amount || 0);
+    setSeoSettings({
+      title: rest.seo_title || '',
+      description: rest.meta_description || '',
+      keywords: rest.meta_keywords || '',
+      schema_json: rest.schema_json || ''
+    });
     setCredentials({
       username: rest.username || `rest_${rest.id}_${Math.random().toString(36).substring(2, 6)}`,
       password: rest.password || Math.random().toString(36).substring(2, 8)
@@ -907,6 +923,10 @@ function AdminContent() {
         vat_rate: vatRate,
         delivery_fee: deliveryFee,
         min_order_amount: minOrderAmount,
+        seo_title: seoSettings.title,
+        meta_description: seoSettings.description,
+        meta_keywords: seoSettings.keywords,
+        schema_json: seoSettings.schema_json,
         username: credentials.username,
         password: credentials.password,
         payment_config: JSON.stringify(paymentConfig),
@@ -3258,6 +3278,25 @@ function AdminContent() {
                     />
                   </div>
                   <div className="pt-4 border-t border-slate-100">
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
+                          <Sparkles size={20} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 text-sm">Препорачано за вас</p>
+                          <p className="text-xs text-slate-500">Прикажи го делот за AI препораки на почетната страна</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setGlobalSettings({...globalSettings, show_recommendations: globalSettings.show_recommendations === 'false' ? 'true' : 'false'})}
+                        className={`w-12 h-6 rounded-full transition-colors relative ${globalSettings.show_recommendations !== 'false' ? 'bg-orange-500' : 'bg-slate-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${globalSettings.show_recommendations !== 'false' ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="pt-4 border-t border-slate-100">
                     <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Податоци за Фактурирање (PIZZATIME)</h4>
                     <div className="space-y-4">
                       <div>
@@ -3571,6 +3610,69 @@ function AdminContent() {
 
                 <div className="mt-8 pt-6 border-t border-slate-100">
                   <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <Globe size={20} className="text-blue-500" />
+                    Логоа на Банка и Картички (Footer)
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Лого на Банка (URL)</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={globalSettings.bank_logo_url || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, bank_logo_url: e.target.value})} 
+                          className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                          placeholder="https://..." 
+                        />
+                        <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-xl font-bold transition-colors flex items-center gap-2">
+                          <Upload size={18} />
+                          <input type="file" accept="image/*" className="hidden" onChange={(e) => handleGlobalFileUpload(e, 'bank_logo_url')} />
+                        </label>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Visa Logo (URL)</label>
+                        <input 
+                          type="text" 
+                          value={globalSettings.visa_logo_url || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, visa_logo_url: e.target.value})} 
+                          className="w-full p-2 text-xs border border-slate-200 rounded-lg outline-none" 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Mastercard Logo (URL)</label>
+                        <input 
+                          type="text" 
+                          value={globalSettings.mastercard_logo_url || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, mastercard_logo_url: e.target.value})} 
+                          className="w-full p-2 text-xs border border-slate-200 rounded-lg outline-none" 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Diners Logo (URL)</label>
+                        <input 
+                          type="text" 
+                          value={globalSettings.diners_logo_url || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, diners_logo_url: e.target.value})} 
+                          className="w-full p-2 text-xs border border-slate-200 rounded-lg outline-none" 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Maestro Logo (URL)</label>
+                        <input 
+                          type="text" 
+                          value={globalSettings.maestro_logo_url || ''} 
+                          onChange={e => setGlobalSettings({...globalSettings, maestro_logo_url: e.target.value})} 
+                          className="w-full p-2 text-xs border border-slate-200 rounded-lg outline-none" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-slate-100">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <BarChart size={20} className="text-indigo-500" />
                     Маркетинг и Аналитика
                   </h3>
@@ -3655,6 +3757,33 @@ function AdminContent() {
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
                     placeholder="пр. 100" 
                   />
+                </div>
+
+                <div className="pt-4 border-t border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-800 mb-4">Специјална ознака за оброци (напр. Студентски)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Име на ознаката</label>
+                      <input 
+                        type="text" 
+                        value={globalSettings.special_badge_name || ''} 
+                        onChange={e => setGlobalSettings({...globalSettings, special_badge_name: e.target.value})} 
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                        placeholder="пр. Студент" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Максимална сума (ден.)</label>
+                      <input 
+                        type="number" 
+                        value={globalSettings.special_badge_amount || ''} 
+                        onChange={e => setGlobalSettings({...globalSettings, special_badge_amount: e.target.value})} 
+                        className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                        placeholder="пр. 180" 
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">Оваа ознака ќе се појавува на сите производи чија цена е помала или еднаква на наведената сума.</p>
                 </div>
                 
                 <button 
@@ -4472,6 +4601,56 @@ function AdminContent() {
                     <p className="mt-2 text-[10px] text-blue-500 italic">
                       * 1 поен = 1 денар. Клиентите заработуваат поени при секоја нарачка и можат да ги користат за попуст при плаќање.
                     </p>
+                  </div>
+
+                  <div className="pt-4 border-t border-blue-100">
+                    <h4 className="text-sm font-bold text-blue-900 mb-4 flex items-center gap-2">
+                      <Globe size={16} className="text-blue-600" />
+                      SEO Поставки
+                    </h4>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">SEO Наслов (Title Tag)</label>
+                        <input 
+                          type="text" 
+                          value={seoSettings.title}
+                          onChange={(e) => setSeoSettings({...seoSettings, title: e.target.value})}
+                          className="w-full p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="пр. Најдобрата Пица во Скопје | Име на Ресторан"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">Мета Опис (Meta Description)</label>
+                        <textarea 
+                          value={seoSettings.description}
+                          onChange={(e) => setSeoSettings({...seoSettings, description: e.target.value})}
+                          className="w-full p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 h-20"
+                          placeholder="Краток опис кој ќе се појави на Google..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">Мета Тагови (Keywords)</label>
+                        <input 
+                          type="text" 
+                          value={seoSettings.keywords}
+                          onChange={(e) => setSeoSettings({...seoSettings, keywords: e.target.value})}
+                          className="w-full p-2 text-sm border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="пица, достава, храна, скопје..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">Schema.org JSON-LD (GEO / AI)</label>
+                        <textarea 
+                          value={seoSettings.schema_json}
+                          onChange={(e) => setSeoSettings({...seoSettings, schema_json: e.target.value})}
+                          className="w-full p-2 text-sm font-mono border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 h-32"
+                          placeholder='{ "@context": "https://schema.org", "@type": "Restaurant", ... }'
+                        />
+                        <p className="mt-1 text-[10px] text-blue-500 italic">
+                          * Ова им помага на пребарувачите и AI моделите подобро да го разберат вашиот бизнис.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
