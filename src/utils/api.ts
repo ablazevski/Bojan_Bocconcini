@@ -1,4 +1,4 @@
-export const safeFetchJson = async (url: string, options?: RequestInit, silent = false) => {
+export const safeFetchJson = async <T = any>(url: string, options?: RequestInit, silent = false): Promise<T> => {
   try {
     const res = await fetch(url, {
       ...options,
@@ -17,7 +17,7 @@ export const safeFetchJson = async (url: string, options?: RequestInit, silent =
       if (!silent) console.error(`Failed to fetch from ${url}:`, errorMsg);
       throw new Error(errorMsg);
     }
-    return await res.json();
+    return await res.json() as T;
   } catch (e) {
     if (!silent) console.error(`Failed to fetch from ${url}:`, e);
     throw e;

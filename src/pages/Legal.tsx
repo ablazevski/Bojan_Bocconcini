@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ChevronLeft, Shield, CreditCard, Truck } from 'lucide-react';
+import { useParams, Link } from 'react-router-dom';
+import { ChevronLeft, Shield, CreditCard, Truck, AlertTriangle } from 'lucide-react';
 import SEO from '../components/SEO';
 
 const LegalLayout = ({ title, icon: Icon, children }: { title: string, icon: any, children: React.ReactNode }) => {
@@ -38,7 +38,7 @@ const LegalLayout = ({ title, icon: Icon, children }: { title: string, icon: any
         </div>
       </main>
 
-      <footer className="max-w-4xl mx-auto px-6 py-12 text-center">
+      <footer className="max-w-4xl mx-auto px-6 py-12 text-center border-t border-slate-200 dark:border-slate-800 mt-12">
         <p className="text-slate-400 dark:text-slate-600 text-xs font-bold uppercase tracking-widest">
           © {new Date().getFullYear()} PIZZA TIME. Сите права се задржани.
         </p>
@@ -47,50 +47,67 @@ const LegalLayout = ({ title, icon: Icon, children }: { title: string, icon: any
   );
 };
 
-export const PrivacyPolicy = () => (
-  <LegalLayout title="Политика за приватност" icon={Shield}>
-    <h2>1. Собирање на информации</h2>
-    <p>Ние собираме информации кои ни ги давате директно кога користите нашите услуги, како што се вашето име, адреса за достава, телефонски број и е-маил адреса.</p>
-    
-    <h2>2. Користење на информациите</h2>
-    <p>Вашите информации ги користиме исклучиво за процесирање на вашите нарачки, подобрување на нашите услуги и комуникација со вас во врска со вашите нарачки.</p>
-    
-    <h2>3. Заштита на податоци</h2>
-    <p>Ние применуваме низа безбедносни мерки за да ја одржиме безбедноста на вашите лични информации. Вашите лични податоци се чуваат зад обезбедени мрежи и се достапни само за ограничен број лица кои имаат посебни права за пристап до таквите системи.</p>
-    
-    <h2>4. Колачиња (Cookies)</h2>
-    <p>Користиме колачиња за да го подобриме вашето искуство на нашата веб-страница, да ги запомниме вашите преференции и да анализираме како се користи нашата услуга.</p>
-  </LegalLayout>
-);
+export const DynamicPage = ({ slug: propSlug, icon: Icon = Shield }: { slug?: string, icon?: any }) => {
+  const { slug: urlSlug } = useParams<{ slug: string }>();
+  const slug = propSlug || urlSlug;
+  const [page, setPage] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-export const PaymentTerms = () => (
-  <LegalLayout title="Услови за плаќање" icon={CreditCard}>
-    <h2>1. Начини на плаќање</h2>
-    <p>Прифаќаме плаќање во готово при достава и плаќање со кредитни/дебитни картички (Visa, MasterCard, Maestro, Diners) преку нашиот безбеден систем за онлајн плаќање.</p>
-    
-    <h2>2. Безбедност на плаќањето</h2>
-    <p>Сите трансакции со картички се вршат преку безбеден протокол и податоците за вашата картичка не се чуваат на нашите сервери.</p>
-    
-    <h2>3. Валута</h2>
-    <p>Сите цени се изразени во македонски денари (МКД) со вклучен ДДВ.</p>
-    
-    <h2>4. Потврда за плаќање</h2>
-    <p>По успешното плаќање, ќе добиете потврда на вашата е-маил адреса со детали за трансакцијата.</p>
-  </LegalLayout>
-);
+  useEffect(() => {
+    if (!slug) return;
+    const fetchPage = async () => {
+      try {
+        const res = await fetch(`/api/pages/${slug}`);
+        if (res.ok) {
+          const data = await res.json();
+          setPage(data);
+        }
+      } catch (e) {
+        console.error('Failed to fetch page', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPage();
+  }, [slug]);
 
-export const DeliveryTerms = () => (
-  <LegalLayout title="Начини на достава и враќање на средствата" icon={Truck}>
-    <h2>1. Достава</h2>
-    <p>Доставата се врши во најкраток можен рок по потврдата на нарачката. Времето на достава зависи од вашата локација и моменталната оптовареност на рестораните.</p>
-    
-    <h2>2. Трошоци за достава</h2>
-    <p>Трошоците за достава се јасно наведени пред да ја потврдите вашата нарачка.</p>
-    
-    <h2>3. Враќање на средствата</h2>
-    <p>Враќање на средствата е можно во случај на погрешно доставена нарачка или доколку нарачката не е доставена воопшто. Ве молиме контактирајте ја нашата поддршка веднаш по воочување на проблемот.</p>
-    
-    <h2>4. Откажување на нарачка</h2>
-    <p>Нарачката може да се откаже само пред ресторанот да започне со нејзина подготовка.</p>
-  </LegalLayout>
-);
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div>
+      </div>
+    );
+  }
+
+  if (!page) {
+    return (
+      <LegalLayout title="Страницата не е пронајдена" icon={AlertTriangle}>
+        <div className="text-center py-12">
+          <p className="text-slate-600 dark:text-slate-400 mb-8">Се извинуваме, но страницата што ја барате не постои или е деактивирана.</p>
+          <Link to="/" className="inline-flex items-center gap-2 bg-orange-500 text-white px-6 py-3 rounded-2xl font-bold hover:bg-orange-600 transition-all">
+            Врати се на почетна
+          </Link>
+        </div>
+      </LegalLayout>
+    );
+  }
+
+  return (
+    <LegalLayout 
+      title={page.title} 
+      icon={Icon}
+    >
+      <SEO 
+        title={page.meta_title || `${page.title} | PIZZA TIME`}
+        description={page.meta_description || page.subtitle || page.title}
+        keywords={page.meta_keywords}
+      />
+      {page.subtitle && <p className="text-lg text-slate-500 dark:text-slate-400 mb-8 italic">{page.subtitle}</p>}
+      <div className="dynamic-content prose prose-slate dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: page.content }} />
+    </LegalLayout>
+  );
+};
+
+export const PrivacyPolicy = () => <DynamicPage slug="privacy-policy" icon={Shield} />;
+export const PaymentTerms = () => <DynamicPage slug="payment-terms" icon={CreditCard} />;
+export const DeliveryTerms = () => <DynamicPage slug="delivery-terms" icon={Truck} />;

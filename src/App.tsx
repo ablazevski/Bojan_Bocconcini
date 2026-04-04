@@ -72,7 +72,7 @@ import Marketing from './pages/Marketing';
 import RestaurantProfile from './pages/RestaurantProfile';
 import TrackOrder from './pages/TrackOrder';
 import Contract from './pages/Contract';
-import { PrivacyPolicy, PaymentTerms, DeliveryTerms } from './pages/Legal';
+import { PrivacyPolicy, PaymentTerms, DeliveryTerms, DynamicPage } from './pages/Legal';
 
 import { Toaster } from 'sonner';
 
@@ -154,6 +154,7 @@ export default function App() {
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/payment-terms" element={<PaymentTerms />} />
           <Route path="/delivery-terms" element={<DeliveryTerms />} />
+          <Route path="/pages/:slug" element={<DynamicPage />} />
         </Routes>
         </BrowserRouter>
       </ThemeProvider>

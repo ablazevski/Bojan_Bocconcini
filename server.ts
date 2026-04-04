@@ -14,6 +14,7 @@ import axios from "axios";
 import nodemailer from "nodemailer";
 import handlebars from "handlebars";
 import webpush from "web-push";
+import bcrypt from "bcryptjs";
 
 const db = new Database('pizza.db');
 
@@ -104,6 +105,22 @@ db.exec(`
       menu_item_id INTEGER,
       quantity INTEGER DEFAULT 1,
       modifiers TEXT DEFAULT '[]'
+    );
+
+    CREATE TABLE IF NOT EXISTS pages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT,
+      subtitle TEXT,
+      slug TEXT UNIQUE,
+      content TEXT,
+      meta_title TEXT,
+      meta_description TEXT,
+      meta_keywords TEXT,
+      image_title TEXT,
+      is_active INTEGER DEFAULT 1,
+      in_menu INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
@@ -436,11 +453,40 @@ try {
 try {
   const superAdmin = db.prepare("SELECT * FROM admins WHERE username = 'superadmin'").get() as any;
   if (!superAdmin) {
+    const hashedPassword = bcrypt.hashSync('admin123', 10);
     db.prepare("INSERT INTO admins (username, password, name, email, role, permissions) VALUES (?, ?, ?, ?, ?, ?)")
-      .run('superadmin', 'admin123', 'Super Admin', 'aleksandar.busav@gmail.com', 'super', JSON.stringify(['restaurants', 'delivery', 'marketing', 'invoices', 'reviews', 'settings', 'admins', 'email', 'database', 'orders', 'invoicing', 'billing', 'users', 'campaigns', 'dashboard']));
+      .run('superadmin', hashedPassword, 'Super Admin', 'aleksandar.busav@gmail.com', 'super', JSON.stringify(['restaurants', 'delivery', 'marketing', 'invoices', 'reviews', 'settings', 'admins', 'email', 'database', 'orders', 'invoicing', 'billing', 'users', 'campaigns', 'dashboard']));
   } else if (superAdmin.role !== 'super') {
     db.prepare("UPDATE admins SET role = 'super', permissions = ? WHERE username = 'superadmin'")
       .run(JSON.stringify(['restaurants', 'delivery', 'marketing', 'invoices', 'reviews', 'settings', 'admins', 'email', 'database', 'orders', 'invoicing', 'billing', 'users', 'campaigns', 'dashboard']));
+  }
+} catch (e) {}
+
+// One-time migration to hash admin passwords
+try {
+  const admins = db.prepare('SELECT * FROM admins').all() as any[];
+  for (const admin of admins) {
+    // If password is not hashed (bcrypt hashes start with $2a$ or $2b$)
+    if (admin.password && !admin.password.startsWith('$2a$') && !admin.password.startsWith('$2b$')) {
+      const hashedPassword = bcrypt.hashSync(admin.password, 10);
+      db.prepare('UPDATE admins SET password = ? WHERE id = ?').run(hashedPassword, admin.id);
+    }
+  }
+} catch (e) {
+  console.error('Failed to migrate admin passwords', e);
+}
+
+// Seed initial pages
+try {
+  const pagesCount = db.prepare('SELECT COUNT(*) as count FROM pages').get() as any;
+  if (pagesCount.count === 0) {
+    const initialPages = [
+      { title: 'Политика за приватност', slug: 'privacy-policy', content: '<h1>Политика за приватност</h1><p>Ова е политика за приватност.</p>' },
+      { title: 'Услови за плаќање', slug: 'payment-terms', content: '<h1>Услови за плаќање</h1><p>Ова се услови за плаќање.</p>' },
+      { title: 'Начини на достава и враќање на средства', slug: 'delivery-terms', content: '<h1>Начини на достава и враќање на средства</h1><p>Ова се начини на достава.</p>' }
+    ];
+    const insertPage = db.prepare('INSERT INTO pages (title, slug, content) VALUES (?, ?, ?)');
+    initialPages.forEach(p => insertPage.run(p.title, p.slug, p.content));
   }
 } catch (e) {}
 
@@ -1334,8 +1380,9 @@ app.get("/api/orders/track/:token", (req, res) => {
 
     app.post('/api/admin/login', (req, res) => {
       const { username, password } = req.body;
-      const admin = db.prepare('SELECT * FROM admins WHERE username = ? AND password = ?').get(username, password) as any;
-      if (admin) {
+      const admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(username) as any;
+      
+      if (admin && bcrypt.compareSync(password, admin.password)) {
         (req.session as any).admin = admin;
         req.session.save((err) => {
           if (err) {
@@ -1385,12 +1432,54 @@ app.get("/api/orders/track/:token", (req, res) => {
       res.json(admins);
     });
 
+    app.get('/api/admin/pages', (req, res) => {
+      if (!checkAdminAuth(req, res, 'settings')) return;
+      const pages = db.prepare('SELECT * FROM pages ORDER BY created_at DESC').all();
+      res.json(pages);
+    });
+
+    app.post('/api/admin/pages', (req, res) => {
+      if (!checkAdminAuth(req, res, 'settings')) return;
+      const { title, subtitle, slug, content, meta_title, meta_description, meta_keywords, image_title, is_active, in_menu } = req.body;
+      try {
+        const result = db.prepare(`
+          INSERT INTO pages (title, subtitle, slug, content, meta_title, meta_description, meta_keywords, image_title, is_active, in_menu)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(title, subtitle, slug, content, meta_title, meta_description, meta_keywords, image_title, is_active ? 1 : 0, in_menu ? 1 : 0);
+        res.json({ id: result.lastInsertRowid });
+      } catch (error) {
+        res.status(400).json({ error: 'Slug must be unique' });
+      }
+    });
+
+    app.put('/api/admin/pages/:id', (req, res) => {
+      if (!checkAdminAuth(req, res, 'settings')) return;
+      const { title, subtitle, slug, content, meta_title, meta_description, meta_keywords, image_title, is_active, in_menu } = req.body;
+      try {
+        db.prepare(`
+          UPDATE pages 
+          SET title = ?, subtitle = ?, slug = ?, content = ?, meta_title = ?, meta_description = ?, meta_keywords = ?, image_title = ?, is_active = ?, in_menu = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(title, subtitle, slug, content, meta_title, meta_description, meta_keywords, image_title, is_active ? 1 : 0, in_menu ? 1 : 0, req.params.id);
+        res.json({ success: true });
+      } catch (error) {
+        res.status(400).json({ error: 'Slug must be unique' });
+      }
+    });
+
+    app.delete('/api/admin/pages/:id', (req, res) => {
+      if (!checkAdminAuth(req, res, 'settings')) return;
+      db.prepare('DELETE FROM pages WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    });
+
     app.post('/api/admin/admins', (req, res) => {
       if (!checkAdminAuth(req, res, 'admins')) return;
       const { username, password, name, email, role, permissions } = req.body;
       try {
+        const hashedPassword = bcrypt.hashSync(password, 10);
         db.prepare('INSERT INTO admins (username, password, name, email, role, permissions) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(username, password, name, email, role || 'admin', JSON.stringify(permissions || []));
+          .run(username, hashedPassword, name, email, role || 'admin', JSON.stringify(permissions || []));
         res.json({ success: true });
       } catch (e) {
         res.status(400).json({ error: 'Username already exists' });
@@ -1401,8 +1490,9 @@ app.get("/api/orders/track/:token", (req, res) => {
       if (!checkAdminAuth(req, res, 'admins')) return;
       const { name, email, role, permissions, password } = req.body;
       if (password) {
+        const hashedPassword = bcrypt.hashSync(password, 10);
         db.prepare('UPDATE admins SET name = ?, email = ?, role = ?, permissions = ?, password = ? WHERE id = ?')
-          .run(name, email, role, JSON.stringify(permissions), password, req.params.id);
+          .run(name, email, role, JSON.stringify(permissions), hashedPassword, req.params.id);
       } else {
         db.prepare('UPDATE admins SET name = ?, email = ?, role = ?, permissions = ? WHERE id = ?')
           .run(name, email, role, JSON.stringify(permissions), req.params.id);
@@ -1935,6 +2025,20 @@ app.get("/api/orders/track/:token", (req, res) => {
         return acc;
       }, {});
       res.json(settingsObj);
+    });
+
+    app.get('/api/pages/:slug', (req, res) => {
+      const page = db.prepare('SELECT * FROM pages WHERE slug = ? AND is_active = 1').get(req.params.slug);
+      if (page) {
+        res.json(page);
+      } else {
+        res.status(404).json({ error: 'Page not found' });
+      }
+    });
+
+    app.get('/api/pages', (req, res) => {
+      const pages = db.prepare('SELECT * FROM pages WHERE is_active = 1 AND in_menu = 1').all();
+      res.json(pages);
     });
 
     app.put('/api/settings', (req, res) => {

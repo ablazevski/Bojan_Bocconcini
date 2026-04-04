@@ -147,6 +147,22 @@ interface PendingBundle {
   }[];
 }
 
+interface Page {
+  id: number;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  content: string;
+  meta_title?: string;
+  meta_description?: string;
+  meta_keywords?: string;
+  image_title?: string;
+  is_active: number;
+  in_menu: number;
+  created_at: string;
+  updated_at: string;
+}
+
 const DAYS_MAP: Record<string, string> = {
   monday: 'Понеделник', tuesday: 'Вторник', wednesday: 'Среда',
   thursday: 'Четврток', friday: 'Петок', saturday: 'Сабота', sunday: 'Недела'
@@ -205,7 +221,7 @@ function AdminContent() {
   });
   const [newUser, setNewUser] = useState({ name: '', email: '' });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing' | 'admins' | 'bundles'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing' | 'admins' | 'bundles' | 'pages'>('dashboard');
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingBundles, setPendingBundles] = useState<PendingBundle[]>([]);
@@ -293,6 +309,9 @@ function AdminContent() {
   const [homeSlider, setHomeSlider] = useState<any[]>([]);
   const [isHomeSliderModalOpen, setIsHomeSliderModalOpen] = useState(false);
   const [editingSliderItem, setEditingSliderItem] = useState<any>(null);
+  const [pages, setPages] = useState<Page[]>([]);
+  const [isPageModalOpen, setIsPageModalOpen] = useState(false);
+  const [editingPage, setEditingPage] = useState<Partial<Page> | null>(null);
   const [newSliderItem, setNewSliderItem] = useState({
     title: '',
     image_url: '',
@@ -704,7 +723,8 @@ function AdminContent() {
         fetchInvoices(),
         fetchHomeSlider(),
         fetchPendingBundles(),
-        fetchAllBundles()
+        fetchAllBundles(),
+        fetchPages()
       ];
 
       await Promise.allSettled(fetchActions);
@@ -720,6 +740,15 @@ function AdminContent() {
       setHomeSlider(data);
     } catch (e) {
       console.error('Failed to fetch home slider', e);
+    }
+  };
+
+  const fetchPages = async () => {
+    try {
+      const data = await safeFetchJson<Page[]>('/api/admin/pages');
+      if (Array.isArray(data)) setPages(data);
+    } catch (e) {
+      console.error('Failed to fetch pages', e);
     }
   };
 
@@ -1446,6 +1475,179 @@ function AdminContent() {
     return Array.isArray(permissions) && permissions.includes(p);
   };
 
+  const PageModal = () => {
+    if (!isPageModalOpen || !editingPage) return null;
+
+    const handleSave = async (e: React.FormEvent) => {
+      e.preventDefault();
+      const method = editingPage.id ? 'PUT' : 'POST';
+      const url = editingPage.id ? `/api/admin/pages/${editingPage.id}` : '/api/admin/pages';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingPage)
+      });
+
+      if (res.ok) {
+        toast.success(editingPage.id ? 'Страницата е ажурирана' : 'Страницата е креирана');
+        setIsPageModalOpen(false);
+        fetchPages();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Настана грешка');
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+        >
+          <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+            <h3 className="text-xl font-bold text-slate-800">
+              {editingPage.id ? 'Уреди страница' : 'Нова страница'}
+            </h3>
+            <button onClick={() => setIsPageModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+
+          <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-8 space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Наслов</label>
+                <input
+                  type="text"
+                  required
+                  value={editingPage.title || ''}
+                  onChange={e => setEditingPage({ ...editingPage, title: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="Пример: Политика за приватност"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Slug (URL дел)</label>
+                <input
+                  type="text"
+                  required
+                  value={editingPage.slug || ''}
+                  onChange={e => setEditingPage({ ...editingPage, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                  placeholder="Пример: privacy-policy"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Под-наслов (опционално)</label>
+              <input
+                type="text"
+                value={editingPage.subtitle || ''}
+                onChange={e => setEditingPage({ ...editingPage, subtitle: e.target.value })}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Содржина (HTML)</label>
+              <textarea
+                required
+                rows={10}
+                value={editingPage.content || ''}
+                onChange={e => setEditingPage({ ...editingPage, content: e.target.value })}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm"
+                placeholder="Внесете HTML содржина..."
+              />
+            </div>
+
+            <div className="bg-slate-50 p-6 rounded-2xl space-y-4">
+              <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                <Target size={18} />
+                SEO Поставки
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Meta Title</label>
+                  <input
+                    type="text"
+                    value={editingPage.meta_title || ''}
+                    onChange={e => setEditingPage({ ...editingPage, meta_title: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Meta Keywords</label>
+                  <input
+                    type="text"
+                    value={editingPage.meta_keywords || ''}
+                    onChange={e => setEditingPage({ ...editingPage, meta_keywords: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Meta Description</label>
+                <textarea
+                  rows={2}
+                  value={editingPage.meta_description || ''}
+                  onChange={e => setEditingPage({ ...editingPage, meta_description: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-6">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingPage.is_active === 1}
+                    onChange={e => setEditingPage({ ...editingPage, is_active: e.target.checked ? 1 : 0 })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                </div>
+                <span className="text-sm font-medium text-slate-700">Активна страница</span>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingPage.in_menu === 1}
+                    onChange={e => setEditingPage({ ...editingPage, in_menu: e.target.checked ? 1 : 0 })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                </div>
+                <span className="text-sm font-medium text-slate-700">Прикажи во мени</span>
+              </label>
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <button
+                type="submit"
+                className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+              >
+                Зачувај промени
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPageModalOpen(false)}
+                className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+              >
+                Откажи
+              </button>
+            </div>
+          </form>
+        </motion.div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
@@ -1585,6 +1787,15 @@ function AdminContent() {
               >
                 <Settings size={14} />
                 Поставки
+              </button>
+            )}
+            {hasPermission('settings') && (
+              <button 
+                onClick={() => setActiveTab('pages')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'pages' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <FileText size={14} />
+                Страници
               </button>
             )}
             {hasPermission('email') && (
@@ -3797,6 +4008,97 @@ function AdminContent() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'pages' ? (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Управување со страници</h2>
+                <p className="text-slate-500">Креирајте и уредувајте HTML страници за вашиот портал</p>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingPage({
+                    title: '',
+                    slug: '',
+                    content: '',
+                    is_active: 1,
+                    in_menu: 1
+                  });
+                  setIsPageModalOpen(true);
+                }}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-indigo-700 transition-colors"
+              >
+                <Plus size={20} />
+                Нова страница
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-6 py-4 text-sm font-semibold text-slate-600">Наслов</th>
+                    <th className="px-6 py-4 text-sm font-semibold text-slate-600">Slug</th>
+                    <th className="px-6 py-4 text-sm font-semibold text-slate-600">Статус</th>
+                    <th className="px-6 py-4 text-sm font-semibold text-slate-600">Мени</th>
+                    <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-right">Акции</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pages.map((page) => (
+                    <tr key={page.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-medium text-slate-800">{page.title}</div>
+                        {page.subtitle && <div className="text-xs text-slate-500">{page.subtitle}</div>}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600 font-mono">
+                        /pages/{page.slug}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${page.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {page.is_active ? 'Активна' : 'Неактивна'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${page.in_menu ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
+                          {page.in_menu ? 'Во мени' : 'Скриена'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingPage(page);
+                              setIsPageModalOpen(true);
+                            }}
+                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="Уреди"
+                          >
+                            <Settings2 size={18} />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (window.confirm('Дали сте сигурни дека сакате да ја избришете оваа страница?')) {
+                                const res = await fetch(`/api/admin/pages/${page.id}`, { method: 'DELETE' });
+                                if (res.ok) {
+                                  toast.success('Страницата е избришана');
+                                  fetchPages();
+                                }
+                              }
+                            }}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Избриши"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : activeTab === 'admins' ? (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -5982,6 +6284,8 @@ function AdminContent() {
           </div>
         </div>
       )}
+
+      <PageModal />
     </div>
   );
 }
