@@ -2,11 +2,25 @@ import { Link } from 'react-router-dom';
 import { Shield, Store, User, Bike, PlusCircle, Users, Bell } from 'lucide-react';
 import SEO from '../components/SEO';
 import { useState, useEffect } from 'react';
+import { safeFetchJson } from '../utils/api';
 
 export default function Portal() {
+  const [globalSettings, setGlobalSettings] = useState<any>({});
   const [notificationStatus, setNotificationStatus] = useState<NotificationPermission>(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const data = await safeFetchJson('/api/settings');
+        setGlobalSettings(data);
+      } catch (err) {
+        console.error('Failed to fetch settings:', err);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   const requestPermission = async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -76,16 +90,18 @@ export default function Portal() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
           {/* Admin Portal */}
-          <Link 
-            to="/admin" 
-            className="group bg-white rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all duration-300 border border-orange-100 flex flex-col items-center text-center hover:-translate-y-1"
-          >
-            <div className="w-14 h-14 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-slate-600 group-hover:text-white transition-colors">
-              <Shield size={28} />
-            </div>
-            <h2 className="text-lg font-bold text-slate-800 mb-1">Администратор</h2>
-            <p className="text-xs text-slate-500">Управување со системот</p>
-          </Link>
+          {globalSettings.show_admin_in_portal !== 'false' && (
+            <Link 
+              to="/admin" 
+              className="group bg-white rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all duration-300 border border-orange-100 flex flex-col items-center text-center hover:-translate-y-1"
+            >
+              <div className="w-14 h-14 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-slate-600 group-hover:text-white transition-colors">
+                <Shield size={28} />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800 mb-1">Администратор</h2>
+              <p className="text-xs text-slate-500">Управување со системот</p>
+            </Link>
+          )}
 
           {/* Restaurant Portal */}
           <Link 

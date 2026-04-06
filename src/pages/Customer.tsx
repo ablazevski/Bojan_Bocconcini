@@ -1487,60 +1487,63 @@ export default function Customer() {
                 </div>
                 
                 {/* Loyalty & Login Section */}
-                <div className="mb-8 p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-900/30 transition-colors">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
-                        <Award size={24} />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-800 dark:text-white">Лојалност и Поени</h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Поврзете се за да собирате поени</p>
-                      </div>
-                    </div>
-                    {user ? (
-                      <button 
-                        onClick={handleLogout}
-                        className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                        title="Одјави се"
-                      >
-                        <LogOut size={20} />
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={handleGoogleLogin}
-                        className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
-                      >
-                        <LogIn size={18} className="text-indigo-600 dark:text-indigo-400" />
-                        Најави се со Google
-                      </button>
-                    )}
-                  </div>
-
-                  {user && (
-                    <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 shadow-sm transition-colors">
+                {globalSettings.enable_cart_login === 'true' && (
+                  <div className="mb-8 p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-900/30 transition-colors">
+                    <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
-                          {user.name?.[0] || 'U'}
+                        <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
+                          <Award size={24} />
                         </div>
                         <div>
-                          <p className="text-sm font-bold text-slate-800 dark:text-white">{user.name}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400">{user.email}</p>
+                          <h3 className="font-bold text-slate-800 dark:text-white">Лојалност и Поени</h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Поврзете се за да собирате поени</p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xs text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider">Ваши Поени</p>
-                        <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">{user.loyalty_points || 0}</p>
-                      </div>
+                      {(!user && globalSettings.enable_cart_login === 'true') && (
+                        <button 
+                          onClick={handleGoogleLogin}
+                          className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
+                        >
+                          <LogIn size={18} className="text-indigo-600 dark:text-indigo-400" />
+                          Најави се со Google
+                        </button>
+                      )}
+                      {user && (
+                        <button 
+                          onClick={handleLogout}
+                          className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                          title="Одјави се"
+                        >
+                          <LogOut size={20} />
+                        </button>
+                      )}
                     </div>
-                  )}
-                  
-                  {!user && (
-                    <p className="text-xs text-indigo-600/70 italic mt-2">
-                      * Со секоја нарачка добивате поени кои ќе можете да ги користите за попусти во иднина.
-                    </p>
-                  )}
-                </div>
+
+                    {user && (
+                      <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 shadow-sm transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
+                            {user.name?.[0] || 'U'}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-800 dark:text-white">{user.name}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">{user.email}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider">Ваши Поени</p>
+                          <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">{user.loyalty_points || 0}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {!user && (
+                      <p className="text-xs text-indigo-600/70 italic mt-2">
+                        * Со секоја нарачка добивате поени кои ќе можете да ги користите за попусти во иднина.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {activeCampaigns.filter(c => (c.is_visible !== 0 && c.is_visible !== false) && (!c.restaurant_id || (cart.length > 0 ? cart.some(item => item.restaurant_id === c.restaurant_id) : c.restaurant_id === selectedRestaurantId))).length > 0 && (
                   <div className="mb-6">

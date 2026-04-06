@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, ReactNode, Component, ErrorInfo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer, Sparkles } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer, Sparkles, Shield } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { safeFetchJson } from '../utils/api';
@@ -3488,7 +3488,7 @@ function AdminContent() {
                       placeholder="https://..." 
                     />
                   </div>
-                  <div className="pt-4 border-t border-slate-100">
+                  <div className="pt-4 border-t border-slate-100 space-y-4">
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
@@ -3504,6 +3504,42 @@ function AdminContent() {
                         className={`w-12 h-6 rounded-full transition-colors relative ${globalSettings.show_recommendations !== 'false' ? 'bg-orange-500' : 'bg-slate-300'}`}
                       >
                         <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${globalSettings.show_recommendations !== 'false' ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                          <LogIn size={20} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 text-sm">Најава во кошничка</p>
+                          <p className="text-xs text-slate-500">Овозможи најава со Google во делот на кошничката</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setGlobalSettings({...globalSettings, enable_cart_login: globalSettings.enable_cart_login === 'true' ? 'false' : 'true'})}
+                        className={`w-12 h-6 rounded-full transition-colors relative ${globalSettings.enable_cart_login === 'true' ? 'bg-blue-500' : 'bg-slate-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${globalSettings.enable_cart_login === 'true' ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                          <Shield size={20} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 text-sm">Видлив „Администратор“ во порталот</p>
+                          <p className="text-xs text-slate-500">Прикажи ја опцијата за најава на администратор во порталот за соработници</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setGlobalSettings({...globalSettings, show_admin_in_portal: globalSettings.show_admin_in_portal === 'false' ? 'true' : 'false'})}
+                        className={`w-12 h-6 rounded-full transition-colors relative ${globalSettings.show_admin_in_portal !== 'false' ? 'bg-indigo-500' : 'bg-slate-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${globalSettings.show_admin_in_portal !== 'false' ? 'right-1' : 'left-1'}`}></div>
                       </button>
                     </div>
                   </div>

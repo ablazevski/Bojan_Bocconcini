@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ChevronLeft, Shield, CreditCard, Truck, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Shield, CreditCard, Truck, AlertTriangle, Moon, Sun } from 'lucide-react';
 import SEO from '../components/SEO';
+import { useTheme } from '../context/ThemeContext';
 
 const LegalLayout = ({ title, icon: Icon, children }: { title: string, icon: any, children: React.ReactNode }) => {
+  const { theme, toggleTheme } = useTheme();
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans selection:bg-orange-100 selection:text-orange-900">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans selection:bg-orange-100 selection:text-orange-900 transition-colors duration-300">
       <SEO title={`${title} | PIZZA TIME`} description={title} />
       
       <nav className="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
@@ -18,18 +21,23 @@ const LegalLayout = ({ title, icon: Icon, children }: { title: string, icon: any
             <Icon size={20} className="text-orange-500" />
             <span className="font-black text-slate-900 dark:text-white tracking-tight">PIZZA TIME</span>
           </div>
-          <div className="w-10"></div>
+          <button 
+            onClick={toggleTheme}
+            className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+            title={theme === 'light' ? 'Префрли во темен режим' : 'Префрли во светол режим'}
+          >
+            {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+          </button>
         </div>
       </nav>
 
       <main className="max-w-4xl mx-auto px-6 py-12">
-        <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 p-8 md:p-12">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 p-8 md:p-12 transition-colors duration-300">
           <header className="mb-12 text-center">
             <div className="inline-flex p-4 bg-orange-50 dark:bg-orange-900/20 rounded-2xl mb-6">
               <Icon size={40} className="text-orange-500" />
             </div>
             <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tight mb-4">{title}</h1>
-            <p className="text-slate-500 dark:text-slate-400">Последна промена: {new Date().toLocaleDateString('mk-MK')}</p>
           </header>
 
           <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-black prose-headings:tracking-tight prose-p:text-slate-600 dark:prose-p:text-slate-400 prose-li:text-slate-600 dark:prose-li:text-slate-400">

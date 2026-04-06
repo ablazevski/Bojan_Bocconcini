@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck, Star, Facebook, Instagram, Twitter, Linkedin, Globe, Navigation } from 'lucide-react';
-import { motion } from 'motion/react';
+import { CheckCircle, Clock, MapPin, Phone, Package, ArrowLeft, ExternalLink, ShieldCheck, Star, Facebook, Instagram, Twitter, Linkedin, Globe, Navigation, Moon, Sun } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import SEO from '../components/SEO';
 import QRCode from 'qrcode';
 import { io } from 'socket.io-client';
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
 import { safeFetchJson } from '../utils/api';
+import { useTheme } from '../context/ThemeContext';
 
 export default function TrackOrder() {
+  const { theme, toggleTheme } = useTheme();
   const { token } = useParams<{ token: string }>();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +22,7 @@ export default function TrackOrder() {
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
   const [partnerLocation, setPartnerLocation] = useState<[number, number] | null>(null);
+  const [preciseEta, setPreciseEta] = useState<number | null>(null);
 
   useEffect(() => {
     fetchOrder();
@@ -51,6 +54,48 @@ export default function TrackOrder() {
       clearInterval(interval);
     };
   }, [token]);
+
+  useEffect(() => {
+    if (order && (order.status === 'delivering' || order.status === 'ready' || order.status === 'preparing' || order.status === 'accepted')) {
+      calculatePreciseEta();
+    }
+  }, [order?.status, partnerLocation, order?.delivery_lat, order?.delivery_lng]);
+
+  const calculatePreciseEta = async () => {
+    if (!order) return;
+
+    let startLat, startLng;
+    const endLat = order.delivery_lat;
+    const endLng = order.delivery_lng;
+
+    if (order.status === 'delivering' && partnerLocation) {
+      [startLat, startLng] = partnerLocation;
+    } else {
+      startLat = order.restaurant_lat;
+      startLng = order.restaurant_lng;
+    }
+
+    if (!startLat || !startLng || !endLat || !endLng) return;
+
+    try {
+      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=false`);
+      const data = await response.json();
+      
+      if (data.routes && data.routes.length > 0) {
+        const durationSeconds = data.routes[0].duration;
+        let durationMinutes = Math.round(durationSeconds / 60);
+        
+        // Add buffer if still preparing
+        if (order.status === 'preparing' || order.status === 'accepted') {
+          durationMinutes += 10; // Assume 10 mins more for prep
+        }
+        
+        setPreciseEta(durationMinutes);
+      }
+    } catch (err) {
+      console.error('Failed to calculate precise ETA:', err);
+    }
+  };
 
   const fetchOrder = async () => {
     try {
@@ -200,25 +245,31 @@ export default function TrackOrder() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F2ED] pb-20 font-sans">
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-slate-950' : 'bg-[#F5F2ED]'} pb-20 font-sans transition-colors duration-300`}>
       <SEO 
         title={`Следење на нарачка #${order.id} - PizzaTime`}
         description={`Следете го статусот на вашата нарачка од ${order.restaurant_name} во реално време.`}
       />
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10">
+      <header className={`${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-slate-200'} backdrop-blur-md border-b sticky top-0 z-10 transition-colors duration-300`}>
         <div className="max-w-4xl mx-auto px-6 h-20 flex items-center justify-between">
-          <Link to="/" className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-            <ArrowLeft size={24} className="text-slate-800" />
+          <Link to="/" className={`p-2 ${theme === 'dark' ? 'hover:bg-slate-800' : 'hover:bg-slate-100'} rounded-full transition-colors`}>
+            <ArrowLeft size={24} className={theme === 'dark' ? 'text-slate-300' : 'text-slate-800'} />
           </Link>
           <div className="text-center">
             {globalSettings.company_logo_url ? (
               <img src={globalSettings.company_logo_url} alt="Logo" className="h-8 object-contain mx-auto" />
             ) : (
-              <h1 className="font-black text-xl text-slate-900 tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h1>
+              <h1 className={`font-black text-xl ${theme === 'dark' ? 'text-white' : 'text-slate-900'} tracking-tight`}>{globalSettings.company_name || 'PIZZA TIME'}</h1>
             )}
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold">Tracking Service</p>
           </div>
-          <div className="w-10"></div>
+          <button 
+            onClick={toggleTheme}
+            className={`p-2 ${theme === 'dark' ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-100'} rounded-full transition-colors`}
+            title={theme === 'light' ? 'Префрли во темен режим' : 'Префрли во светол режим'}
+          >
+            {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+          </button>
         </div>
       </header>
 
@@ -227,11 +278,11 @@ export default function TrackOrder() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-[40px] shadow-2xl shadow-slate-200/50 overflow-hidden border border-white"
+          className={`${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-slate-950/50' : 'bg-white border-white shadow-slate-200/50'} rounded-[40px] shadow-2xl overflow-hidden border transition-colors duration-300`}
         >
           <div className="p-10 text-center">
             <div className="flex flex-wrap justify-center gap-2 mb-8">
-              <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${statusColors[order.status] || 'bg-slate-100'}`}>
+              <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${statusColors[order.status] || (theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500')}`}>
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
@@ -243,7 +294,7 @@ export default function TrackOrder() {
                 <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${
                   order.payment_status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 
                   order.payment_status === 'failed' ? 'bg-red-100 text-red-700' : 
-                  'bg-amber-100 text-amber-700'
+                  (theme === 'dark' ? 'bg-amber-900/30 text-amber-500' : 'bg-amber-100 text-amber-700')
                 }`}>
                   <ShieldCheck size={12} />
                   {order.payment_status === 'paid' ? 'Платено' : 
@@ -257,7 +308,7 @@ export default function TrackOrder() {
               <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-emerald-50 text-emerald-700 p-6 rounded-3xl mb-8 font-sans font-bold flex items-center justify-center gap-3"
+                className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 p-6 rounded-3xl mb-8 font-sans font-bold flex items-center justify-center gap-3"
               >
                 <CheckCircle size={24} />
                 Плаќањето е успешно процесирано!
@@ -268,7 +319,7 @@ export default function TrackOrder() {
               <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-red-50 text-red-700 p-6 rounded-3xl mb-8 font-sans font-bold flex flex-col items-center gap-2"
+                className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 p-6 rounded-3xl mb-8 font-sans font-bold flex flex-col items-center gap-2"
               >
                 <div className="flex items-center gap-3">
                   <Package size={24} />
@@ -278,20 +329,22 @@ export default function TrackOrder() {
               </motion.div>
             )}
 
-            <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tighter">#{order.id}</h2>
+            <h2 className={`text-5xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} mb-4 tracking-tighter`}>#{order.id}</h2>
             
-            {order.eta_minutes && order.status !== 'completed' && order.status !== 'cancelled' && (
+            {(preciseEta || order.eta_minutes) && order.status !== 'completed' && order.status !== 'cancelled' && (
               <div className="mb-8 flex flex-col items-center">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold mb-1">Проценето време</span>
-                <div className="flex items-center gap-2 text-indigo-600">
-                  <Clock size={20} />
-                  <span className="text-3xl font-black tracking-tighter">~{order.eta_minutes} мин.</span>
+                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold mb-1">
+                  {preciseEta ? 'Прецизно време (Live)' : 'Проценето време'}
+                </span>
+                <div className={`flex items-center gap-2 ${preciseEta ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
+                  <Clock size={20} className={preciseEta ? "animate-pulse" : ""} />
+                  <span className="text-3xl font-black tracking-tighter">~{preciseEta || order.eta_minutes} мин.</span>
                 </div>
               </div>
             )}
             
             {order.status === 'cancelled' && (
-              <div className="bg-red-50 text-red-600 p-6 rounded-3xl mb-8 font-sans font-bold">
+              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-6 rounded-3xl mb-8 font-sans font-bold">
                 Кујната е презафатена. Вашата нарачка не може да биде прифатена во овој момент.
               </div>
             )}
@@ -328,7 +381,7 @@ export default function TrackOrder() {
             {/* Visual Stepper */}
             <div className="max-w-md mx-auto mb-12 px-4">
               <div className="relative flex justify-between items-center">
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-0.5 bg-slate-100"></div>
+                <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-full h-0.5 ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-100'}`}></div>
                 <div 
                   className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-600 transition-all duration-1000"
                   style={{ 
@@ -344,7 +397,7 @@ export default function TrackOrder() {
                   const isPast = ['pending', 'accepted', 'ready', 'delivering', 'completed'].indexOf(order.status) >= i;
                   return (
                     <div key={s} className="relative z-10 flex flex-col items-center">
-                      <div className={`w-4 h-4 rounded-full border-4 transition-all duration-500 ${isPast ? 'bg-indigo-600 border-indigo-100' : 'bg-white border-slate-100'}`}></div>
+                      <div className={`w-4 h-4 rounded-full border-4 transition-all duration-500 ${isPast ? 'bg-indigo-600 border-indigo-100 dark:border-indigo-900/50' : (theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100')}`}></div>
                     </div>
                   );
                 })}
@@ -361,7 +414,7 @@ export default function TrackOrder() {
               <button 
                 onClick={handleComplete}
                 disabled={isCompleting}
-                className="w-full max-w-sm bg-slate-900 text-white py-5 rounded-3xl font-sans font-black text-sm uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-xl shadow-slate-900/20 disabled:opacity-50"
+                className={`w-full max-w-sm ${theme === 'dark' ? 'bg-white text-slate-900 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-indigo-600'} py-5 rounded-3xl font-sans font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-slate-900/20 disabled:opacity-50`}
               >
                 {isCompleting ? 'Се процесира...' : 'Потврди прием'}
               </button>
@@ -369,7 +422,7 @@ export default function TrackOrder() {
 
             {order.status === 'completed' && (
               <div className="space-y-6">
-                <div className="inline-flex items-center gap-3 px-8 py-4 bg-emerald-50 rounded-full text-emerald-700 font-sans font-black text-xs uppercase tracking-widest border border-emerald-100">
+                <div className={`inline-flex items-center gap-3 px-8 py-4 ${theme === 'dark' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-900/30' : 'bg-emerald-50 text-emerald-700 border-emerald-100'} rounded-full font-sans font-black text-xs uppercase tracking-widest border`}>
                   <ShieldCheck size={20} />
                   Успешно доставено
                 </div>
@@ -378,9 +431,9 @@ export default function TrackOrder() {
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="max-w-md mx-auto mt-8 p-8 bg-slate-50 rounded-[32px] border border-slate-100"
+                    className={`max-w-md mx-auto mt-8 p-8 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-100'} rounded-[32px] border`}
                   >
-                    <h3 className="font-sans text-2xl font-black text-slate-900 mb-2">Како беше храната?</h3>
+                    <h3 className={`font-sans text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} mb-2`}>Како беше храната?</h3>
                     <p className="text-slate-500 font-sans text-sm mb-6">Вашето мислење ни помага да бидеме подобри.</p>
                     
                     <form onSubmit={handleSubmitReview} className="space-y-6">
@@ -401,7 +454,7 @@ export default function TrackOrder() {
                         value={review.comment}
                         onChange={(e) => setReview({ ...review, comment: e.target.value })}
                         placeholder="Напишете коментар (опционално)..."
-                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-sans text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none"
+                        className={`w-full p-4 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'} rounded-2xl font-sans text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none`}
                       />
                       
                       <button
@@ -417,7 +470,7 @@ export default function TrackOrder() {
                   <motion.div 
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="mt-8 p-6 bg-emerald-50 text-emerald-700 rounded-2xl font-sans font-bold text-sm"
+                    className={`mt-8 p-6 ${theme === 'dark' ? 'bg-emerald-900/20 text-emerald-400' : 'bg-emerald-50 text-emerald-700'} rounded-2xl font-sans font-bold text-sm`}
                   >
                     Благодариме за вашата рецензија!
                   </motion.div>
@@ -430,27 +483,27 @@ export default function TrackOrder() {
         <div className="grid md:grid-cols-2 gap-8">
           {/* Details */}
           <div className="space-y-8">
-            <div className="bg-white p-8 rounded-[32px] shadow-xl shadow-slate-200/30 border border-white">
+            <div className={`${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-slate-950/30' : 'bg-white border-white shadow-slate-200/30'} p-8 rounded-[32px] shadow-xl border transition-colors duration-300`}>
               <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
                 <Store size={14} />
                 Ресторан
               </h3>
               <div className="space-y-4 font-sans">
-                <p className="font-sans text-2xl font-black text-slate-900">{order.restaurant_name}</p>
+                <p className={`font-sans text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{order.restaurant_name}</p>
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 text-slate-500 text-sm">
-                    <MapPin size={16} className="text-indigo-600" />
+                    <MapPin size={16} className="text-indigo-600 dark:text-indigo-400" />
                     {order.restaurant_address}
                   </div>
                   <div className="flex items-center gap-3 text-slate-500 text-sm">
-                    <Phone size={16} className="text-indigo-600" />
+                    <Phone size={16} className="text-indigo-600 dark:text-indigo-400" />
                     {order.restaurant_phone}
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-[32px] shadow-xl shadow-slate-200/30 border border-white">
+            <div className={`${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-slate-950/30' : 'bg-white border-white shadow-slate-200/30'} p-8 rounded-[32px] shadow-xl border transition-colors duration-300`}>
               <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
                 <Package size={14} />
                 Вашата Нарачка
@@ -460,9 +513,9 @@ export default function TrackOrder() {
                   <div key={idx} className="flex justify-between items-start">
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="font-sans text-lg font-black text-slate-900">{item.name}</p>
+                        <p className={`font-sans text-lg font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{item.name}</p>
                         {item.user_name && (
-                          <span className="bg-indigo-100 text-indigo-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          <span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                             {item.user_name}
                           </span>
                         )}
@@ -473,15 +526,15 @@ export default function TrackOrder() {
                         ).join(' • ')}
                       </p>
                     </div>
-                    <p className="font-black text-slate-900">{item.finalPrice} ден.</p>
+                    <p className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{item.finalPrice} ден.</p>
                   </div>
                 ))}
 
                 {/* Fees and Payment */}
-                <div className="pt-6 border-t border-slate-100 space-y-3">
+                <div className={`pt-6 border-t ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100'} space-y-3`}>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Плаќање</span>
-                    <span className="font-black text-slate-700">
+                    <span className={`font-black ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
                       {order.payment_method === 'cash' ? 'Готовина' : order.payment_method === 'card' ? 'Картичка' : 'Поени'}
                     </span>
                   </div>
@@ -491,16 +544,16 @@ export default function TrackOrder() {
                       {JSON.parse(order.selected_fees).map((fee: any, idx: number) => (
                         <div key={idx} className="flex justify-between text-sm">
                           <span className="text-slate-500">{fee.name}</span>
-                          <span className="font-bold text-slate-700">+{fee.amount} ден.</span>
+                          <span className={`font-bold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>+{fee.amount} ден.</span>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div className="pt-6 border-t border-slate-100 flex justify-between items-center">
+                <div className={`pt-6 border-t ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100'} flex justify-between items-center`}>
                   <span className="font-black text-slate-400 uppercase tracking-widest text-[10px]">Вкупно</span>
-                  <span className="font-sans text-3xl font-black text-indigo-600">{order.total_price} ден.</span>
+                  <span className={`font-sans text-3xl font-black ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}>{order.total_price} ден.</span>
                 </div>
               </div>
             </div>
@@ -508,10 +561,10 @@ export default function TrackOrder() {
 
           {/* QR & Share */}
           <div className="space-y-8">
-            <div className="bg-white p-10 rounded-[32px] shadow-xl shadow-slate-200/30 border border-white text-center">
+            <div className={`${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-slate-950/30' : 'bg-white border-white shadow-slate-200/30'} p-10 rounded-[32px] shadow-xl border transition-colors duration-300 text-center`}>
               <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-8">Скенирај за следење</h3>
               {qrCode && (
-                <div className="inline-block p-6 bg-[#F5F2ED] rounded-[40px] mb-8">
+                <div className={`inline-block p-6 ${theme === 'dark' ? 'bg-white rounded-[40px]' : 'bg-[#F5F2ED] rounded-[40px]'} mb-8`}>
                   <img src={qrCode} alt="Tracking QR" className="w-48 h-48 mix-blend-multiply" />
                 </div>
               )}
@@ -521,7 +574,7 @@ export default function TrackOrder() {
                     navigator.clipboard.writeText(window.location.href);
                     alert('Линкот е копиран!');
                   }}
-                  className="w-full py-4 bg-slate-50 text-slate-900 rounded-2xl font-sans font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
+                  className={`w-full py-4 ${theme === 'dark' ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-50 text-slate-900 hover:bg-slate-100'} rounded-2xl font-sans font-bold text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2`}
                 >
                   <ExternalLink size={16} />
                   Копирај линк
@@ -558,51 +611,81 @@ export default function TrackOrder() {
         </div>
       </main>
 
-      <footer className="max-w-4xl mx-auto p-10 mt-10 border-t border-slate-200">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+      <footer className={`max-w-6xl mx-auto px-6 mt-12 pt-12 border-t ${theme === 'dark' ? 'border-slate-800' : 'border-orange-100'} relative z-10 pb-12 transition-colors duration-300`}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-10">
           <div className="space-y-4">
             {globalSettings.company_logo_url ? (
-              <img src={globalSettings.company_logo_url} alt="Logo" className="h-10 object-contain" />
+              <img src={globalSettings.company_logo_url || null} alt="Logo" className="h-10 object-contain mb-4" />
             ) : (
-              <h2 className="font-black text-xl text-slate-900 tracking-tight">{globalSettings.company_name || 'PIZZA TIME'}</h2>
+              <h2 className={`font-black text-xl ${theme === 'dark' ? 'text-white' : 'text-slate-900'} tracking-tight mb-4`}>{globalSettings.company_name || 'PIZZA TIME'}</h2>
             )}
-            <p className="text-slate-500 text-sm max-w-xs">
-              {globalSettings.company_address || 'Вашиот омилен сервис за нарачка на храна.'}
-            </p>
-          </div>
-          
-          <div className="flex flex-col md:items-end gap-6">
-            <div className="flex gap-4">
-              {globalSettings.company_facebook && (
-                <a href={globalSettings.company_facebook} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-blue-600 transition-colors">
-                  <Facebook size={20} />
-                </a>
-              )}
-              {globalSettings.company_instagram && (
-                <a href={globalSettings.company_instagram} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-pink-600 transition-colors">
-                  <Instagram size={20} />
-                </a>
-              )}
-              {globalSettings.company_twitter && (
-                <a href={globalSettings.company_twitter} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-blue-400 transition-colors">
-                  <Twitter size={20} />
-                </a>
-              )}
-              {globalSettings.company_linkedin && (
-                <a href={globalSettings.company_linkedin} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-blue-700 transition-colors">
-                  <Linkedin size={20} />
-                </a>
-              )}
+            <div className="space-y-1 text-sm text-slate-500 dark:text-slate-400">
+              <p className={`font-bold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>{globalSettings.company_name}</p>
+              <p>{globalSettings.company_address}</p>
+              {globalSettings.company_phone && <p>Тел: {globalSettings.company_phone}</p>}
               {globalSettings.company_website && (
-                <a href={globalSettings.company_website} target="_blank" rel="noopener noreferrer" className="p-3 bg-white rounded-full shadow-sm border border-slate-100 text-slate-600 hover:text-indigo-600 transition-colors">
-                  <Globe size={20} />
+                <a href={globalSettings.company_website} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">
+                  {globalSettings.company_website.replace(/^https?:\/\//, '')}
                 </a>
               )}
             </div>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">
-              © {new Date().getFullYear()} {globalSettings.company_name || 'PizzaTime'}. Сите права се задржани.
-            </p>
           </div>
+
+          <div className="space-y-4">
+            <h4 className={`font-bold ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'} uppercase text-xs tracking-widest`}>Информации</h4>
+            <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
+              <Link to="/privacy-policy" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">Политика за приватност</Link>
+              <Link to="/payment-terms" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">Услови за плаќање</Link>
+              <Link to="/delivery-terms" className="hover:text-orange-500 dark:hover:text-orange-400 transition-colors block">Начини на достава и враќање на средствата</Link>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className={`font-bold ${theme === 'dark' ? 'text-slate-200' : 'text-slate-800'} uppercase text-xs tracking-widest`}>Следете не</h4>
+            <div className="flex gap-4">
+              {globalSettings.company_facebook && (
+                <a href={globalSettings.company_facebook} target="_blank" rel="noopener noreferrer" className={`p-2 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-blue-400' : 'bg-white border-orange-50 text-slate-600 hover:text-blue-600'} rounded-full shadow-sm border transition-colors`}>
+                  <Facebook size={18} />
+                </a>
+              )}
+              {globalSettings.company_instagram && (
+                <a href={globalSettings.company_instagram} target="_blank" rel="noopener noreferrer" className={`p-2 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-pink-400' : 'bg-white border-orange-50 text-slate-600 hover:text-pink-600'} rounded-full shadow-sm border transition-colors`}>
+                  <Instagram size={18} />
+                </a>
+              )}
+              {globalSettings.company_twitter && (
+                <a href={globalSettings.company_twitter} target="_blank" rel="noopener noreferrer" className={`p-2 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-blue-300' : 'bg-white border-orange-50 text-slate-600 hover:text-blue-400'} rounded-full shadow-sm border transition-colors`}>
+                  <Twitter size={18} />
+                </a>
+              )}
+              {globalSettings.company_linkedin && (
+                <a href={globalSettings.company_linkedin} target="_blank" rel="noopener noreferrer" className={`p-2 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-blue-500' : 'bg-white border-orange-50 text-slate-600 hover:text-blue-700'} rounded-full shadow-sm border transition-colors`}>
+                  <Linkedin size={18} />
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {globalSettings.bank_logo_url && (
+              <img src={globalSettings.bank_logo_url} alt="Bank Logo" className="h-10 object-contain" />
+            )}
+            <div className="flex flex-wrap gap-3">
+              {globalSettings.visa_logo_url && <img src={globalSettings.visa_logo_url} alt="Visa" className="h-6 object-contain" />}
+              {globalSettings.mastercard_logo_url && <img src={globalSettings.mastercard_logo_url} alt="Mastercard" className="h-6 object-contain" />}
+              {globalSettings.diners_logo_url && <img src={globalSettings.diners_logo_url} alt="Diners" className="h-6 object-contain" />}
+              {globalSettings.maestro_logo_url && <img src={globalSettings.maestro_logo_url} alt="Maestro" className="h-6 object-contain" />}
+            </div>
+          </div>
+        </div>
+
+        <div className={`max-w-6xl mx-auto px-6 mt-12 pt-8 border-t ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100'} flex flex-col md:flex-row justify-between items-center gap-4`}>
+          <p className="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+            © {new Date().getFullYear()} {globalSettings.company_name || 'PizzaTime'}. Сите права се задржани.
+          </p>
+          <Link to="/portal" className={`text-[10px] ${theme === 'dark' ? 'text-slate-600 hover:text-orange-500' : 'text-slate-300 hover:text-orange-300'} transition-colors uppercase font-bold tracking-widest`}>
+            Портал за соработници
+          </Link>
         </div>
       </footer>
     </div>

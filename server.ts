@@ -145,7 +145,9 @@ db.exec(`
   const defaultSettings = [
     { key: 'delivery_fee', value: '100' },
     { key: 'special_badge_name', value: 'Студент' },
-    { key: 'special_badge_amount', value: '180' }
+    { key: 'special_badge_amount', value: '180' },
+    { key: 'enable_cart_login', value: 'false' },
+    { key: 'show_admin_in_portal', value: 'true' }
   ];
 
   const checkStmt = db.prepare('SELECT 1 FROM global_settings WHERE key = ?');
