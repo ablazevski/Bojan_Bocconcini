@@ -51,6 +51,9 @@ interface Order {
   ready_at?: string;
   payment_method: string;
   selected_fees: string;
+  order_type?: 'delivery' | 'takeaway';
+  pickup_time?: string;
+  pickup_code?: string;
 }
 
 interface BundleItem {
@@ -272,7 +275,7 @@ export default function Restaurant() {
     available_days: ['Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота', 'Недела'],
     items: []
   });
-  const [orderView, setOrderView] = useState<'active' | 'completed'>('active');
+  const [orderView, setOrderView] = useState<'active' | 'completed' | 'scheduled'>('active');
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [hasNewOrders, setHasNewOrders] = useState(false);
   const maxOrderIdRef = useRef<number>(0);
@@ -1508,6 +1511,7 @@ export default function Restaurant() {
                             data={[
                               { name: 'Нови', count: filteredOrders.filter(o => o.status === 'pending').length },
                               { name: 'Се подготвува', count: filteredOrders.filter(o => o.status === 'accepted').length },
+                              { name: 'Подготвено', count: filteredOrders.filter(o => o.status === 'ready').length },
                               { name: 'Се доставува', count: filteredOrders.filter(o => o.status === 'delivering').length },
                               { name: 'Доставени', count: filteredOrders.filter(o => o.status === 'completed').length },
                               { name: 'Одбиени', count: filteredOrders.filter(o => ['rejected', 'cancelled'].includes(o.status)).length }
@@ -1699,6 +1703,12 @@ export default function Restaurant() {
                     Во тек
                   </button>
                   <button
+                    onClick={() => setOrderView('scheduled')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'scheduled' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                  >
+                    Закажани
+                  </button>
+                  <button
                     onClick={() => setOrderView('completed')}
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${orderView === 'completed' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                   >
@@ -1710,8 +1720,99 @@ export default function Restaurant() {
             
             {(() => {
               const activeOrders = orders.filter(o => ['pending', 'accepted', 'ready', 'delivering'].includes(o.status));
+              const scheduledOrders = orders.filter(o => o.order_type === 'takeaway' && ['pending', 'accepted', 'ready'].includes(o.status));
               const completedOrders = orders.filter(o => ['completed', 'rejected', 'cancelled'].includes(o.status));
               
+              if (orderView === 'scheduled') {
+                if (scheduledOrders.length === 0) {
+                  return (
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-orange-100 dark:border-slate-800 p-8 text-center transition-colors">
+                      <div className="w-16 h-16 bg-orange-50 dark:bg-orange-900/20 text-orange-500 dark:text-orange-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Store size={32} />
+                      </div>
+                      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Нема закажани нарачки</h2>
+                      <p className="text-slate-500 dark:text-slate-400">Сите нарачки за превземање ќе се појават тука.</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {scheduledOrders.map(order => {
+                      const items = JSON.parse(order.items || '[]');
+                      return (
+                        <div key={order.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-orange-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-md transition-all">
+                          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-bold text-slate-400">#{order.id}</span>
+                                <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Превземање</span>
+                              </div>
+                              <h4 className="font-bold text-slate-800 dark:text-white">{order.customer_name}</h4>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-1">
+                                <Clock size={12} />
+                                Закажано за: <span className="font-bold text-orange-600 dark:text-orange-400">{order.pickup_time}</span>
+                              </p>
+                            </div>
+                            <div className="bg-slate-50 dark:bg-slate-800 p-2 rounded-xl text-center min-w-[80px]">
+                              <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Код</p>
+                              <p className="text-lg font-black text-slate-800 dark:text-white tracking-wider">{order.pickup_code}</p>
+                            </div>
+                          </div>
+                          
+                          <div className="p-5 space-y-3">
+                            <div className="space-y-2">
+                              {items.map((item: any, idx: number) => (
+                                <div key={idx} className="flex justify-between text-sm">
+                                  <span className="text-slate-600 dark:text-slate-400">
+                                    <span className="font-bold text-slate-800 dark:text-white">{item.quantity}x</span> {item.name}
+                                  </span>
+                                  <span className="font-medium text-slate-800 dark:text-white">{item.finalPrice} ден.</span>
+                                </div>
+                              ))}
+                            </div>
+                            
+                            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                              <span className="text-sm font-bold text-slate-800 dark:text-white">Вкупно:</span>
+                              <span className="text-lg font-black text-orange-600">{order.total_price} ден.</span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-2">
+                              {order.status === 'pending' && (
+                                <button 
+                                  onClick={() => updateOrderStatus(order.id, 'accepted')}
+                                  className="col-span-2 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2"
+                                >
+                                  <Check size={18} />
+                                  Прифати
+                                </button>
+                              )}
+                              {order.status === 'accepted' && (
+                                <button 
+                                  onClick={() => updateOrderStatus(order.id, 'ready')}
+                                  className="col-span-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2"
+                                >
+                                  <CheckCircle size={18} />
+                                  Подготвено
+                                </button>
+                              )}
+                              {order.status === 'ready' && (
+                                <button 
+                                  onClick={() => updateOrderStatus(order.id, 'completed')}
+                                  className="col-span-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2"
+                                >
+                                  <ShoppingBag size={18} />
+                                  Подигнато
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
               if (orderView === 'completed') {
                 if (completedOrders.length === 0) {
                   return (
@@ -1797,8 +1898,13 @@ export default function Restaurant() {
                                       )}
                                     </div>
                                   </div>
-                                  <h4 className="font-bold text-slate-800 dark:text-white truncate">{order.customer_name}</h4>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mb-3">{order.delivery_address}</p>
+                                  <h4 className="font-bold text-slate-800 dark:text-white truncate flex items-center gap-2">
+                                    {order.customer_name}
+                                    {order.order_type === 'takeaway' && (
+                                      <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">Превземи</span>
+                                    )}
+                                  </h4>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mb-3">{order.order_type === 'takeaway' ? `Код: ${order.pickup_code} | ${order.pickup_time}` : order.delivery_address}</p>
                                   
                                       <div className="flex justify-between items-center mb-3">
                                         <span className="font-bold text-indigo-600 dark:text-indigo-400 text-sm">{order.total_price} ден.</span>
@@ -1841,21 +1947,33 @@ export default function Restaurant() {
                                           )}
                                           {order.status === 'ready' && (
                                             <div className="flex gap-2">
-                                              <button 
-                                                onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
-                                                className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors shadow-sm"
-                                                title="Во достава"
-                                              >
-                                                <MapPin size={18} />
-                                              </button>
-                                              {activeDeliveryPartners === 0 && (
+                                              {order.order_type === 'takeaway' ? (
                                                 <button 
-                                                  onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
-                                                  className="px-3 py-2 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-xl hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors text-[11px] font-bold flex items-center gap-1 shadow-sm"
-                                                  title="Сопствена достава"
+                                                  onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'completed'); }}
+                                                  className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors shadow-sm"
+                                                  title="Подигнато"
                                                 >
-                                                  <Truck size={14} /> Сопствена
+                                                  <ShoppingBag size={18} />
                                                 </button>
+                                              ) : (
+                                                <>
+                                                  <button 
+                                                    onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
+                                                    className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors shadow-sm"
+                                                    title="Во достава"
+                                                  >
+                                                    <MapPin size={18} />
+                                                  </button>
+                                                  {activeDeliveryPartners === 0 && (
+                                                    <button 
+                                                      onClick={(e) => { e.stopPropagation(); updateOrderStatus(order.id, 'delivering'); }}
+                                                      className="px-3 py-2 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-xl hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors text-[11px] font-bold flex items-center gap-1 shadow-sm"
+                                                      title="Сопствена достава"
+                                                    >
+                                                      <Truck size={14} /> Сопствена
+                                                    </button>
+                                                  )}
+                                                </>
                                               )}
                                             </div>
                                           )}

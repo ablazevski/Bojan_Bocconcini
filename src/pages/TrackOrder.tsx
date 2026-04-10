@@ -16,6 +16,7 @@ export default function TrackOrder() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string>('');
+  const [pickupQrCode, setPickupQrCode] = useState<string>('');
   const [isCompleting, setIsCompleting] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [review, setReview] = useState({ rating: 5, comment: '' });
@@ -61,6 +62,21 @@ export default function TrackOrder() {
       calculatePreciseEta();
     }
   }, [order?.status, partnerLocation, order?.delivery_lat, order?.delivery_lng]);
+
+  useEffect(() => {
+    if (order?.pickup_code) {
+      generatePickupQR();
+    }
+  }, [order?.pickup_code]);
+
+  const generatePickupQR = async () => {
+    try {
+      const qr = await QRCode.toDataURL(order.pickup_code);
+      setPickupQrCode(qr);
+    } catch (err) {
+      console.error('Failed to generate pickup QR', err);
+    }
+  };
 
   const calculatePreciseEta = async () => {
     if (!order) return;
@@ -319,16 +335,23 @@ export default function TrackOrder() {
           className={`${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-slate-950/50' : 'bg-white border-white shadow-slate-200/50'} rounded-[40px] shadow-2xl overflow-hidden border transition-colors duration-300`}
         >
           <div className="p-10 text-center">
-            <div className="flex flex-wrap justify-center gap-2 mb-8">
-              <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${statusColors[order.status] || (theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500')}`}>
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
-                </span>
-                {statusLabels[order.status] || order.status}
-              </div>
+              <div className="flex flex-wrap justify-center gap-2 mb-8">
+                <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${statusColors[order.status] || (theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500')}`}>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
+                  </span>
+                  {statusLabels[order.status] || order.status}
+                </div>
 
-              {order.payment_method === 'card' && (
+                {order.order_type === 'takeaway' && (
+                  <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans bg-orange-100 text-orange-700">
+                    <Store size={12} />
+                    Превземање
+                  </div>
+                )}
+
+                {order.payment_method === 'card' && (
                 <div className={`inline-flex items-center gap-2 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest font-sans ${
                   order.payment_status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 
                   order.payment_status === 'failed' ? 'bg-red-100 text-red-700' : 
@@ -369,7 +392,29 @@ export default function TrackOrder() {
 
             <h2 className={`text-5xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} mb-4 tracking-tighter`}>#{order.id}</h2>
             
-            {(preciseEta || order.eta_minutes) && order.status !== 'completed' && order.status !== 'cancelled' && (
+            {order.order_type === 'takeaway' && order.pickup_code && (
+              <div className="mb-8 p-8 bg-slate-50 dark:bg-slate-800/50 rounded-[40px] border border-slate-100 dark:border-slate-800 inline-flex flex-col items-center">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold mb-4">Код за подигнување</p>
+                <p className="text-5xl font-black text-slate-800 dark:text-white tracking-[0.3em] mb-6">{order.pickup_code}</p>
+                {pickupQrCode && (
+                  <div className="bg-white p-4 rounded-2xl shadow-sm">
+                    <img src={pickupQrCode} alt="Pickup QR" className="w-32 h-32" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {order.order_type === 'takeaway' && order.pickup_time && order.status !== 'completed' && (
+              <div className="mb-8 flex flex-col items-center">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold mb-1">Закажано за</span>
+                <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                  <Clock size={20} />
+                  <span className="text-3xl font-black tracking-tighter">{order.pickup_time} ч.</span>
+                </div>
+              </div>
+            )}
+
+            {order.order_type !== 'takeaway' && (preciseEta || order.eta_minutes) && order.status !== 'completed' && order.status !== 'cancelled' && (
               <div className="mb-8 flex flex-col items-center">
                 <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-sans font-bold mb-1">
                   {preciseEta ? 'Прецизно време (Live)' : 'Проценето време'}
@@ -422,14 +467,14 @@ export default function TrackOrder() {
               <div className="mb-12">
                 <h3 className="font-sans font-black text-[10px] uppercase tracking-widest text-slate-400 mb-4 flex items-center justify-center gap-2">
                   <Navigation size={14} className={order.status === 'delivering' ? "animate-pulse" : ""} />
-                  {order.status === 'delivering' ? 'Следење во живо' : 'Локација на достава'}
+                  {order.order_type === 'takeaway' ? 'Локација на ресторанот' : (order.status === 'delivering' ? 'Следење во живо' : 'Локација на достава')}
                 </h3>
                 <DeliveryRouteMap 
                   restaurantCoords={[order.restaurant_lat || 41.9981, order.restaurant_lng || 21.4254]}
-                  customerCoords={[order.delivery_lat || 41.9981, order.delivery_lng || 21.4254]}
-                  partnerCoords={partnerLocation || undefined}
+                  customerCoords={order.order_type === 'takeaway' ? [order.restaurant_lat || 41.9981, order.restaurant_lng || 21.4254] : [order.delivery_lat || 41.9981, order.delivery_lng || 21.4254]}
+                  partnerCoords={order.order_type === 'takeaway' ? undefined : partnerLocation || undefined}
                   restaurantName={order.restaurant_name}
-                  customerAddress={order.delivery_address}
+                  customerAddress={order.order_type === 'takeaway' ? 'Превземање од ресторан' : order.delivery_address}
                 />
               </div>
             )}
@@ -461,8 +506,8 @@ export default function TrackOrder() {
               <div className="flex justify-between mt-4 font-sans text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
                 <span>Примена</span>
                 <span>Кујна</span>
-                <span>Пат</span>
-                <span>Дома</span>
+                <span>{order.order_type === 'takeaway' ? 'Подготвено' : 'Пат'}</span>
+                <span>{order.order_type === 'takeaway' ? 'Подигнато' : 'Дома'}</span>
               </div>
             </div>
 
@@ -472,7 +517,7 @@ export default function TrackOrder() {
                 disabled={isCompleting}
                 className={`w-full max-w-sm ${theme === 'dark' ? 'bg-white text-slate-900 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-indigo-600'} py-5 rounded-3xl font-sans font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-slate-900/20 disabled:opacity-50`}
               >
-                {isCompleting ? 'Се процесира...' : 'Потврди прием'}
+                {isCompleting ? 'Се процесира...' : (order.order_type === 'takeaway' ? 'Потврди подигнување' : 'Потврди прием')}
               </button>
             )}
 
@@ -480,7 +525,7 @@ export default function TrackOrder() {
               <div className="space-y-6">
                 <div className={`inline-flex items-center gap-3 px-8 py-4 ${theme === 'dark' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-900/30' : 'bg-emerald-50 text-emerald-700 border-emerald-100'} rounded-full font-sans font-black text-xs uppercase tracking-widest border`}>
                   <ShieldCheck size={20} />
-                  Успешно доставено
+                  {order.order_type === 'takeaway' ? 'Успешно подигнато' : 'Успешно доставено'}
                 </div>
 
                 {!reviewSubmitted ? (
@@ -650,19 +695,7 @@ export default function TrackOrder() {
               </a>
             </div>
 
-            {globalSettings.company_phone && (
-              <div className="p-8 bg-slate-900 rounded-[32px] text-white shadow-xl shadow-slate-900/20">
-                <h4 className="font-sans font-black text-[10px] uppercase tracking-widest opacity-60 mb-4">Поддршка</h4>
-                <p className="font-sans text-lg leading-tight mb-6">Потребна ви е помош од {globalSettings.company_name || 'платформата'}?</p>
-                <a 
-                  href={`tel:${globalSettings.company_phone}`}
-                  className="inline-flex items-center gap-2 font-sans font-black text-xs uppercase tracking-widest bg-white/10 hover:bg-white/20 px-6 py-3 rounded-full transition-all"
-                >
-                  <Phone size={16} />
-                  Контактирај не
-                </a>
-              </div>
-            )}
+            {/* Removed Support Section as per user request */}
           </div>
         </div>
       </main>

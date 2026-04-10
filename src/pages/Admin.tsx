@@ -96,6 +96,9 @@ interface PendingRestaurant {
   meta_description?: string;
   meta_keywords?: string;
   schema_json?: string;
+  allow_takeaway?: number;
+  takeaway_discount_type?: 'percent' | 'fixed';
+  takeaway_discount_value?: number;
 }
 
 interface DeliveryPartner {
@@ -987,7 +990,10 @@ function AdminContent() {
         header_image: restaurantImages.header_image,
         status: selectedRestaurant.status,
         is_active: selectedRestaurant.is_active,
-        has_admin_access: selectedRestaurant.has_admin_access
+        has_admin_access: selectedRestaurant.has_admin_access,
+        allow_takeaway: selectedRestaurant.allow_takeaway,
+        takeaway_discount_type: selectedRestaurant.takeaway_discount_type,
+        takeaway_discount_value: selectedRestaurant.takeaway_discount_value
       })
     });
     
@@ -4921,6 +4927,51 @@ function AdminContent() {
                       <span className="text-xs text-slate-500">Дозволи пристап до индивидуалниот панел на ресторанот</span>
                     </div>
                   </label>
+                </div>
+              </div>
+
+              {/* Takeaway Settings */}
+              <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6">
+                <h3 className="text-lg font-bold text-orange-900 mb-4 flex items-center gap-2"><Store className="text-orange-600" /> Опција за превземање (Takeaway)</h3>
+                <div className="space-y-6">
+                  <label className="flex items-center gap-3 p-4 bg-white border border-orange-200 rounded-xl cursor-pointer hover:border-orange-300 transition-all">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedRestaurant.allow_takeaway === 1}
+                      onChange={(e) => setSelectedRestaurant({...selectedRestaurant, allow_takeaway: e.target.checked ? 1 : 0})}
+                      className="w-6 h-6 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
+                    />
+                    <div>
+                      <span className="block font-bold text-orange-800">Дозволи превземање од ресторан</span>
+                      <span className="text-xs text-slate-500">Овозможи им на корисниците сами да ја подигнат нарачката</span>
+                    </div>
+                  </label>
+
+                  {selectedRestaurant.allow_takeaway === 1 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div>
+                        <label className="block text-sm font-medium text-orange-900 mb-2">Тип на попуст за превземање</label>
+                        <select 
+                          value={selectedRestaurant.takeaway_discount_type || 'percent'}
+                          onChange={(e) => setSelectedRestaurant({...selectedRestaurant, takeaway_discount_type: e.target.value as 'percent' | 'fixed'})}
+                          className="w-full p-3 bg-white border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                        >
+                          <option value="percent">Процент (%)</option>
+                          <option value="fixed">Фиксен износ (ден)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-orange-900 mb-2">Вредност на попуст</label>
+                        <input 
+                          type="number" 
+                          value={selectedRestaurant.takeaway_discount_value || 0}
+                          onChange={(e) => setSelectedRestaurant({...selectedRestaurant, takeaway_discount_value: Number(e.target.value)})}
+                          className="w-full p-3 bg-white border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                          placeholder="Внесете износ..."
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

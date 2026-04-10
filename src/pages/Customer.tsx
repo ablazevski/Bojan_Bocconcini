@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star, Bike, Store, Clock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import LocationPickerMap from '../components/LocationPickerMap';
@@ -56,6 +56,8 @@ export default function Customer() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
+  const [orderType, setOrderType] = useState<'delivery' | 'takeaway'>('delivery');
+  const [pickupTime, setPickupTime] = useState({ hour: '12', minute: '00' });
   const [deliveryFee, setDeliveryFee] = useState<number>(0);
   const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -100,6 +102,25 @@ export default function Customer() {
   };
 
   useEffect(() => {
+    if (selectedRestaurantId) {
+      const isAlreadyAvailable = availableRestaurants.some(r => r.id === selectedRestaurantId);
+      if (!isAlreadyAvailable) {
+        safeFetchJson(`/api/customer/restaurant-by-id/${selectedRestaurantId}`)
+          .then(data => {
+            if (data && data.restaurant && !data.error) {
+              const rest = data.restaurant;
+              setAvailableRestaurants(prev => {
+                if (prev.some(r => r.id === rest.id)) return prev;
+                return [...prev, rest];
+              });
+            }
+          })
+          .catch(err => console.error('Failed to fetch restaurant details on selection', err));
+      }
+    }
+  }, [selectedRestaurantId]);
+
+  useEffect(() => {
     fetchSettings();
     fetchHomeSlider();
 
@@ -117,17 +138,20 @@ export default function Customer() {
       // Fetch restaurant details to get the city
       safeFetchJson(`/api/customer/restaurant-by-id/${rid}`)
         .then(data => {
-          if (data.city) {
-            setSelectedCity(data.city);
+          if (data.restaurant) {
+            const rest = data.restaurant;
+            if (rest.city) {
+              setSelectedCity(rest.city);
+            }
+            if (rest.username) {
+              setSelectedRestaurantUsername(rest.username);
+            }
+            // Also add to availableRestaurants if not there
+            setAvailableRestaurants(prev => {
+              if (prev.some(r => r.id === rest.id)) return prev;
+              return [...prev, rest];
+            });
           }
-          if (data.username) {
-            setSelectedRestaurantUsername(data.username);
-          }
-          // Also add to availableRestaurants if not there
-          setAvailableRestaurants(prev => {
-            if (prev.some(r => r.id === data.id)) return prev;
-            return [...prev, data];
-          });
         })
         .catch(err => console.error('Failed to fetch restaurant details', err));
     }
@@ -157,7 +181,24 @@ export default function Customer() {
         const parsedCart = JSON.parse(savedCart);
         if (parsedCart && parsedCart.length > 0) {
           setCart(parsedCart);
-          setSelectedRestaurantId(parsedCart[0].restaurant_id);
+          const rid = parsedCart[0].restaurant_id;
+          setSelectedRestaurantId(rid);
+          
+          // Fetch restaurant details to populate availableRestaurants for checkout logic
+          safeFetchJson(`/api/customer/restaurant-by-id/${rid}`)
+            .then(data => {
+              if (data && data.restaurant && !data.error) {
+                const rest = data.restaurant;
+                setAvailableRestaurants(prev => {
+                  if (prev.some(r => r.id === rest.id)) return prev;
+                  return [...prev, rest];
+                });
+                if (rest.city && !selectedCity) {
+                  setSelectedCity(rest.city);
+                }
+              }
+            })
+            .catch(err => console.error('Failed to fetch cart restaurant details', err));
         }
       } catch (e) {
         console.error('Failed to parse cart', e);
@@ -178,6 +219,56 @@ export default function Customer() {
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  useEffect(() => {
+    if (orderType === 'takeaway') {
+      const activeId = selectedRestaurantId || (cart.length > 0 ? cart[0].restaurant_id : null);
+      const restaurant = availableRestaurants.find(r => r.id === activeId);
+      if (restaurant && restaurant.working_hours) {
+        try {
+          const workingHours = JSON.parse(restaurant.working_hours);
+          const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+          const currentDay = days[new Date().getDay()];
+          const dayConfig = workingHours[currentDay];
+
+          if (dayConfig && dayConfig.active) {
+            const [startH, startM] = dayConfig.start.split(':').map(Number);
+            const [endH, endM] = dayConfig.end.split(':').map(Number);
+
+            const now = new Date();
+            const minTime = new Date(now.getTime() + 30 * 60000);
+            const minH = minTime.getHours();
+            const minM = minTime.getMinutes();
+
+            let limitH = endH;
+            let limitM = endM - 15;
+            if (limitM < 0) {
+              limitH -= 1;
+              limitM += 60;
+            }
+
+            let effectiveStartH = startH;
+            let effectiveStartM = startM;
+            if (minH > startH || (minH === startH && minM > startM)) {
+              effectiveStartH = minH;
+              effectiveStartM = minM;
+            }
+
+            const currentH = Number(pickupTime.hour);
+            const currentM = Number(pickupTime.minute);
+
+            if (currentH < effectiveStartH || currentH > limitH) {
+              setPickupTime({ hour: effectiveStartH.toString().padStart(2, '0'), minute: effectiveStartM.toString().padStart(2, '0') });
+            } else if (currentH === effectiveStartH && currentM < effectiveStartM) {
+              setPickupTime(prev => ({ ...prev, minute: effectiveStartM.toString().padStart(2, '0') }));
+            } else if (currentH === limitH && currentM > limitM) {
+              setPickupTime(prev => ({ ...prev, minute: '00' }));
+            }
+          }
+        } catch (e) {}
+      }
+    }
+  }, [orderType, selectedRestaurantId, cart.length, availableRestaurants.length]);
 
   const handleTrackByCode = async () => {
     if (!trackCode || trackCode.length < 4) {
@@ -327,11 +418,12 @@ export default function Customer() {
       for (const rid of allNeededIds) {
         if (!availableRestaurants.find(r => r.id === rid)) {
           try {
-            const restaurant = await safeFetchJson(`/api/customer/restaurant-by-id/${rid}`);
-            if (restaurant) {
+            const data = await safeFetchJson(`/api/customer/restaurant-by-id/${rid}`);
+            if (data && data.restaurant) {
+              const rest = data.restaurant;
               setAvailableRestaurants(prev => {
-                if (prev.some(r => r.id === restaurant.id)) return prev;
-                return [...prev, restaurant];
+                if (prev.some(r => r.id === rest.id)) return prev;
+                return [...prev, rest];
               });
             }
           } catch (err) {
@@ -611,7 +703,7 @@ export default function Customer() {
     return acc;
   }, {} as Record<number, CartItem[]>);
 
-  const currentDeliveryFee = Object.entries(cartByRestaurant).reduce((total, [restId, items]) => {
+  const currentDeliveryFee = orderType === 'takeaway' ? 0 : Object.entries(cartByRestaurant).reduce((total, [restId, items]) => {
     const restaurant = availableRestaurants.find(r => r.id === Number(restId));
     const restTotal = items.reduce((sum, item) => sum + item.finalPrice, 0);
     const fee = Number(restaurant?.delivery_fee || 0);
@@ -621,6 +713,17 @@ export default function Customer() {
     const restFee = (min > 0 && restTotal >= min) ? 0 : fee;
     return total + restFee;
   }, 0);
+
+  const takeawayDiscount = orderType === 'takeaway' ? Object.entries(cartByRestaurant).reduce((total, [restId, items]) => {
+    const restaurant = availableRestaurants.find(r => r.id === Number(restId));
+    if (!restaurant || !restaurant.allow_takeaway) return total;
+    const restTotal = items.reduce((sum, item) => sum + item.finalPrice, 0);
+    if (restaurant.takeaway_discount_type === 'percent') {
+      return total + (restTotal * (Number(restaurant.takeaway_discount_value || 0) / 100));
+    } else {
+      return total + Number(restaurant.takeaway_discount_value || 0);
+    }
+  }, 0) : 0;
 
   // Check if all restaurants in cart meet their minimum order amount
   const isMinOrderMet = Object.entries(cartByRestaurant).every(([restId, items]) => {
@@ -646,7 +749,7 @@ export default function Customer() {
   }, 0);
   
   const selectedCampaign = activeCampaigns.find(c => c.id === selectedCampaignId);
-  const finalTotal = Math.max(0, cartTotal - (selectedCampaign ? selectedCampaign.budget : 0) + currentDeliveryFee + feesTotal);
+  const finalTotal = Math.max(0, cartTotal - (selectedCampaign ? selectedCampaign.budget : 0) - takeawayDiscount + currentDeliveryFee + feesTotal);
 
   const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
     let x = point[0], y = point[1];
@@ -686,7 +789,7 @@ export default function Customer() {
     e.preventDefault();
     console.log("handleCheckoutSubmit triggered");
     
-    if (!isLocationValid()) {
+    if (orderType !== 'takeaway' && !isLocationValid()) {
       console.log("Location invalid, aborting checkout");
       setError("Ве молиме изберете валидна локација за достава во рамките на дозволените зони.");
       return;
@@ -728,14 +831,16 @@ export default function Customer() {
           customer_name: `${checkoutForm.firstName} ${checkoutForm.lastName}`,
           customer_email: checkoutForm.email,
           customer_phone: checkoutForm.phone,
-          delivery_address: checkoutForm.address,
-          delivery_lat: location![0],
-          delivery_lng: location![1],
+          delivery_address: orderType === 'takeaway' ? 'Превземање од ресторан' : checkoutForm.address,
+          delivery_lat: orderType === 'takeaway' ? 0 : location![0],
+          delivery_lng: orderType === 'takeaway' ? 0 : location![1],
           items: cart,
           campaign_id: selectedCampaignId,
           user_id: user?.id,
           payment_method: paymentMethod,
-          selected_fees: JSON.stringify(selectedFees)
+          selected_fees: JSON.stringify(selectedFees),
+          order_type: orderType,
+          pickup_time: orderType === 'takeaway' ? `${pickupTime.hour}:${pickupTime.minute}` : null
         })
       });
       
@@ -1596,6 +1701,12 @@ export default function Customer() {
                       <span>БЕСПЛАТНА</span>
                     </div>
                   )}
+                  {takeawayDiscount > 0 && (
+                    <div className="flex justify-between items-center mb-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span>Попуст за превземање:</span>
+                      <span>-{takeawayDiscount} ден.</span>
+                    </div>
+                  )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
@@ -1696,11 +1807,159 @@ export default function Customer() {
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Телефонски број</label>
                   <input required type="tel" value={checkoutForm.phone} onChange={e => setCheckoutForm({...checkoutForm, phone: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
                 </div>
+
+                {/* Order Type Toggle */}
+                {(() => {
+                  const cartRestaurantIds = Array.from(new Set(cart.map(item => item.restaurant_id)));
+                  const allAllowTakeaway = cartRestaurantIds.length > 0 && cartRestaurantIds.every(id => {
+                    const r = availableRestaurants.find(res => res.id === id);
+                    // If we found the restaurant in availableRestaurants, check its flag
+                    if (r) return r.allow_takeaway === 1;
+                    // Fallback: if it's the currently selected restaurant, we might have its data elsewhere
+                    // but for now, if it's not in availableRestaurants, we assume we don't know yet
+                    return false;
+                  });
+
+                  if (!allAllowTakeaway) return null;
+
+                  return (
+                    <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+                      <button 
+                        type="button"
+                        onClick={() => setOrderType('delivery')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all ${orderType === 'delivery' ? 'bg-white dark:bg-slate-700 text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                      >
+                        <Bike size={18} />
+                        Достава
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setOrderType('takeaway')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all ${orderType === 'takeaway' ? 'bg-white dark:bg-slate-700 text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                      >
+                        <Store size={18} />
+                        Превземи
+                      </button>
+                    </div>
+                  );
+                })()}
                 
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Адреса за достава</label>
-                  <input required type="text" value={checkoutForm.address} onChange={e => setCheckoutForm({...checkoutForm, address: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
-                </div>
+                {orderType === 'delivery' ? (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    key="delivery-fields"
+                  >
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Адреса за достава</label>
+                    <input required type="text" value={checkoutForm.address} onChange={e => setCheckoutForm({...checkoutForm, address: e.target.value})} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all dark:text-white" />
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    key="takeaway-fields"
+                    className="bg-orange-50 dark:bg-orange-900/20 p-6 rounded-2xl border border-orange-100 dark:border-orange-900/30 space-y-4"
+                  >
+                    <div className="flex items-center gap-3 text-orange-800 dark:text-orange-300 mb-2">
+                      <Clock size={20} />
+                      <h3 className="font-bold">Време на подигнување</h3>
+                    </div>
+                    <p className="text-sm text-orange-700/70 dark:text-orange-400/70 mb-4">
+                      Изберете приближно време кога планирате да ја подигнете вашата нарачка од ресторанот.
+                    </p>
+                    <div className="flex items-center gap-4">
+                      {(() => {
+                        const activeId = selectedRestaurantId || (cart.length > 0 ? cart[0].restaurant_id : null);
+                        const restaurant = availableRestaurants.find(r => r.id === activeId);
+                        let allowedHours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
+                        let allowedMinutes = ['00', '15', '30', '45'];
+
+                        if (restaurant && restaurant.working_hours) {
+                          try {
+                            const workingHours = JSON.parse(restaurant.working_hours);
+                            const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                            const now = new Date();
+                            const currentDay = days[now.getDay()];
+                            const dayConfig = workingHours[currentDay];
+
+                            if (dayConfig && dayConfig.active) {
+                              const [startH, startM] = dayConfig.start.split(':').map(Number);
+                              const [endH, endM] = dayConfig.end.split(':').map(Number);
+
+                              // Earliest time: now + 30 minutes
+                              const minTime = new Date(now.getTime() + 30 * 60000);
+                              const minH = minTime.getHours();
+                              const minM = minTime.getMinutes();
+
+                              // Latest time: closing - 15 minutes
+                              let limitH = endH;
+                              let limitM = endM - 15;
+                              if (limitM < 0) {
+                                limitH -= 1;
+                                limitM += 60;
+                              }
+
+                              // Effective start time is max(restaurant_start, now + 30m)
+                              let effectiveStartH = startH;
+                              let effectiveStartM = startM;
+
+                              if (minH > startH || (minH === startH && minM > startM)) {
+                                effectiveStartH = minH;
+                                effectiveStartM = minM;
+                              }
+
+                              allowedHours = allowedHours.filter(h => {
+                                const hour = Number(h);
+                                return hour >= effectiveStartH && hour <= limitH;
+                              });
+
+                              // Filter minutes for the selected hour
+                              const selectedHour = Number(pickupTime.hour);
+                              if (selectedHour === effectiveStartH) {
+                                allowedMinutes = allowedMinutes.filter(m => Number(m) >= effectiveStartM);
+                              }
+                              if (selectedHour === limitH) {
+                                allowedMinutes = allowedMinutes.filter(m => Number(m) <= limitM);
+                              }
+                            }
+                          } catch (e) {
+                            console.error("Error parsing working hours", e);
+                          }
+                        }
+
+                        return (
+                          <>
+                            <div className="flex-1">
+                              <label className="block text-[10px] uppercase font-bold text-orange-600 dark:text-orange-500 mb-1 ml-1">Час</label>
+                              <select 
+                                value={pickupTime.hour}
+                                onChange={e => setPickupTime({...pickupTime, hour: e.target.value})}
+                                className="w-full p-3 bg-white dark:bg-slate-800 border border-orange-200 dark:border-orange-900/50 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none dark:text-white"
+                              >
+                                {allowedHours.map(h => (
+                                  <option key={h} value={h}>{h}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="text-2xl font-bold text-orange-300 pt-6">:</div>
+                            <div className="flex-1">
+                              <label className="block text-[10px] uppercase font-bold text-orange-600 dark:text-orange-500 mb-1 ml-1">Минути</label>
+                              <select 
+                                value={pickupTime.minute}
+                                onChange={e => setPickupTime({...pickupTime, minute: e.target.value})}
+                                className="w-full p-3 bg-white dark:bg-slate-800 border border-orange-200 dark:border-orange-900/50 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none dark:text-white"
+                              >
+                                {allowedMinutes.map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* Payment & Extras Section */}
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 space-y-6">
@@ -1842,6 +2101,12 @@ export default function Customer() {
                       <span>БЕСПЛАТНА</span>
                     </div>
                   )}
+                  {takeawayDiscount > 0 && (
+                    <div className="flex justify-between items-center mb-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span>Попуст за превземање:</span>
+                      <span>-{takeawayDiscount} ден.</span>
+                    </div>
+                  )}
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
@@ -1859,7 +2124,7 @@ export default function Customer() {
                     </div>
                   )}
                   
-                  {!isLocationValid() && (
+                  {orderType !== 'takeaway' && !isLocationValid() && (
                     <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl border border-red-200 dark:border-red-800 text-sm font-medium">
                       Доставата се врши согласно избраната локација за пребарување. Ве молиме поместете го пинот во дозволената зона на ресторанот.
                     </div>
@@ -1867,7 +2132,7 @@ export default function Customer() {
                   
                   <button 
                     type="submit"
-                    disabled={!isLocationValid()}
+                    disabled={orderType !== 'takeaway' && !isLocationValid()}
                     className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl transition-colors shadow-lg shadow-orange-500/30 text-lg"
                   >
                     Потврди нарачка
@@ -1875,18 +2140,20 @@ export default function Customer() {
                 </div>
               </form>
 
-              <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 h-fit">
-                <h3 className="font-bold text-slate-800 dark:text-white mb-4">Локација за достава</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                  Можете да го поместите пинот за попрецизна локација. Пинот мора да биде во рамките на обоените зони (зони на достава на избраните ресторани).
-                </p>
-                <LocationPickerMap 
-                  location={location} 
-                  setLocation={setLocation} 
-                  city={selectedCity} 
-                  allowedZones={getCartAllowedZones()} 
-                />
-              </div>
+              {orderType !== 'takeaway' && (
+                <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 h-fit">
+                  <h3 className="font-bold text-slate-800 dark:text-white mb-4">Локација за достава</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                    Можете да го поместите пинот за попрецизна локација. Пинот мора да биде во рамките на обоените зони (зони на достава на избраните ресторани).
+                  </p>
+                  <LocationPickerMap 
+                    location={location} 
+                    setLocation={setLocation} 
+                    city={selectedCity} 
+                    allowedZones={getCartAllowedZones()} 
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -229,6 +229,25 @@ db.exec(`
     db.exec("ALTER TABLE restaurants ADD COLUMN is_active INTEGER DEFAULT 1");
   } catch (e) {}
   try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN allow_takeaway INTEGER DEFAULT 0");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN takeaway_discount_type TEXT DEFAULT 'percent'");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN takeaway_discount_value REAL DEFAULT 0");
+  } catch (e) {}
+
+  try {
+    db.exec("ALTER TABLE orders ADD COLUMN order_type TEXT DEFAULT 'delivery'");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE orders ADD COLUMN pickup_time TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE orders ADD COLUMN pickup_code TEXT");
+  } catch (e) {}
+  try {
     db.exec("ALTER TABLE restaurants ADD COLUMN has_admin_access INTEGER DEFAULT 1");
   } catch (e) {}
   try {
@@ -651,8 +670,77 @@ const seedTemplates = [
   {
     name: 'order_confirmation',
     subject: 'Потврда за вашата нарачка #{{order_id}}',
-    body: '<h1>Здраво {{customer_name}},</h1><p>Вашата нарачка е успешно примена.</p><p>Вкупна сума: {{total_price}} ден.</p><p>Ресторан: {{restaurant_name}}</p><p>Благодариме што нарачувате преку PizzaTime!</p>',
+    body: `
+      <h1>Здраво {{customer_name}},</h1>
+      <p>Вашата нарачка е успешно примена.</p>
+      
+      {{#if is_takeaway}}
+      <div style="background-color: #fff7ed; border: 1px solid #ffedd5; padding: 15px; border-radius: 10px; margin: 20px 0;">
+        <h3 style="color: #9a3412; margin-top: 0;">Информации за преземање:</h3>
+        <p><strong>Време на подигнување:</strong> {{pickup_time}}</p>
+        <p><strong>Код за подигнување:</strong> <span style="font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #f97316;">{{pickup_code}}</span></p>
+        <p style="font-size: 12px; color: #7c2d12;">Ве молиме покажете го овој код во ресторанот при подигнување на нарачката.</p>
+      </div>
+      {{else}}
+      <p>Вашата нарачка ќе биде доставена на вашата адреса наскоро.</p>
+      {{/if}}
+
+      <p><strong>Вкупна сума:</strong> {{total_price}} ден.</p>
+      <p><strong>Ресторан:</strong> {{restaurant_name}}</p>
+      
+      <div style="margin-top: 20px;">
+        <a href="{{tracking_url}}" style="background-color: #f97316; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold;">Следи ја нарачката</a>
+      </div>
+      
+      <p>Благодариме што нарачувате преку PizzaTime!</p>
+    `,
     description: 'Се испраќа до купувачот по успешна нарачка'
+  },
+  {
+    name: 'order_ready_for_pickup',
+    subject: 'Вашата нарачка #{{order_id}} е подготвена за преземање!',
+    body: `
+      <h1>Здраво {{customer_name}},</h1>
+      <p>Вашата нарачка од <strong>{{restaurant_name}}</strong> е подготвена!</p>
+      
+      <div style="background-color: #f0fdf4; border: 1px solid #dcfce7; padding: 15px; border-radius: 10px; margin: 20px 0;">
+        <h3 style="color: #166534; margin-top: 0;">Подготвено за подигнување</h3>
+        <p>Можете да ја подигнете вашата нарачка во секое време.</p>
+        <p><strong>Код за подигнување:</strong> <span style="font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #16a34a;">{{pickup_code}}</span></p>
+      </div>
+      
+      <p>Локација на ресторанот: {{restaurant_address}}</p>
+      
+      <div style="margin-top: 20px;">
+        <a href="{{tracking_url}}" style="background-color: #16a34a; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold;">Види детали</a>
+      </div>
+      
+      <p>Ве очекуваме!</p>
+    `,
+    description: 'Се испраќа до купувачот кога нарачката е подготвена за преземање'
+  },
+  {
+    name: 'takeaway_reminder',
+    subject: 'Потсетник: Вашата нарачка #{{order_id}} ве чека!',
+    body: `
+      <h1>Здраво {{customer_name}},</h1>
+      <p>Ова е пријателски потсетник дека вашата нарачка од <strong>{{restaurant_name}}</strong> е подготвена и ве чека за преземање.</p>
+      
+      <div style="background-color: #fffbeb; border: 1px solid #fef3c7; padding: 15px; border-radius: 10px; margin: 20px 0;">
+        <h3 style="color: #92400e; margin-top: 0;">Ве очекуваме!</h3>
+        <p>Вашата храна е подготвена и ве чека.</p>
+        <p><strong>Код за подигнување:</strong> <span style="font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #d97706;">{{pickup_code}}</span></p>
+      </div>
+      
+      <p>Локација на ресторанот: {{restaurant_address}}</p>
+      
+      <div style="margin-top: 20px;">
+        <a href="{{tracking_url}}" style="background-color: #d97706; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold;">Види детали</a>
+      </div>
+      
+      <p>Се гледаме наскоро!</p>
+    `,
+    description: 'Се испраќа како потсетник ако нарачката не е подигната по одредено време'
   },
   {
     name: 'new_order_alert',
@@ -686,9 +774,14 @@ const seedTemplates = [
   },
   {
     name: 'order_completed',
-    subject: 'Вашата нарачка #{{order_id}} е доставена!',
-    body: '<h1>Здраво {{customer_name}},</h1><p>Вашата нарачка е успешно доставена. Се надеваме дека ќе уживате во храната!</p><p>Ве молиме оставете рецензија за вашето искуство: <a href="{{tracking_url}}">Остави рецензија</a></p><p>Благодариме што нарачувате преку PizzaTime!</p>',
-    description: 'Се испраќа до купувачот по успешна достава'
+    subject: 'Вашата нарачка #{{order_id}} е {{#if is_takeaway}}преземена{{else}}доставена{{/if}}!',
+    body: `
+      <h1>Здраво {{customer_name}},</h1>
+      <p>Вашата нарачка е успешно {{#if is_takeaway}}преземена од ресторанот{{else}}доставена до вашата адреса{{/if}}. Се надеваме дека ќе уживате во храната!</p>
+      <p>Ве молиме оставете рецензија за вашето искуство: <a href="{{tracking_url}}">Остави рецензија</a></p>
+      <p>Благодариме што нарачувате преку PizzaTime!</p>
+    `,
+    description: 'Се испраќа до купувачот по успешна достава или преземање'
   },
   {
     name: 'payment_confirmation',
@@ -2535,7 +2628,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
       username, password, payment_config, logo_url, cover_url, header_image,
       is_active, has_admin_access,
-      seo_title, meta_description, meta_keywords, schema_json
+      seo_title, meta_description, meta_keywords, schema_json,
+      allow_takeaway, takeaway_discount_type, takeaway_discount_value
     } = req.body;
     
     db.prepare(`
@@ -2546,7 +2640,8 @@ app.get("/api/orders/track/:token", (req, res) => {
         delivery_fee = ?, min_order_amount = ?, payment_config = ?, 
         logo_url = ?, cover_url = ?, header_image = ?,
         is_active = ?, has_admin_access = ?,
-        seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?
+        seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?,
+        allow_takeaway = ?, takeaway_discount_type = ?, takeaway_discount_value = ?
       WHERE id = ?
     `).run(
       name,
@@ -2574,6 +2669,9 @@ app.get("/api/orders/track/:token", (req, res) => {
       meta_description || null,
       meta_keywords || null,
       schema_json || null,
+      allow_takeaway || 0,
+      takeaway_discount_type || 'percent',
+      takeaway_discount_value || 0,
       id
     );
     
@@ -2588,7 +2686,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       contract_percentage, billing_cycle_days, vat_rate, delivery_fee, min_order_amount, 
       username, password, payment_config, logo_url, cover_url, header_image, status,
       is_active, has_admin_access,
-      seo_title, meta_description, meta_keywords, schema_json
+      seo_title, meta_description, meta_keywords, schema_json,
+      allow_takeaway, takeaway_discount_type, takeaway_discount_value
     } = req.body;
     
     db.prepare(`
@@ -2597,7 +2696,8 @@ app.get("/api/orders/track/:token", (req, res) => {
         username = ?, password = ?, contract_percentage = ?, billing_cycle_days = ?, vat_rate = ?, 
         delivery_fee = ?, min_order_amount = ?, payment_config = ?, logo_url = ?, cover_url = ?, 
         header_image = ?, status = ?, is_active = ?, has_admin_access = ?,
-        seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?
+        seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?,
+        allow_takeaway = ?, takeaway_discount_type = ?, takeaway_discount_value = ?
       WHERE id = ?
     `).run(
       name,
@@ -2626,6 +2726,9 @@ app.get("/api/orders/track/:token", (req, res) => {
       meta_description || null,
       meta_keywords || null,
       schema_json || null,
+      allow_takeaway || 0,
+      takeaway_discount_type || 'percent',
+      takeaway_discount_value || 0,
       id
     );
     
@@ -3104,6 +3207,9 @@ app.get("/api/orders/track/:token", (req, res) => {
     };
 
     const availableRestaurants = restaurants.filter(r => {
+      // If the restaurant allows takeaway, it's always available
+      if (r.allow_takeaway === 1) return true;
+
       // If the restaurant uses platform delivery (has_own_delivery === 0), they are available in the whole city
       if (r.has_own_delivery !== 1) return true;
       
@@ -3192,7 +3298,12 @@ app.get("/api/orders/track/:token", (req, res) => {
           payment_config: r.payment_config,
           active_orders: activeOrders.count,
           is_open: isOpen,
-          delivery_delay: deliveryDelay
+          delivery_delay: deliveryDelay,
+          allow_takeaway: r.allow_takeaway,
+          takeaway_discount_type: r.takeaway_discount_type,
+          takeaway_discount_value: r.takeaway_discount_value,
+          delivery_fee: r.delivery_fee,
+          min_order_amount: r.min_order_amount
         };
       }), 
       items: items,
@@ -3201,7 +3312,11 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.post("/api/orders", (req, res) => {
-    const { customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, campaign_id, user_id, payment_method, selected_fees } = req.body;
+    const { 
+      customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, 
+      items, campaign_id, user_id, payment_method, selected_fees,
+      order_type, pickup_time
+    } = req.body;
     
     // Group items by restaurant
     const itemsByRestaurant = items.reduce((acc: any, item: any) => {
@@ -3211,8 +3326,13 @@ app.get("/api/orders/track/:token", (req, res) => {
     }, {});
 
     const insert = db.prepare(`
-      INSERT INTO orders (restaurant_id, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token, payment_method, selected_fees, delivery_fee, payment_status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (
+        restaurant_id, customer_name, customer_email, customer_phone, delivery_address, 
+        delivery_lat, delivery_lng, items, total_price, spare_1, user_id, tracking_token, 
+        payment_method, selected_fees, delivery_fee, payment_status,
+        order_type, pickup_time, pickup_code
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const deliveryFeeSetting = db.prepare("SELECT value FROM global_settings WHERE key = 'delivery_fee'").get() as any;
@@ -3286,8 +3406,8 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       let totalPrice = (restItems as any[]).reduce((sum, item) => sum + item.finalPrice, 0);
       
-      // Check min order amount
-      if (restaurant && restaurant.min_order_amount > 0 && totalPrice < restaurant.min_order_amount) {
+      // Check min order amount (only for delivery)
+      if (order_type !== 'takeaway' && restaurant && restaurant.min_order_amount > 0 && totalPrice < restaurant.min_order_amount) {
         return res.status(400).json({ error: `Минималниот износ за нарачка од "${restaurant.name}" е ${restaurant.min_order_amount} ден.` });
       }
 
@@ -3338,6 +3458,17 @@ app.get("/api/orders/track/:token", (req, res) => {
         db.prepare("UPDATE users SET loyalty_points = loyalty_points - ? WHERE id = ?").run(totalPrice, user_id);
       }
 
+      // Takeaway discount
+      let takeawayDiscountAmount = 0;
+      if (order_type === 'takeaway' && restaurant && restaurant.allow_takeaway) {
+        if (restaurant.takeaway_discount_type === 'percent') {
+          takeawayDiscountAmount = (totalPrice * (Number(restaurant.takeaway_discount_value || 0) / 100));
+        } else {
+          takeawayDiscountAmount = Number(restaurant.takeaway_discount_value || 0);
+        }
+        totalPrice -= takeawayDiscountAmount;
+      }
+
       let campaignCode = null;
 
       const shouldApplyCampaign = campaignCodeToUse && !campaignApplied && (!campaignRestId || Number(restaurantId) === Number(campaignRestId));
@@ -3349,9 +3480,33 @@ app.get("/api/orders/track/:token", (req, res) => {
         campaignApplied = true;
       }
 
+      // Final delivery fee
+      const finalDeliveryFee = order_type === 'takeaway' ? 0 : ((restaurant && restaurant.min_order_amount > 0 && totalPrice >= restaurant.min_order_amount) ? 0 : restDeliveryFee);
+      totalPrice += finalDeliveryFee;
+
       const trackingToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const pickupCode = order_type === 'takeaway' ? Math.random().toString(36).substring(2, 8).toUpperCase() : null;
+
       const info = insert.run(
-        restaurantId, customer_name, customer_email, customer_phone, delivery_address, delivery_lat, delivery_lng, JSON.stringify(restItems), totalPrice, campaignCode, user_id || null, trackingToken, payment_method || 'cash', JSON.stringify(restFees), restDeliveryFee, payment_method === 'card' ? 'pending' : 'paid'
+        restaurantId, 
+        customer_name, 
+        customer_email, 
+        customer_phone, 
+        delivery_address, 
+        delivery_lat, 
+        delivery_lng, 
+        JSON.stringify(restItems), 
+        Math.max(0, totalPrice), 
+        campaignCode, 
+        user_id || null, 
+        trackingToken, 
+        payment_method || 'cash', 
+        JSON.stringify(restFees), 
+        finalDeliveryFee, 
+        payment_method === 'card' ? 'pending' : 'paid',
+        order_type || 'delivery',
+        pickup_time || null,
+        pickupCode
       );
       orderIds.push(info.lastInsertRowid);
       trackingTokens[Number(info.lastInsertRowid)] = trackingToken;
@@ -3364,7 +3519,10 @@ app.get("/api/orders/track/:token", (req, res) => {
           customer_name: customer_name,
           total_price: totalPrice,
           restaurant_name: restaurant.name,
-          tracking_url: trackingUrl
+          tracking_url: trackingUrl,
+          is_takeaway: order_type === 'takeaway',
+          pickup_time: pickup_time,
+          pickup_code: pickupCode
         }).catch(console.error);
       }
 
@@ -3745,7 +3903,7 @@ app.get("/api/orders/track/:token", (req, res) => {
     if (status === 'ready') {
       const pickupDeadline = new Date(Date.now() + 25 * 60000).toISOString();
       db.prepare("UPDATE orders SET status = ?, ready_at = CURRENT_TIMESTAMP, spare_2 = ? WHERE id = ?").run(status, pickupDeadline, orderId);
-      const order = db.prepare("SELECT tracking_token, restaurant_id FROM orders WHERE id = ?").get(orderId) as any;
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
       if (order) {
         io.to(`order_${order.tracking_token}`).emit("status_updated", { status });
         io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
@@ -3754,9 +3912,24 @@ app.get("/api/orders/track/:token", (req, res) => {
         io.to("delivery_partners").emit("new_available_order");
         io.to("admin_room").emit("order_status_changed");
 
+        // Send email if it's a takeaway order
+        if (order.order_type === 'takeaway' && order.customer_email) {
+          const restaurant = db.prepare("SELECT name, address FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
+          const trackingUrl = `${process.env.APP_URL || 'http://localhost:3000'}/track/${order.tracking_token}`;
+          
+          sendEmail('order_ready_for_pickup', order.customer_email, {
+            order_id: order.id,
+            customer_name: order.customer_name,
+            restaurant_name: restaurant?.name || 'Ресторанот',
+            restaurant_address: restaurant?.address || '',
+            pickup_code: order.pickup_code,
+            tracking_url: trackingUrl
+          }).catch(console.error);
+        }
+
         sendPushNotification(null, {
-          title: 'Нарачката е подготвена!',
-          body: `Вашата нарачка #${orderId} е подготвена за достава.`,
+          title: order.order_type === 'takeaway' ? 'Нарачката е подготвена за подигнување!' : 'Нарачката е подготвена!',
+          body: order.order_type === 'takeaway' ? `Вашата нарачка #${orderId} е подготвена за преземање во ${order.restaurant_name || 'ресторанот'}.` : `Вашата нарачка #${orderId} е подготвена за достава.`,
           url: `/track/${order.tracking_token}`
         }, Number(orderId)).catch(console.error);
       }
@@ -3847,7 +4020,8 @@ app.get("/api/orders/track/:token", (req, res) => {
             order_id: orderId,
             customer_name: order.customer_name,
             restaurant_name: restaurant?.name || 'Ресторанот',
-            tracking_url: trackingUrl
+            tracking_url: trackingUrl,
+            is_takeaway: order.order_type === 'takeaway'
           }).catch(console.error);
         }
       }
@@ -4704,6 +4878,46 @@ app.get("/api/orders/track/:token", (req, res) => {
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`[SERVER] Server running on http://localhost:${PORT}`);
     console.log("[SERVER] Initialization complete");
+
+    // Background task for takeaway reminders (every 10 minutes)
+    setInterval(async () => {
+      try {
+        // Find orders that are 'ready', 'takeaway', not reminded yet, and ready for more than 30 minutes
+        const now = new Date();
+        const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60000).toISOString();
+        
+        // Using spare_3 as a flag for reminder sent
+        const pendingReminders = db.prepare(`
+          SELECT o.*, r.name as restaurant_name, r.address as restaurant_address 
+          FROM orders o
+          JOIN restaurants r ON o.restaurant_id = r.id
+          WHERE o.status = 'ready' 
+          AND o.order_type = 'takeaway' 
+          AND (o.spare_3 IS NULL OR o.spare_3 != 'reminder_sent')
+          AND o.ready_at < ?
+        `).all(thirtyMinutesAgo) as any[];
+
+        for (const order of pendingReminders) {
+          if (order.customer_email) {
+            const trackingUrl = `${process.env.APP_URL || 'http://localhost:3000'}/track/${order.tracking_token}`;
+            
+            await sendEmail('takeaway_reminder', order.customer_email, {
+              order_id: order.id,
+              customer_name: order.customer_name,
+              restaurant_name: order.restaurant_name,
+              restaurant_address: order.restaurant_address,
+              pickup_code: order.pickup_code,
+              tracking_url: trackingUrl
+            });
+
+            db.prepare("UPDATE orders SET spare_3 = 'reminder_sent' WHERE id = ?").run(order.id);
+            console.log(`[REMINDER] Sent takeaway reminder for order #${order.id}`);
+          }
+        }
+      } catch (err) {
+        console.error('[REMINDER ERROR]', err);
+      }
+    }, 10 * 60000); // Every 10 minutes
   });
 }
 
