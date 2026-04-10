@@ -17,6 +17,7 @@ export default function TrackOrder() {
   const [error, setError] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string>('');
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [review, setReview] = useState({ rating: 5, comment: '' });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
@@ -152,6 +153,43 @@ export default function TrackOrder() {
       }
     } catch (err) {
       console.error('Delivery pickup check failed', err);
+    }
+  };
+
+  const handleRetryPayment = async () => {
+    setIsRetrying(true);
+    try {
+      const res = await fetch('/api/payment/payten/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = data.url;
+        
+        Object.entries(data.params).forEach(([key, value]) => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = key;
+          input.value = value as string;
+          form.appendChild(input);
+        });
+        
+        document.body.appendChild(form);
+        form.submit();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Грешка при иницијализација на плаќањето');
+      }
+    } catch (err) {
+      console.error('Retry payment failed', err);
+      alert('Настана грешка при поврзување со порталот за плаќање');
+    } finally {
+      setIsRetrying(false);
     }
   };
 
@@ -345,7 +383,25 @@ export default function TrackOrder() {
             
             {order.status === 'cancelled' && (
               <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-6 rounded-3xl mb-8 font-sans font-bold">
-                Кујната е презафатена. Вашата нарачка не може да биде прифатена во овој момент.
+                {order.payment_status === 'failed' 
+                  ? (
+                    <div className="flex flex-col items-center gap-4">
+                      <span>Нарачката е прекината поради неуспешно плаќање.</span>
+                      <button 
+                        onClick={handleRetryPayment}
+                        disabled={isRetrying}
+                        className="bg-red-600 text-white px-6 py-2 rounded-xl hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {isRetrying ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        ) : (
+                          <ShieldCheck size={18} />
+                        )}
+                        Обиди се повторно
+                      </button>
+                    </div>
+                  ) 
+                  : 'Кујната е презафатена. Вашата нарачка не може да биде прифатена во овој момент.'}
               </div>
             )}
 

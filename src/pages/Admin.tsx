@@ -221,7 +221,9 @@ function AdminContent() {
   });
   const [newUser, setNewUser] = useState({ name: '', email: '' });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing' | 'admins' | 'bundles' | 'pages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'database' | 'orders' | 'delivery' | 'marketing' | 'campaigns' | 'billing' | 'settings' | 'users' | 'reviews' | 'email' | 'restaurants' | 'invoicing' | 'admins' | 'bundles' | 'pages' | 'payment_logs'>('dashboard');
+  const [paymentLogs, setPaymentLogs] = useState<any[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [pendingRestaurants, setPendingRestaurants] = useState<PendingRestaurant[]>([]);
   const [approvedRestaurants, setApprovedRestaurants] = useState<PendingRestaurant[]>([]);
   const [pendingBundles, setPendingBundles] = useState<PendingBundle[]>([]);
@@ -358,6 +360,27 @@ function AdminContent() {
   });
   const [isImporting, setIsImporting] = useState(false);
   const [staleOrderAlerts, setStaleOrderAlerts] = useState<any[]>([]);
+
+  const [selectedLog, setSelectedLog] = useState<any>(null);
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+
+  const fetchPaymentLogs = async () => {
+    setIsLoadingLogs(true);
+    try {
+      const data = await safeFetchJson('/api/admin/payment-logs');
+      setPaymentLogs(data);
+    } catch (e) {
+      console.error('Failed to fetch payment logs', e);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'payment_logs') {
+      fetchPaymentLogs();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const socket = io();
@@ -1712,6 +1735,15 @@ function AdminContent() {
                 Нарачки
               </button>
             )}
+            {hasPermission('settings') && (
+              <button 
+                onClick={() => setActiveTab('payment_logs')}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors flex flex-col items-center gap-0.5 min-w-[60px] ${activeTab === 'payment_logs' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <CreditCard size={14} />
+                Плаќања
+              </button>
+            )}
             {hasPermission('invoicing') && (
               <button 
                 onClick={() => setActiveTab('invoicing')}
@@ -2701,6 +2733,79 @@ function AdminContent() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'payment_logs' ? (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-800">Дневник на плаќања</h2>
+              <button 
+                onClick={fetchPaymentLogs}
+                className="p-2 text-slate-500 hover:text-indigo-600 transition-colors"
+                title="Освежи"
+              >
+                <RefreshCw size={20} className={isLoadingLogs ? 'animate-spin' : ''} />
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Нарачка</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Клиент</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Износ</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Статус</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Код</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Грешка</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Време</th>
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {paymentLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 font-medium text-slate-900">#{log.order_id}</td>
+                        <td className="px-6 py-4 text-slate-600">{log.customer_name}</td>
+                        <td className="px-6 py-4 text-slate-900 font-bold">{log.total_price} ден.</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            log.status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {log.status === 'success' ? 'Успешно' : 'Неуспешно'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 font-mono text-xs text-slate-500">{log.response_code}</td>
+                        <td className="px-6 py-4 text-xs text-red-500 max-w-xs truncate" title={log.error_message}>
+                          {log.error_message}
+                        </td>
+                        <td className="px-6 py-4 text-slate-500 text-xs">
+                          {new Date(log.created_at).toLocaleString('mk-MK')}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            onClick={() => {
+                              setSelectedLog(log);
+                              setIsLogModalOpen(true);
+                            }}
+                            className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
+                          >
+                            Детали
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {paymentLogs.length === 0 && !isLoadingLogs && (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                          Нема пронајдено логови за плаќање.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -3804,13 +3909,26 @@ function AdminContent() {
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Store Type</label>
-                    <input 
-                      type="text" 
-                      value={globalSettings.payten_store_type || '3D_PAY'} 
+                    <select 
+                      value={globalSettings.payten_store_type || '3D_PAY_HOSTING'} 
                       onChange={e => setGlobalSettings({...globalSettings, payten_store_type: e.target.value})} 
-                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
-                      placeholder="3D_PAY" 
-                    />
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="3D_PAY">3D_PAY</option>
+                      <option value="3D_PAY_HOSTING">3D_PAY_HOSTING</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Transaction Type</label>
+                    <select 
+                      value={globalSettings.payten_tran_type || 'PreAuth'} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_tran_type: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="Auth">Auth (Immediate Charge)</option>
+                      <option value="PreAuth">PreAuth (Reservation)</option>
+                      <option value="Sales">Sales</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Currency Code</label>
@@ -3840,6 +3958,26 @@ function AdminContent() {
                       onChange={e => setGlobalSettings({...globalSettings, payten_api_url: e.target.value})} 
                       className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
                       placeholder="https://..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">API Username</label>
+                    <input 
+                      type="text" 
+                      value={globalSettings.payten_api_username || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_api_username: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="api_username" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">API Password</label>
+                    <input 
+                      type="password" 
+                      value={globalSettings.payten_api_password || ''} 
+                      onChange={e => setGlobalSettings({...globalSettings, payten_api_password: e.target.value})} 
+                      className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="••••••••" 
                     />
                   </div>
                   <div>
@@ -6214,6 +6352,7 @@ function AdminContent() {
                     { id: 'restaurants', label: 'Ресторани' },
                     { id: 'database', label: 'База на податоци' },
                     { id: 'orders', label: 'Нарачки' },
+                    { id: 'payment_logs', label: 'Плаќања' },
                     { id: 'invoicing', label: 'Фактурирање' },
                     { id: 'delivery', label: 'Доставувачи' },
                     { id: 'marketing', label: 'Маркетинг' },
@@ -6318,6 +6457,73 @@ function AdminContent() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {isLogModalOpen && selectedLog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+          >
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-xl font-black text-slate-800">Детали за плаќање</h3>
+                <p className="text-sm text-slate-500">Нарачка #{selectedLog.order_id} • {new Date(selectedLog.created_at).toLocaleString('mk-MK')}</p>
+              </div>
+              <button 
+                onClick={() => setIsLogModalOpen(false)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto font-mono text-xs">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-3 rounded-xl">
+                    <span className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1">Статус</span>
+                    <span className={`font-bold ${selectedLog.status === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {selectedLog.status === 'success' ? 'УСПЕШНО' : 'НЕУСПЕШНО'}
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-xl">
+                    <span className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1">Код од банка</span>
+                    <span className="font-bold text-slate-700">{selectedLog.response_code}</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-xl">
+                  <span className="block text-[10px] uppercase tracking-wider text-slate-400 mb-1">Порака за грешка</span>
+                  <span className="text-red-600 font-medium">{selectedLog.error_message || 'Нема дополнителни информации'}</span>
+                </div>
+
+                <div className="bg-slate-900 text-indigo-300 p-4 rounded-xl overflow-x-auto">
+                  <span className="block text-[10px] uppercase tracking-wider text-indigo-500 mb-2">Сурови податоци (Raw Data)</span>
+                  <pre className="whitespace-pre-wrap break-all">
+                    {(() => {
+                      try {
+                        return JSON.stringify(JSON.parse(selectedLog.raw_data), null, 2);
+                      } catch (e) {
+                        return selectedLog.raw_data;
+                      }
+                    })()}
+                  </pre>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={() => setIsLogModalOpen(false)}
+                className="px-6 py-2 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-colors"
+              >
+                Затвори
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
 

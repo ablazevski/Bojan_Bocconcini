@@ -16,6 +16,18 @@ import handlebars from "handlebars";
 import webpush from "web-push";
 import bcrypt from "bcryptjs";
 
+console.log("[SERVER] server.ts is being executed at top level");
+
+process.on('uncaughtException', (err) => {
+  fs.appendFileSync('server_error.log', `[${new Date().toISOString()}] Uncaught Exception: ${err.stack}\n`);
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  fs.appendFileSync('server_error.log', `[${new Date().toISOString()}] Unhandled Rejection at: ${promise}, reason: ${reason}\n`);
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const db = new Database('pizza.db');
 
 // Create tables first
@@ -142,12 +154,26 @@ db.exec(`
 `);
 
   // Initialize default settings if not exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payment_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER,
+      status TEXT,
+      response_code TEXT,
+      error_message TEXT,
+      raw_data TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   const defaultSettings = [
     { key: 'delivery_fee', value: '100' },
     { key: 'special_badge_name', value: 'Студент' },
     { key: 'special_badge_amount', value: '180' },
     { key: 'enable_cart_login', value: 'false' },
-    { key: 'show_admin_in_portal', value: 'true' }
+    { key: 'show_admin_in_portal', value: 'true' },
+    { key: 'payten_api_username', value: '' },
+    { key: 'payten_api_password', value: '' }
   ];
 
   const checkStmt = db.prepare('SELECT 1 FROM global_settings WHERE key = ?');
@@ -665,6 +691,49 @@ const seedTemplates = [
     description: 'Се испраќа до купувачот по успешна достава'
   },
   {
+    name: 'payment_confirmation',
+    subject: 'Потврда за плаќање - Нарачка #{{order_id}} (PizzaTime)',
+    body: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 20px; overflow: hidden;">
+        <div style="background-color: #f97316; padding: 30px; text-align: center; color: white;">
+          <h1 style="margin: 0; font-size: 24px;">Успешно плаќање!</h1>
+        </div>
+        <div style="padding: 30px; color: #334155; line-height: 1.6;">
+          <p>Здраво <strong>{{customer_name}}</strong>,</p>
+          <p>Вашата трансакција за нарачката <strong>#{{order_id}}</strong> е успешно процесирана.</p>
+          
+          <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #1e293b;">Детали за плаќањето:</h3>
+            <table style="width: 100%; font-size: 14px;">
+              <tr>
+                <td style="padding: 5px 0; color: #64748b;">Трансакциски ID:</td>
+                <td style="padding: 5px 0; text-align: right; font-weight: bold;">{{transaction_id}}</td>
+              </tr>
+              <tr>
+                <td style="padding: 5px 0; color: #64748b;">Износ:</td>
+                <td style="padding: 5px 0; text-align: right; font-weight: bold; font-size: 18px; color: #f97316;">{{total_price}} ден.</td>
+              </tr>
+              <tr>
+                <td style="padding: 5px 0; color: #64748b;">Начин:</td>
+                <td style="padding: 5px 0; text-align: right;">Кредитна/Дебитна картичка</td>
+              </tr>
+            </table>
+          </div>
+
+          <p>Вашата нарачка сега е во кујната на <strong>{{restaurant_name}}</strong> и се подготвува.</p>
+          
+          <div style="text-align: center; margin-top: 30px;">
+            <a href="{{tracking_url}}" style="background-color: #f97316; color: white; padding: 12px 25px; text-decoration: none; border-radius: 10px; font-weight: bold;">Следи ја нарачката во живо</a>
+          </div>
+        </div>
+        <div style="background-color: #f1f5f9; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
+          <p>© 2026 PizzaTime. Сите права се задржани.</p>
+        </div>
+      </div>
+    `,
+    description: 'Се испраќа до купувачот по успешно картично плаќање'
+  },
+  {
     name: 'delivery_approval',
     subject: 'Вашата апликација за доставувач е ОДОБРЕНА!',
     body: '<h1>Честитки {{partner_name}}!</h1><p>Вашата апликација за доставувач е одобрена од нашиот тим.</p><p>Вашите податоци за најава се:</p><ul><li>Корисничко име: {{username}}</li><li>Лозинка: {{password}}</li></ul><p>Ве молиме прочитајте го и потпишете го договорот за соработка на следниот линк: <a href="{{contract_url}}">Договор за соработка</a></p><p>По потпишувањето, ќе можете да започнете со достава.</p><p>Добредојдовте во тимот!</p>',
@@ -722,22 +791,51 @@ if (restCount.count === 0) {
 }
 
   async function startServer() {
+    console.log("[SERVER] Starting server initialization...");
     const app = express();
     app.set('trust proxy', true);
+    const PORT = 3000;
     
+    app.use((req, res, next) => {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+      }
+      next();
+    });
+
+    app.use((req, res, next) => {
+      console.log(`[REQUEST] ${req.method} ${req.path}`);
+      next();
+    });
+
     // Middleware to force HTTPS headers because we are always behind an HTTPS proxy
     app.use((req, res, next) => {
       req.headers['x-forwarded-proto'] = 'https';
       next();
     });
     const httpServer = createServer(app);
+    
+    httpServer.on('error', (err: any) => {
+      fs.appendFileSync('server_error.log', `[${new Date().toISOString()}] HTTP Server Error: ${err.stack}\n`);
+      console.error('HTTP Server Error:', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. Retrying in 5 seconds...`);
+        setTimeout(() => {
+          httpServer.close();
+          httpServer.listen(PORT, "0.0.0.0");
+        }, 5000);
+      }
+    });
+
     const io = new Server(httpServer, {
       cors: {
         origin: "*",
         methods: ["GET", "POST"]
       }
     });
-    const PORT = 3000;
 
     io.on("connection", (socket) => {
       console.log("A user connected:", socket.id);
@@ -800,9 +898,19 @@ if (restCount.count === 0) {
       proxy: true
     }));
 
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+      }
+      next();
+    });
+
     // Debug middleware for sessions
     app.use((req, res, next) => {
-      if (req.path.startsWith('/api/restaurant') || req.path.startsWith('/api/restaurants/login') || req.path.startsWith('/api/admin')) {
+      if (req.path.startsWith('/api')) {
         const hasRestaurant = !!(req.session as any).restaurant;
         const hasAdmin = !!(req.session as any).admin;
         const hasUser = !!(req.session as any).user;
@@ -2021,6 +2129,7 @@ app.get("/api/orders/track/:token", (req, res) => {
 
     // API routes
     app.get('/api/settings', (req, res) => {
+      console.log(`[API DEBUG] GET /api/settings from ${req.ip}`);
       const settings = db.prepare('SELECT * FROM global_settings').all();
       const settingsObj = settings.reduce((acc: any, curr: any) => {
         acc[curr.key] = curr.value;
@@ -3297,17 +3406,21 @@ app.get("/api/orders/track/:token", (req, res) => {
     const clientId = s.payten_client_id;
     const storeKey = s.payten_store_key;
     const mode = s.payten_mode || 'test';
-    const storetype = s.payten_store_type || '3D_PAY';
+    const storetype = s.payten_store_type || '3D_PAY_HOSTING';
+    const trantype = s.payten_tran_type || 'PreAuth';
     const currency = s.payten_currency || '807';
     let baseUrl = process.env.APP_URL || `https://${req.get('host')}`;
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
     const rnd = crypto.randomBytes(16).toString('hex');
-    const oid = order.id.toString();
+    // Use a 12-digit numeric OID: Order ID (padded to 6 digits) + Last 6 digits of timestamp
+    // This ensures the Order ID is at the beginning and the OID is unique and of fixed length.
+    const orderIdPart = order.id.toString().padStart(6, '0');
+    const timestampPart = Date.now().toString().slice(-6);
+    const oid = orderIdPart + timestampPart;
     const amount = order.total_price.toFixed(2);
     const okUrl = `${baseUrl}/api/payment/payten/callback`;
     const failUrl = `${baseUrl}/api/payment/payten/callback`;
-    const trantype = "Auth";
 
     const params: any = {
       clientid: clientId,
@@ -3329,13 +3442,13 @@ app.get("/api/orders/track/:token", (req, res) => {
     }
 
     // Hash Version 3 Calculation
-    const sortedKeys = Object.keys(params).filter(k => k !== 'hash' && k !== 'encoding').sort();
+    const sortedKeys = Object.keys(params).filter(k => k !== 'HASH' && k !== 'hash' && k !== 'encoding').sort();
     const escape = (val: string) => (val || "").toString().replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
     let plaintext = sortedKeys.map(k => escape(params[k])).join('|');
     plaintext += '|' + escape(storeKey);
 
     const hash = crypto.createHash('sha512').update(plaintext, 'utf-8').digest('base64');
-    params.hash = hash;
+    params.HASH = hash;
 
     let gateUrl = s.payten_3d_url;
     if (!gateUrl) {
@@ -3356,14 +3469,30 @@ app.get("/api/orders/track/:token", (req, res) => {
     console.log(`Payten Callback Received (${req.method}):`, req.method === 'POST' ? req.body : req.query);
     const params = req.method === 'POST' ? req.body : req.query;
     
+    let baseUrl = process.env.APP_URL || `https://${req.get('host')}`;
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+    
     if (!params || Object.keys(params).length === 0) {
       console.warn("Payten callback received empty parameters");
       return res.status(400).send("Empty callback parameters");
     }
 
     const hashReceived = params.HASH;
-    const oid = params.oid;
-    const response = params.Response; // "Approved" or "Error"
+    const oid = params.oid || params.Oid || params.OID || "";
+    // Extract real order ID (first 6 digits, removing leading zeros)
+    const realOrderId = oid.length >= 6 ? parseInt(oid.substring(0, 6), 10).toString() : oid;
+    
+    console.log(`Extracted Real Order ID: ${realOrderId} from OID: ${oid}`);
+
+    if (!realOrderId || isNaN(Number(realOrderId))) {
+      console.error(`Invalid Order ID received in callback: ${oid}`);
+      return res.status(400).send("Invalid Order ID");
+    }
+
+    const response = params.Response || params.response || ""; // "Approved" or "Error"
+    const errMsg = params.ErrMsg || params.ErrorMessage || params.ErrorMsg || params.errmsg || "";
+    const procReturnCode = params.ProcReturnCode || params.procreturncode || "";
+    const mdStatus = params.mdStatus || params.mdstatus || "";
     
     const settings = db.prepare("SELECT * FROM global_settings").all();
     const s = settings.reduce((acc: any, curr: any) => {
@@ -3386,49 +3515,155 @@ app.get("/api/orders/track/:token", (req, res) => {
     const hashCalculated = crypto.createHash('sha512').update(plaintext, 'utf-8').digest('base64');
     const isHashValid = hashReceived === hashCalculated;
     
-    console.log(`Order ${oid} Callback. Response: ${response}. Hash Match: ${isHashValid}`);
+    // Log the payment attempt
+    try {
+      db.prepare(`
+        INSERT INTO payment_logs (order_id, status, response_code, error_message, raw_data)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
+        realOrderId, 
+        response === "Approved" ? "success" : "failed",
+        procReturnCode || response,
+        errMsg || (mdStatus ? `3DS Status: ${mdStatus}` : ""),
+        JSON.stringify(params)
+      );
+    } catch (e) {
+      console.error("Failed to log payment:", e);
+    }
+
+    console.log(`Order ${realOrderId} Callback. Response: ${response}. Hash Match: ${isHashValid}`);
     
-    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(oid) as any;
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(realOrderId) as any;
     if (!order) {
-      console.error(`Order ${oid} not found in callback`);
+      console.error(`Order ${realOrderId} not found in callback`);
       return res.status(404).send("Order not found");
     }
 
     if (response === "Approved") {
       db.prepare("UPDATE orders SET payment_status = 'paid', payment_transaction_id = ? WHERE id = ?")
-        .run(params.TransId || '', oid);
+        .run(params.TransId || '', realOrderId);
       
-      console.log(`Order ${oid} marked as PAID. TransId: ${params.TransId}`);
+      console.log(`Order ${realOrderId} marked as PAID. TransId: ${params.TransId}`);
+
+      const redirectUrl = `${baseUrl}/track/${order.tracking_token}?payment=success`;
+
+      // Notify restaurant via socket that a new PAID order arrived
+      io.to(`restaurant_${order.restaurant_id}`).emit("order_update");
+
+      // Send payment confirmation email
+      if (order.customer_email) {
+        const restaurant = db.prepare("SELECT name FROM restaurants WHERE id = ?").get(order.restaurant_id) as any;
+        const trackingUrl = `${process.env.APP_URL || ''}/track/${order.tracking_token}`;
+        
+        sendEmail('payment_confirmation', order.customer_email, {
+          order_id: oid,
+          customer_name: order.customer_name,
+          restaurant_name: restaurant?.name || 'Ресторанот',
+          total_price: order.total_price,
+          transaction_id: params.TransId || 'N/A',
+          tracking_url: trackingUrl
+        }).catch(console.error);
+      }
 
       res.send(`
+        <!DOCTYPE html>
         <html>
-          <head><meta charset="utf-8"></head>
-          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-            <h2>Плаќањето е успешно!</h2>
-            <p>Ве пренасочуваме кон вашата нарачка...</p>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Успешно плаќање</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #1e293b; }
+              .card { background: white; padding: 2rem; border-radius: 1.5rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); text-align: center; max-width: 400px; width: 90%; }
+              .icon { width: 64px; height: 64px; background: #f0fdf4; color: #16a34a; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; }
+              h2 { margin: 0 0 0.5rem; font-weight: 800; }
+              p { color: #64748b; margin-bottom: 1.5rem; }
+              .loader { border: 3px solid #f1f5f9; border-top: 3px solid #4f46e5; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto; }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+              .btn { display: inline-block; margin-top: 1rem; color: #4f46e5; text-decoration: none; font-weight: 600; font-size: 0.875rem; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <h2>Плаќањето е успешно!</h2>
+              <p>Вашата нарачка е потврдана. Ве пренасочуваме назад...</p>
+              <div class="loader"></div>
+              <a href="${redirectUrl}" target="_top" class="btn" style="background: #4f46e5; color: white; padding: 0.75rem 1.5rem; border-radius: 0.75rem; margin-top: 2rem;">Продолжи кон нарачката</a>
+            </div>
             <script>
+              const targetUrl = "${redirectUrl}";
               setTimeout(() => {
-                window.location.href = "/track/${order.tracking_token}?payment=success";
+                try {
+                  // Try to redirect the top-most window first
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = targetUrl;
+                  } else {
+                    window.location.href = targetUrl;
+                  }
+                } catch (e) {
+                  // Fallback to current window if top is restricted
+                  window.location.href = targetUrl;
+                }
               }, 2000);
             </script>
           </body>
         </html>
       `);
     } else {
-      db.prepare("UPDATE orders SET payment_status = 'failed' WHERE id = ?").run(oid);
-      console.log(`Order ${oid} payment FAILED. Error: ${params.ErrMsg}`);
+      db.prepare("UPDATE orders SET payment_status = 'failed', status = 'cancelled' WHERE id = ?").run(realOrderId);
+      
+      let friendlyError = errMsg || (mdStatus ? '3D Secure грешка (' + mdStatus + ')' : 'Непозната грешка');
+      if (procReturnCode === '60' || errMsg.includes('ISO8583-60') || errMsg.includes('Дупликат') || procReturnCode === '94') {
+        friendlyError = "Трансакцијата е одбиена (Дупликат или Системска грешка). Ве молиме почекајте 1-2 минути и обидете се повторно со копчето 'Обиди се повторно'.";
+      }
+
+      console.log(`Order ${realOrderId} payment FAILED. Status set to CANCELLED. Error: ${errMsg || mdStatus}`);
+
+      const redirectUrl = `${baseUrl}/track/${order.tracking_token}?payment=failed&error=${encodeURIComponent(friendlyError)}`;
 
       res.send(`
+        <!DOCTYPE html>
         <html>
-          <head><meta charset="utf-8"></head>
-          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-            <h2 style="color: red;">Плаќањето не успеа</h2>
-            <p>Грешка: ${params.ErrMsg || 'Непозната грешка'}</p>
-            <p>Ве враќаме назад...</p>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Плаќањето не успеа</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fef2f2; color: #991b1b; }
+              .card { background: white; padding: 2rem; border-radius: 1.5rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); text-align: center; max-width: 400px; width: 90%; }
+              .icon { width: 64px; height: 64px; background: #fef2f2; color: #dc2626; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; }
+              h2 { margin: 0 0 0.5rem; font-weight: 800; color: #1e293b; }
+              p { color: #64748b; margin-bottom: 1.5rem; }
+              .error-msg { background: #fff1f2; color: #e11d48; padding: 0.75rem; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 600; margin-bottom: 1.5rem; border: 1px solid #ffe4e6; }
+              .btn { display: inline-block; color: #4f46e5; text-decoration: none; font-weight: 600; font-size: 0.875rem; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </div>
+              <h2>Плаќањето не успеа</h2>
+              <div class="error-msg">${friendlyError}</div>
+              <p>Ве враќаме назад за да се обидете повторно...</p>
+              <a href="${redirectUrl}" target="_top" class="btn" style="background: #f1f5f9; color: #475569; padding: 0.75rem 1.5rem; border-radius: 0.75rem;">Врати се назад</a>
+            </div>
             <script>
+              const targetUrl = "${redirectUrl}";
               setTimeout(() => {
-                window.location.href = "/track/${order.tracking_token}?payment=failed&error=${encodeURIComponent(params.ErrMsg || 'Payment failed')}";
-              }, 3000);
+                try {
+                  if (window.top && window.top !== window) {
+                    window.top.location.href = targetUrl;
+                  } else {
+                    window.location.href = targetUrl;
+                  }
+                } catch (e) {
+                  window.location.href = targetUrl;
+                }
+              }, 4000);
             </script>
           </body>
         </html>
@@ -3439,12 +3674,28 @@ app.get("/api/orders/track/:token", (req, res) => {
   app.post("/api/payment/payten/callback", paytenCallbackHandler);
   app.get("/api/payment/payten/callback", paytenCallbackHandler);
 
+  app.get("/api/admin/payment-logs", (req, res) => {
+    if (!checkAdminAuth(req, res, 'settings')) return;
+    try {
+      const logs = db.prepare(`
+        SELECT pl.*, o.customer_name, o.total_price 
+        FROM payment_logs pl
+        LEFT JOIN orders o ON pl.order_id = o.id
+        ORDER BY pl.created_at DESC
+        LIMIT 100
+      `).all();
+      res.json(logs);
+    } catch (e) {
+      res.status(500).json({ error: "Грешка при вчитување на логови" });
+    }
+  });
+
   app.get("/api/orders/:restaurantId", (req, res) => {
     const orders = db.prepare(`
       SELECT o.*, dp.name as delivery_partner_name, dp.delivery_methods as delivery_partner_methods
       FROM orders o
       LEFT JOIN delivery_partners dp ON o.delivery_partner_id = dp.id
-      WHERE o.restaurant_id = ?
+      WHERE o.restaurant_id = ? AND (o.payment_method != 'card' OR o.payment_status = 'paid' OR o.status = 'cancelled')
       ORDER BY o.created_at DESC
     `).all(req.params.restaurantId);
     res.json(orders);
@@ -4220,6 +4471,17 @@ app.get("/api/orders/track/:token", (req, res) => {
     const criticalThreshold = 30 * 60 * 1000; // 30 minutes
     
     try {
+      // Cleanup stale unpaid card orders (older than 60 minutes)
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+      db.prepare(`
+        UPDATE orders 
+        SET status = 'cancelled', payment_status = 'failed' 
+        WHERE payment_method = 'card' 
+        AND payment_status = 'pending' 
+        AND created_at < ?
+        AND status = 'pending'
+      `).run(oneHourAgo);
+
       const staleOrders = db.prepare(`
         SELECT o.*, r.name as restaurant_name 
         FROM orders o
@@ -4412,6 +4674,11 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   // Vite middleware for development
+    // API 404 handler
+    app.use('/api/*', (req, res) => {
+      res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+    });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -4425,8 +4692,18 @@ app.get("/api/orders/track/:token", (req, res) => {
     });
   }
 
+  // Global error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('[SERVER ERROR]', err);
+    res.status(err.status || 500).json({
+      error: err.message || 'Internal Server Error',
+      path: req.path
+    });
+  });
+
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`[SERVER] Server running on http://localhost:${PORT}`);
+    console.log("[SERVER] Initialization complete");
   });
 }
 
