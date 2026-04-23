@@ -1,14 +1,30 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Settings, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Settings, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText, ChevronDown, ChevronRight, Bell } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { safeFetchJson } from '../utils/api';
+import { Turnstile } from '@marsidev/react-turnstile';
 import LocationPickerMap from '../components/LocationPickerMap';
 
 interface ModifierOption {
@@ -210,9 +226,48 @@ function FreshnessTimer({ readyAt }: { readyAt: string }) {
 export default function Restaurant() {
   const { theme, toggleTheme } = useTheme();
   const [loggedInRestaurant, setLoggedInRestaurant] = useState<any>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+
+  const subscribeToPush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      toast.error('Вашиот прелистувач не поддржува известувања.');
+      return;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      
+      // Get public key from server
+      const res = await fetch('/api/push/key');
+      if (!res.ok) throw new Error('Failed to fetch push key');
+      const { publicKey } = await res.json();
+      
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+      
+      const subRes = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription })
+      });
+      
+      if (subRes.ok) {
+        setPushEnabled(true);
+        toast.success('Известувањата за нарачки се успешно вклучени!');
+      } else {
+        toast.error('Грешка при пријавување за известувања.');
+      }
+    } catch (error) {
+      console.error('Push error:', error);
+      toast.error('Грешка: Проверете дали сте во новиот таб и дали сте дале дозвола за известувања.');
+    }
+  };
   const [isSessionSynced, setIsSessionSynced] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settings' | 'reviews' | 'campaigns' | 'invoicing' | 'bundles'>('orders');
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -278,6 +333,7 @@ export default function Restaurant() {
   const [orderView, setOrderView] = useState<'active' | 'completed' | 'scheduled'>('active');
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [hasNewOrders, setHasNewOrders] = useState(false);
+  const [latestOrderForModal, setLatestOrderForModal] = useState<Order | null>(null);
   const maxOrderIdRef = useRef<number>(0);
   const audioIntervalRef = useRef<any>(null);
 
@@ -294,31 +350,35 @@ export default function Restaurant() {
   };
 
   const playNotificationSound = () => {
-    if (audioIntervalRef.current) return; // Already playing
+    if (audioIntervalRef.current) return; 
+    if (loggedInRestaurant?.notifications_enabled === 0) return;
 
     const play = () => {
       try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        
-        oscillator.start();
-        gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5);
-        oscillator.stop(audioCtx.currentTime + 0.5);
+        const soundFile = loggedInRestaurant?.notification_sound || 'default.mp3';
+        const audio = new Audio(`/sounds/${soundFile}`);
+        audio.play().catch(e => {
+          console.warn("Audio playback failed, falling back to oscillator", e);
+          // Fallback to oscillator if the file is missing or blocked
+          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const oscillator = audioCtx.createOscillator();
+          const gainNode = audioCtx.createGain();
+          oscillator.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+          gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+          oscillator.start();
+          gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5);
+          oscillator.stop(audioCtx.currentTime + 0.5);
+        });
       } catch (e) {
-        console.error("Audio playback failed", e);
+        console.error("Audio playback error", e);
       }
     };
 
     play();
-    audioIntervalRef.current = setInterval(play, 2000);
+    audioIntervalRef.current = setInterval(play, 3000);
   };
 
   const stopNotificationSound = () => {
@@ -365,6 +425,10 @@ export default function Restaurant() {
     working_hours: '{}',
     delivery_fee: 0,
     min_order_amount: 0,
+    max_active_orders: 0,
+    average_prep_time: 30,
+    notifications_enabled: 1,
+    notification_sound: 'default.mp3',
     lat: 0,
     lng: 0
   });
@@ -508,6 +572,10 @@ export default function Restaurant() {
         lng: loggedInRestaurant.lng || 0,
         delivery_fee: loggedInRestaurant.delivery_fee || 0,
         min_order_amount: loggedInRestaurant.min_order_amount || 0,
+        max_active_orders: loggedInRestaurant.max_active_orders || 0,
+        average_prep_time: loggedInRestaurant.average_prep_time || 30,
+        notifications_enabled: loggedInRestaurant.notifications_enabled ?? 1,
+        notification_sound: loggedInRestaurant.notification_sound || 'default.mp3',
         working_hours: typeof loggedInRestaurant.working_hours === 'string' 
           ? loggedInRestaurant.working_hours 
           : JSON.stringify(loggedInRestaurant.working_hours || {}, null, 2)
@@ -647,7 +715,7 @@ export default function Restaurant() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(loginForm)
+        body: JSON.stringify({ ...loginForm, turnstileToken })
       });
       
       if (!res.ok) {
@@ -801,11 +869,23 @@ export default function Restaurant() {
         setSocketConnected(false);
       });
 
-      socket.on('new_order', (data) => {
+      socket.on('new_order', async (data) => {
         console.log('New order received via socket:', data);
         setHasNewOrders(true);
         playNotificationSound();
         sendBrowserNotification(data.id);
+        
+        // Fetch order details for the popup
+        try {
+          const res = await fetch(`/api/orders/${data.id}`, { credentials: 'include' });
+          if (res.ok) {
+            const orderDetail = await res.json();
+            setLatestOrderForModal(orderDetail);
+          }
+        } catch (e) {
+          console.error("Failed to fetch new order for modal", e);
+        }
+        
         fetchOrders(true);
       });
 
@@ -1163,7 +1243,19 @@ export default function Restaurant() {
                 placeholder="••••••••" 
               />
             </div>
-            <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors mt-4 shadow-lg shadow-red-600/20 dark:shadow-none">
+            <div className="flex justify-center my-4">
+              <Turnstile 
+                siteKey={(import.meta as any).env.VITE_TURNSTILE_SITE_KEY || ''} 
+                onSuccess={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            </div>
+            <button 
+              type="submit" 
+              disabled={!turnstileToken}
+              className={`w-full font-bold py-3 rounded-xl transition-colors mt-4 shadow-lg dark:shadow-none ${!turnstileToken ? 'bg-slate-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white shadow-red-600/20'}`}
+            >
               Најави се
             </button>
           </form>
@@ -1457,7 +1549,28 @@ export default function Restaurant() {
               return (
                 <>
                   {/* Stats Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors bg-gradient-to-br from-orange-500/5 to-transparent">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className={`p-3 rounded-xl ${pushEnabled ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' : 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 animate-pulse'}`}>
+                          <Bell size={24} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Пуш Известувања</p>
+                          <p className="text-sm font-bold text-slate-800 dark:text-white uppercase">
+                            {pushEnabled ? 'Вклучени' : 'Исклучени'}
+                          </p>
+                        </div>
+                      </div>
+                      {!pushEnabled && (
+                        <button 
+                          onClick={subscribeToPush}
+                          className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-orange-600/20"
+                        >
+                          Овозможи
+                        </button>
+                      )}
+                    </div>
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
                       <div className="flex items-center gap-4 mb-4">
                         <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
@@ -1467,6 +1580,25 @@ export default function Restaurant() {
                           <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Вкупен Промет</p>
                           <p className="text-2xl font-bold text-slate-800 dark:text-white">
                             {filteredOrders.filter(o => o.status === 'completed').reduce((sum, o) => sum + o.total_price, 0).toLocaleString()} ден.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                          <CheckCircle size={24} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Активни во подготовка</p>
+                          <p className="text-2xl font-bold text-slate-800 dark:text-white">
+                            {orders.filter(o => o.status === 'accepted').length} 
+                            {loggedInRestaurant?.max_active_orders > 0 && (
+                              <span className="text-sm text-slate-400 dark:text-slate-500 font-normal ml-1">
+                                / {loggedInRestaurant.max_active_orders}
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -1719,8 +1851,11 @@ export default function Restaurant() {
             </div>
             
             {(() => {
-              const activeOrders = orders.filter(o => ['pending', 'accepted', 'ready', 'delivering'].includes(o.status));
-              const scheduledOrders = orders.filter(o => o.order_type === 'takeaway' && ['pending', 'accepted', 'ready'].includes(o.status));
+              const activeOrders = orders.filter(o => 
+                (o.order_type !== 'takeaway' && ['pending', 'accepted', 'ready', 'delivering'].includes(o.status)) ||
+                (o.order_type === 'takeaway' && o.status === 'ready')
+              );
+              const scheduledOrders = orders.filter(o => o.order_type === 'takeaway' && ['pending', 'accepted'].includes(o.status));
               const completedOrders = orders.filter(o => ['completed', 'rejected', 'cancelled'].includes(o.status));
               
               if (orderView === 'scheduled') {
@@ -1854,7 +1989,15 @@ export default function Restaurant() {
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 items-start">
                   {columns.map(col => {
-                    const colOrders = activeOrders.filter(o => o.status === col.id);
+                    const colOrders = activeOrders.filter(o => {
+                      if (col.id === 'delivering') {
+                        return o.status === 'delivering' || (o.order_type === 'takeaway' && o.status === 'ready');
+                      }
+                      if (col.id === 'ready') {
+                        return o.status === 'ready' && o.order_type !== 'takeaway';
+                      }
+                      return o.status === col.id;
+                    });
                     return (
                       <div key={col.id} className="flex flex-col gap-4">
                         <div className="flex items-center justify-between px-2">
@@ -2236,6 +2379,35 @@ export default function Restaurant() {
                   <div>
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Минимум за достава (ден.)</label>
                     <input type="number" value={settingsForm.min_order_amount} onChange={e => setSettingsForm({...settingsForm, min_order_amount: Number(e.target.value)})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Макс. активни нарачки (Капацитет)</label>
+                    <input type="number" min="0" value={settingsForm.max_active_orders} onChange={e => setSettingsForm({...settingsForm, max_active_orders: Number(e.target.value)})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="0 = без лимит" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Просечно време за подготовка (мин.)</label>
+                    <input type="number" min="1" value={settingsForm.average_prep_time} onChange={e => setSettingsForm({...settingsForm, average_prep_time: Number(e.target.value)})} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" />
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 transition-colors">
+                    <input 
+                      type="checkbox" 
+                      checked={settingsForm.notifications_enabled === 1} 
+                      onChange={(e) => setSettingsForm({...settingsForm, notifications_enabled: e.target.checked ? 1 : 0})}
+                      className="w-5 h-5 rounded text-red-600 focus:ring-red-500 cursor-pointer bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                    />
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Овозможи нотификации</label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Звук за нотификација</label>
+                    <select 
+                      value={settingsForm.notification_sound} 
+                      onChange={e => setSettingsForm({...settingsForm, notification_sound: e.target.value})}
+                      className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors"
+                    >
+                      <option value="default.mp3">Стандарден</option>
+                      <option value="bell.mp3">Ѕвонче</option>
+                      <option value="modern.mp3">Модерен</option>
+                    </select>
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
@@ -2875,7 +3047,7 @@ export default function Restaurant() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Попуст по нарачка (ден.)</label>
-                        <input name="budget" required type="number" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="100" />
+                        <input name="budget" required type="number" step="any" className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-white transition-colors" placeholder="пр. 100 или -20 за доплата" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 transition-colors">Број на купони</label>
@@ -3843,6 +4015,84 @@ export default function Restaurant() {
                     Одобри пресметка
                   </button>
                 )}
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {latestOrderForModal && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
+        >
+          <motion.div
+            initial={{ scale: 0.9, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.9, y: 20 }}
+            className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border-4 border-orange-500 overflow-hidden max-w-lg w-full"
+          >
+            <div className="bg-orange-500 p-8 text-white text-center">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
+                <Bell size={40} className="text-white" />
+              </div>
+              <h2 className="text-3xl font-black uppercase tracking-tight">Нова Нарачка!</h2>
+              <p className="opacity-90 font-medium">Пристигна нова нарачка за вашиот ресторан</p>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                <span className="text-sm font-bold uppercase tracking-widest">Информации</span>
+                <span className="text-xl font-black text-slate-900 dark:text-white">#{latestOrderForModal.id}</span>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+                  <User className="text-orange-500" size={20} />
+                  <div>
+                    <p className="text-[10px] uppercase font-bold text-slate-400">Купувач</p>
+                    <p className="font-bold dark:text-white">{latestOrderForModal.customer_name}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+                  <ShoppingBag className="text-orange-500" size={20} />
+                  <div>
+                    <p className="text-[10px] uppercase font-bold text-slate-400">Износ</p>
+                    <p className="font-bold dark:text-white">{latestOrderForModal.total_price.toLocaleString()} ден.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-4">
+                <button
+                  onClick={() => {
+                      updateOrderStatus(latestOrderForModal.id, 'rejected');
+                      setLatestOrderForModal(null);
+                      stopNotificationSound();
+                  }}
+                  className="flex flex-col items-center justify-center p-6 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-3xl font-black uppercase tracking-tighter hover:bg-slate-200 dark:hover:bg-slate-700 transition-all border-2 border-transparent"
+                >
+                  <X size={24} className="mb-2" />
+                  Одбиј
+                </button>
+                <button
+                  onClick={() => {
+                      updateOrderStatus(latestOrderForModal.id, 'accepted');
+                      setLatestOrderForModal(null);
+                      stopNotificationSound();
+                      setActiveTab('orders');
+                      setOrderView('active');
+                  }}
+                  className="flex flex-col items-center justify-center p-6 bg-orange-600 text-white rounded-3xl font-black uppercase tracking-tighter hover:bg-orange-700 transition-all shadow-xl shadow-orange-600/30 border-2 border-orange-400"
+                >
+                  <Check size={24} className="mb-2" />
+                  Прифати
+                </button>
               </div>
             </div>
           </motion.div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, CheckCircle2, Clock } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 const DAYS_OF_WEEK = [
@@ -56,6 +57,7 @@ export default function RegisterRestaurant() {
   }, {} as Record<string, { active: boolean; start: string; end: string }>);
 
   const [workingHours, setWorkingHours] = useState(initialWorkingHours);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -84,7 +86,7 @@ export default function RegisterRestaurant() {
       const res = await fetch('/api/restaurants/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, working_hours: workingHours })
+        body: JSON.stringify({ ...formData, working_hours: workingHours, turnstileToken })
       });
       
       if (res.ok) {
@@ -263,8 +265,18 @@ export default function RegisterRestaurant() {
             </div>
           </div>
 
-          <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end">
-            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-orange-600/20">
+          <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col items-end gap-4">
+            <Turnstile 
+              siteKey={(import.meta as any).env.VITE_TURNSTILE_SITE_KEY || ''} 
+              onSuccess={(token) => setTurnstileToken(token)}
+              onExpire={() => setTurnstileToken(null)}
+              onError={() => setTurnstileToken(null)}
+            />
+            <button 
+              type="submit" 
+              disabled={!turnstileToken}
+              className={`px-8 py-3 rounded-xl font-bold transition-colors shadow-lg ${!turnstileToken ? 'bg-slate-300 cursor-not-allowed text-slate-500' : 'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-600/20'}`}
+            >
               Испрати барање
             </button>
           </div>

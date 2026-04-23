@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, CheckCircle2, Clock, Store, Package, Bike } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 
 const DAYS_OF_WEEK = [
   { id: 'monday', label: 'Понеделник' },
@@ -32,6 +33,7 @@ export default function RegisterDelivery() {
   const [workingHours, setWorkingHours] = useState(initialWorkingHours);
   const [selectedRestaurants, setSelectedRestaurants] = useState<number[]>([]);
   const [deliveryMethods, setDeliveryMethods] = useState<string[]>([]);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -90,7 +92,8 @@ export default function RegisterDelivery() {
           ...formData, 
           working_hours: workingHours,
           preferred_restaurants: selectedRestaurants,
-          delivery_methods: deliveryMethods
+          delivery_methods: deliveryMethods,
+          turnstileToken
         })
       });
       
@@ -304,8 +307,18 @@ export default function RegisterDelivery() {
             </div>
           </div>
 
-          <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end">
-            <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20 flex items-center gap-2">
+          <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col items-end gap-4">
+            <Turnstile 
+              siteKey={(import.meta as any).env.VITE_TURNSTILE_SITE_KEY || ''} 
+              onSuccess={(token) => setTurnstileToken(token)}
+              onExpire={() => setTurnstileToken(null)}
+              onError={() => setTurnstileToken(null)}
+            />
+            <button 
+              type="submit" 
+              disabled={!turnstileToken}
+              className={`px-8 py-3 rounded-xl font-bold transition-colors shadow-lg flex items-center gap-2 ${!turnstileToken ? 'bg-slate-300 cursor-not-allowed text-slate-500' : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'}`}
+            >
               <Package size={20} />
               Испрати апликација
             </button>

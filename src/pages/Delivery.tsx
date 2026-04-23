@@ -1,11 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign, Users, Users2, UserPlus, ChevronRight, BarChart2, Moon, Sun } from 'lucide-react';
+import { ArrowLeft, Map, Navigation, CheckCircle2, Phone, MapPin, Package, Bike, Settings, Clock, Save, Loader2, ExternalLink, DollarSign, Users, Users2, UserPlus, ChevronRight, BarChart2, Moon, Sun, Bell } from 'lucide-react';
 import DeliveryRouteMap from '../components/DeliveryRouteMap';
 import { io } from 'socket.io-client';
 import { useTheme } from '../context/ThemeContext';
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 import { safeFetchJson } from '../utils/api';
+import { Turnstile } from '@marsidev/react-turnstile';
 
 interface Order {
   id: number;
@@ -66,6 +82,7 @@ export default function Delivery() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'orders' | 'settings' | 'team' | 'analytics' | 'earnings'>('orders');
   const [earnings, setEarnings] = useState<any[]>([]);
   const [loadingEarnings, setLoadingEarnings] = useState(false);
@@ -77,6 +94,30 @@ export default function Delivery() {
   const [loadingTeam, setLoadingTeam] = useState(false);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [creatingTest, setCreatingTest] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+
+  const subscribeToPush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const res = await fetch('/api/push/key');
+      const { publicKey } = await res.json();
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription })
+      });
+      setPushEnabled(true);
+      alert('Известувањата се успешно вклучени!');
+    } catch (e) {
+      console.error(e);
+      alert('Грешка при пријавување за известувања.');
+    }
+  };
 
   const [editHours, setEditHours] = useState<any>({});
   const [editRestaurants, setEditRestaurants] = useState<number[]>([]);
@@ -380,7 +421,7 @@ export default function Delivery() {
       const res = await fetch('/api/delivery/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials)
+        body: JSON.stringify({ ...credentials, turnstileToken })
       });
       const data = await res.json();
       if (res.ok) {
@@ -473,11 +514,19 @@ export default function Delivery() {
                 placeholder="Внесете лозинка"
               />
             </div>
+            <div className="flex justify-center my-4">
+              <Turnstile 
+                siteKey={(import.meta as any).env.VITE_TURNSTILE_SITE_KEY || ''} 
+                onSuccess={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            </div>
             {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
             <button 
               type="submit" 
-              disabled={loading}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+              disabled={loading || !turnstileToken}
+              className={`w-full font-bold py-3 rounded-xl transition-all shadow-lg disabled:opacity-50 ${loading || !turnstileToken ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'}`}
             >
               {loading ? 'Се најавува...' : 'Најави се'}
             </button>
@@ -586,6 +635,16 @@ export default function Delivery() {
             <span className={`w-2.5 h-2.5 rounded-full border-2 border-white/30 ${isWorking ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></span>
             {isWorking ? 'Активен' : 'Неактивен'}
           </div>
+          {!pushEnabled && (
+            <button 
+              onClick={subscribeToPush}
+              className="p-2 bg-amber-100 text-amber-600 rounded-lg hover:bg-amber-200 transition-colors animate-pulse flex items-center gap-2"
+              title="Вклучи пуш известувања"
+            >
+              <Bell size={20} />
+              <span className="text-[10px] font-bold uppercase hidden sm:inline">Извести ме</span>
+            </button>
+          )}
         </div>
       </header>
       

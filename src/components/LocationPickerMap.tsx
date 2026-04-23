@@ -58,8 +58,8 @@ export default function LocationPickerMap({ location, setLocation, city, allowed
     <div className="relative w-full h-96 rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700 shadow-inner z-0">
       <MapContainer center={location || center} zoom={13} style={{ height: '100%', width: '100%', zIndex: 0 }}>
         <TileLayer 
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" 
         />
         <MapEvents />
         

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Users, Building, User, Phone, CreditCard, MapPin, LogOut, Loader2, Plus, Calendar, Target, Globe, Map as MapIcon, ChevronRight, CheckCircle2, Clock, FileText, Save, X, Download } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 
 interface Campaign {
@@ -22,6 +23,7 @@ export default function Marketing() {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'campaigns'>('profile');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -132,7 +134,7 @@ export default function Marketing() {
       const res = await fetch('/api/marketing/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials)
+        body: JSON.stringify({ ...credentials, turnstileToken })
       });
       const data = await res.json();
       if (res.ok) {
@@ -188,11 +190,19 @@ export default function Marketing() {
                 placeholder="Внесете лозинка"
               />
             </div>
+            <div className="flex justify-center my-4">
+              <Turnstile 
+                siteKey={(import.meta as any).env.VITE_TURNSTILE_SITE_KEY || ''} 
+                onSuccess={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            </div>
             {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
             <button 
               type="submit" 
-              disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+              disabled={loading || !turnstileToken}
+              className={`w-full font-bold py-3 rounded-xl transition-all shadow-lg disabled:opacity-50 ${loading || !turnstileToken ? 'bg-slate-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20'}`}
             >
               {loading ? 'Се најавува...' : 'Најави се'}
             </button>
@@ -453,10 +463,11 @@ export default function Marketing() {
                       <input 
                         type="number" 
                         required
+                        step="any"
                         value={newCampaign.budget}
                         onChange={e => setNewCampaign({...newCampaign, budget: Number(e.target.value)})}
                         className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                        placeholder="100"
+                        placeholder="пр. 100 или -20 за доплата"
                       />
                     </div>
                     <div>

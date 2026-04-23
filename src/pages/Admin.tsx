@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef, ReactNode, Component, ErrorInfo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer, Sparkles, Shield } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Store, Activity, Check, X, MapPin, Clock, FileText, Percent, CheckCircle, LogIn, LogOut, Database, Download, Upload, Bike, Target, ChevronRight, ChevronDown, Bell, DollarSign, Settings, Save, Plus, Star, Eye, EyeOff, Trash2, Settings2, Award, Mail, Send, RefreshCw, Facebook, Instagram, Twitter, Linkedin, Globe, Phone as PhoneIcon, CreditCard, BarChart, Receipt, AlertTriangle, LayoutDashboard, Printer, Sparkles, Shield, Volume2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { safeFetchJson } from '../utils/api';
+import { Turnstile } from '@marsidev/react-turnstile';
 import LocationPickerMap from '../components/LocationPickerMap';
+
+const SOUND_OPTIONS = [
+  { id: 'default.mp3', name: 'Стандарден (Default)' },
+  { id: 'bell.mp3', name: 'Ѕвонче (Kitchen Bell)' },
+  { id: 'retro.mp3', name: 'Ретро (Retro Game)' },
+  { id: 'funky.mp3', name: 'Забавен (Funky)' },
+  { id: 'classic_alarm.mp3', name: 'Класичен аларм (Classic Alarm)' }
+];
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -99,6 +108,10 @@ interface PendingRestaurant {
   allow_takeaway?: number;
   takeaway_discount_type?: 'percent' | 'fixed';
   takeaway_discount_value?: number;
+  notifications_enabled?: number;
+  notification_sound?: string;
+  max_active_orders?: number;
+  average_prep_time?: number;
 }
 
 interface DeliveryPartner {
@@ -210,6 +223,7 @@ function AdminContent() {
   const [admin, setAdmin] = useState<any>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [admins, setAdmins] = useState<any[]>([]);
   const [isCreateAdminModalOpen, setIsCreateAdminModalOpen] = useState(false);
@@ -301,6 +315,8 @@ function AdminContent() {
   const [contractPercentage, setContractPercentage] = useState<number>(15);
   const [deliveryFee, setDeliveryFee] = useState<number>(0);
   const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
+  const [maxActiveOrders, setMaxActiveOrders] = useState<number>(0);
+  const [averagePrepTime, setAveragePrepTime] = useState<number>(30);
   const [seoSettings, setSeoSettings] = useState({
     title: '',
     description: '',
@@ -350,6 +366,7 @@ function AdminContent() {
   const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [restaurantImages, setRestaurantImages] = useState({ logo_url: '', cover_url: '', header_image: '' });
+  const [notificationSettings, setNotificationSettings] = useState({ enabled: true, sound: 'default.mp3' });
   const [paymentConfig, setPaymentConfig] = useState<{
     methods: string[], 
     fees: {name: string, amount: number}[],
@@ -457,7 +474,7 @@ function AdminContent() {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginForm),
+        body: JSON.stringify({ ...loginForm, turnstileToken }),
         credentials: 'include'
       });
       if (res.ok) {
@@ -833,6 +850,8 @@ function AdminContent() {
     setVatRate(rest.vat_rate || 0);
     setDeliveryFee(rest.delivery_fee || 0);
     setMinOrderAmount(rest.min_order_amount || 0);
+    setMaxActiveOrders(rest.max_active_orders || 0);
+    setAveragePrepTime(rest.average_prep_time || 30);
     setSeoSettings({
       title: rest.seo_title || '',
       description: rest.meta_description || '',
@@ -847,6 +866,10 @@ function AdminContent() {
       logo_url: rest.logo_url || '',
       cover_url: rest.cover_url || '',
       header_image: rest.header_image || ''
+    });
+    setNotificationSettings({
+      enabled: rest.notifications_enabled !== 0,
+      sound: rest.notification_sound || 'default.mp3'
     });
 
     if (rest.payment_config) {
@@ -978,6 +1001,8 @@ function AdminContent() {
         vat_rate: vatRate,
         delivery_fee: deliveryFee,
         min_order_amount: minOrderAmount,
+        max_active_orders: maxActiveOrders,
+        average_prep_time: averagePrepTime,
         seo_title: seoSettings.title,
         meta_description: seoSettings.description,
         meta_keywords: seoSettings.keywords,
@@ -988,6 +1013,8 @@ function AdminContent() {
         logo_url: restaurantImages.logo_url,
         cover_url: restaurantImages.cover_url,
         header_image: restaurantImages.header_image,
+        notifications_enabled: notificationSettings.enabled ? 1 : 0,
+        notification_sound: notificationSettings.sound,
         status: selectedRestaurant.status,
         is_active: selectedRestaurant.is_active,
         has_admin_access: selectedRestaurant.has_admin_access,
@@ -1435,10 +1462,18 @@ function AdminContent() {
                 onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
               />
             </div>
+            <div className="flex justify-center my-4">
+              <Turnstile 
+                siteKey={(import.meta as any).env.VITE_TURNSTILE_SITE_KEY || ''} 
+                onSuccess={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            </div>
             <button
               type="submit"
-              disabled={isLoggingIn}
-              className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={isLoggingIn || !turnstileToken}
+              className={`w-full py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${isLoggingIn || !turnstileToken ? 'bg-slate-300 cursor-not-allowed opacity-70' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
             >
               {isLoggingIn ? <RefreshCw className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
               Најави се
@@ -4931,6 +4966,49 @@ function AdminContent() {
               </div>
 
               {/* Takeaway Settings */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Bell className="text-blue-500" /> Известувања во реално време</h3>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-blue-300 transition-all">
+                    <input 
+                      type="checkbox" 
+                      checked={notificationSettings.enabled}
+                      onChange={(e) => setNotificationSettings({...notificationSettings, enabled: e.target.checked})}
+                      className="w-6 h-6 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="block font-bold text-slate-800">Вклучи звучни известувања</span>
+                      <span className="text-xs text-slate-500">Овозможи ресторанот да добива звук при нова нарачка</span>
+                    </div>
+                  </label>
+                  
+                  {notificationSettings.enabled && (
+                    <div className="bg-white p-4 border border-slate-200 rounded-xl">
+                      <span className="text-slate-500 text-sm block mb-2">Избери звук за кујната</span>
+                      <select 
+                        value={notificationSettings.sound}
+                        onChange={(e) => setNotificationSettings({...notificationSettings, sound: e.target.value})}
+                        className="w-full p-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {SOUND_OPTIONS.map(opt => (
+                          <option key={opt.id} value={opt.id}>{opt.name}</option>
+                        ))}
+                      </select>
+                      <button 
+                        onClick={() => {
+                          const audio = new Audio(`/sounds/${notificationSettings.sound}`);
+                          audio.play().catch(e => console.error("Test sound failed", e));
+                        }}
+                        className="mt-2 text-blue-600 text-xs flex items-center gap-1 hover:underline"
+                      >
+                        <Volume2 size={12} /> Преслушај звук
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Takeaway Settings */}
               <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6">
                 <h3 className="text-lg font-bold text-orange-900 mb-4 flex items-center gap-2"><Store className="text-orange-600" /> Опција за превземање (Takeaway)</h3>
                 <div className="space-y-6">
@@ -5238,6 +5316,28 @@ function AdminContent() {
                       placeholder="пр. 300"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-orange-900 mb-2">Капацитет (активни нар.)</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      value={maxActiveOrders} 
+                      onChange={e => setMaxActiveOrders(Number(e.target.value))}
+                      className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                      placeholder="0 = нема лимит"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-orange-900 mb-2">Подготовка (мин.)</label>
+                    <input 
+                      type="number" 
+                      min="5" 
+                      value={averagePrepTime} 
+                      onChange={e => setAveragePrepTime(Number(e.target.value))}
+                      className="w-full p-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                      placeholder="пр. 30"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -5413,10 +5513,11 @@ function AdminContent() {
                   <input 
                     type="number"
                     required
+                    step="any"
                     value={newCampaign.budget || ''}
                     onChange={e => setNewCampaign({...newCampaign, budget: e.target.value})}
                     className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="100"
+                    placeholder="пр. 100 или -20 за доплата"
                   />
                 </div>
                 <div className="space-y-2">

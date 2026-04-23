@@ -19,80 +19,6 @@ export default function RestaurantProfile() {
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch(`/api/customer/restaurant/${username}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Not found');
-        return res.json();
-      })
-      .then(data => {
-        setRestaurant(data.restaurant);
-        setBundles(data.bundles || []);
-        // Parse modifiers from JSON string
-        const parsedMenu = data.menu.map((item: any) => ({
-          ...item,
-          modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
-        }));
-        setMenu(parsedMenu);
-        
-        // Set initial active category
-        if (parsedMenu.length > 0) {
-          const firstCat = parsedMenu[0].category || 'Останато';
-          setActiveCategory(firstCat);
-        } else if (data.bundles && data.bundles.length > 0) {
-          setActiveCategory('Пакети');
-        }
-        
-        // Fetch reviews
-        fetch(`/api/restaurants/${data.restaurant.id}/reviews`)
-          .then(res => res.json())
-          .then(reviewsData => setReviews(reviewsData))
-          .catch(err => console.error('Failed to fetch reviews', err));
-
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setLoading(false);
-      });
-
-    const savedCart = localStorage.getItem('cart');
-    if (savedCart) setCart(JSON.parse(savedCart));
-  }, [username]);
-
-  const openItemModal = (item: any) => {
-    setSelectedItem(item);
-    // Initialize default selections for single choice modifiers
-    const initialModifiers: Record<string, string | string[]> = {};
-    if (item.modifiers) {
-      item.modifiers.forEach((group: any) => {
-        if (group.type === 'single' && group.options.length > 0) {
-          initialModifiers[group.name] = group.options[0].name; // Select first by default
-        } else if (group.type === 'multiple') {
-          initialModifiers[group.name] = [];
-        }
-      });
-    }
-    setSelectedModifiers(initialModifiers);
-  };
-
-  const toggleModifier = (groupName: string, optionName: string, type: 'single' | 'multiple') => {
-    setSelectedModifiers(prev => {
-      const next = { ...prev };
-      if (type === 'single') {
-        next[groupName] = optionName;
-      } else {
-        const current = (next[groupName] as string[]) || [];
-        if (current.includes(optionName)) {
-          next[groupName] = current.filter(o => o !== optionName);
-        } else {
-          next[groupName] = [...current, optionName];
-        }
-      }
-      return next;
-    });
-  };
-
   const calculateItemPrice = (item: any, modifiers: Record<string, string | string[]>) => {
     let price = item.price;
     if (!item.modifiers) return price;
@@ -110,6 +36,23 @@ export default function RestaurantProfile() {
       }
     });
     return price;
+  };
+
+  const toggleModifier = (groupName: string, optionName: string, type: 'single' | 'multiple') => {
+    setSelectedModifiers(prev => {
+      const next = { ...prev };
+      if (type === 'single') {
+        next[groupName] = optionName;
+      } else {
+        const current = (next[groupName] as string[]) || [];
+        if (current.includes(optionName)) {
+          next[groupName] = current.filter(o => o !== optionName);
+        } else {
+          next[groupName] = [...current, optionName];
+        }
+      }
+      return next;
+    });
   };
 
   const isBundleAvailable = (bundle: any) => {
@@ -147,6 +90,64 @@ export default function RestaurantProfile() {
       console.error("Error checking bundle availability", e);
       return true;
     }
+  };
+
+  useEffect(() => {
+    fetch(`/api/customer/restaurant/${username}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Not found');
+        return res.json();
+      })
+      .then(data => {
+        setRestaurant(data.restaurant);
+        setBundles(data.bundles || []);
+        // Parse modifiers from JSON string
+        const parsedMenu = data.menu.map((item: any) => ({
+          ...item,
+          modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
+        }));
+        setMenu(parsedMenu);
+        
+        // Set initial active category
+        const availableBundles = (data.bundles || []).filter(isBundleAvailable);
+        if (availableBundles.length > 0) {
+          setActiveCategory('Пакети');
+        } else if (parsedMenu.length > 0) {
+          const firstCat = parsedMenu[0].category || 'Останато';
+          setActiveCategory(firstCat);
+        }
+        
+        // Fetch reviews
+        fetch(`/api/restaurants/${data.restaurant.id}/reviews`)
+          .then(res => res.json())
+          .then(reviewsData => setReviews(reviewsData))
+          .catch(err => console.error('Failed to fetch reviews', err));
+
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setLoading(false);
+      });
+
+    const savedCart = localStorage.getItem('cart');
+    if (savedCart) setCart(JSON.parse(savedCart));
+  }, [username]);
+
+  const openItemModal = (item: any) => {
+    setSelectedItem(item);
+    // Initialize default selections for single choice modifiers
+    const initialModifiers: Record<string, string | string[]> = {};
+    if (item.modifiers) {
+      item.modifiers.forEach((group: any) => {
+        if (group.type === 'single' && group.options.length > 0) {
+          initialModifiers[group.name] = group.options[0].name; // Select first by default
+        } else if (group.type === 'multiple') {
+          initialModifiers[group.name] = [];
+        }
+      });
+    }
+    setSelectedModifiers(initialModifiers);
   };
 
   const handleAddToCart = () => {
@@ -195,7 +196,17 @@ export default function RestaurantProfile() {
   }
 
   // Group menu by category and subcategory
-  const groupedMenu = menu.reduce((acc: any, item: any) => {
+  const groupedMenu: any = {};
+
+  // Add bundles to grouped menu FIRST to ensure they appear first
+  const availableBundles = bundles.filter(isBundleAvailable);
+  if (availableBundles.length > 0) {
+    groupedMenu['Пакети'] = {
+      'Промотивни пакети': availableBundles.map(b => ({ ...b, isBundle: true }))
+    };
+  }
+
+  menu.reduce((acc: any, item: any) => {
     const category = item.category || 'Останато';
     if (!acc[category]) acc[category] = {};
     
@@ -204,15 +215,7 @@ export default function RestaurantProfile() {
     
     acc[category][subcategory].push(item);
     return acc;
-  }, {});
-
-  // Add bundles to grouped menu
-  const availableBundles = bundles.filter(isBundleAvailable);
-  if (availableBundles.length > 0) {
-    groupedMenu['Пакети'] = {
-      'Промотивни пакети': availableBundles.map(b => ({ ...b, isBundle: true }))
-    };
-  }
+  }, groupedMenu);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.finalPrice || item.price), 0);
 
@@ -232,7 +235,7 @@ export default function RestaurantProfile() {
       {/* Cover Image */}
       <div className="h-64 md:h-80 w-full relative bg-slate-800">
         {restaurant.header_image || restaurant.cover_url ? (
-          <img src={restaurant.header_image || restaurant.cover_url} alt="Cover" className="w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
+          <img src={restaurant.header_image || restaurant.cover_url} alt="Cover" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
         ) : (
           <div className="w-full h-full bg-gradient-to-r from-orange-400 to-red-500 opacity-80"></div>
         )}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star, Bike, Store, Clock } from 'lucide-react';
-import { motion } from 'motion/react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star, Bike, Store, Clock, SlidersHorizontal } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import LocationPickerMap from '../components/LocationPickerMap';
 import { useTheme } from '../context/ThemeContext';
@@ -73,6 +73,10 @@ export default function Customer() {
   const [trackCode, setTrackCode] = useState('');
   const [trackingError, setTrackingError] = useState('');
   
+  const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [showOnlyOpen, setShowOnlyOpen] = useState(false);
+  const [showFreeDelivery, setShowFreeDelivery] = useState(false);
+  
   const [groupOrderCode, setGroupOrderCode] = useState<string | null>(null);
   const [groupOrderData, setGroupOrderData] = useState<any>(null);
   const [isGroupOrderCreator, setIsGroupOrderCreator] = useState(false);
@@ -80,6 +84,7 @@ export default function Customer() {
   const [joiningGroup, setJoiningGroup] = useState(false);
   const [isStartingGroup, setIsStartingGroup] = useState(false);
   const [groupCodeInput, setGroupCodeInput] = useState('');
+  const [showFiltersModal, setShowFiltersModal] = useState(false);
 
   const [checkoutForm, setCheckoutForm] = useState({
     firstName: '',
@@ -541,11 +546,17 @@ export default function Customer() {
         body: JSON.stringify({ city: selectedCity, lat: location[0], lng: location[1] })
       });
       
-      if (!res.ok) {
-        throw new Error('Failed to fetch available restaurants');
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { error: 'Настана грешка при вчитување на податоците.' };
       }
       
-      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Настана грешка при проверка на достапноста.');
+        return;
+      }
       
       setAvailableRestaurants(data.restaurants);
       setBundles(data.bundles || []);
@@ -817,8 +828,13 @@ export default function Customer() {
           setGroupOrderData(null);
           setStep('success');
         } else {
-          const data = await res.json();
-          setError(data.error || 'Настана грешка при финализирање на групната нарачка.');
+          let data;
+          try {
+            data = await res.json();
+          } catch (e) {
+            data = { error: 'Настана грешка при финализирање на групната нарачка.' };
+          }
+          setError(data.error || data.message || 'Настана грешка при финализирање на групната нарачка.');
         }
         return;
       }
@@ -877,9 +893,14 @@ export default function Customer() {
               form.submit();
               return;
             } else {
-              const payErr = await payRes.json();
+              let payErr;
+              try {
+                payErr = await payRes.json();
+              } catch (e) {
+                payErr = { error: 'Грешка при иницијализација на плаќањето.' };
+              }
               console.error("Payten request failed:", payErr);
-              setError(payErr.error || 'Грешка при иницијализација на плаќањето.');
+              setError(payErr.error || payErr.message || 'Грешка при иницијализација на плаќањето.');
               return;
             }
           } catch (err) {
@@ -893,9 +914,14 @@ export default function Customer() {
         setCart([]);
         setStep('success');
       } else {
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch (e) {
+          data = { error: 'Настана грешка при комуникација со серверот.' };
+        }
         console.error("Order creation failed:", data);
-        setError(data.error || 'Настана грешка при процесирање на нарачката.');
+        setError(data.error || data.message || 'Настана грешка при процесирање на нарачката.');
       }
     } catch (err) {
       console.error("Checkout submit error:", err);
@@ -978,6 +1004,55 @@ export default function Customer() {
     if (!groupedItems['Пакети']) groupedItems['Пакети'] = {};
     groupedItems['Пакети']['Промотивни пакети'] = restaurantBundles.map(b => ({ ...b, isBundle: true }));
   }
+
+  const isRestaurantOpen = (rest: any) => {
+    if (!rest.working_hours) return true;
+    try {
+      const workingHours = JSON.parse(rest.working_hours);
+      const macedoniaTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"});
+      const now = new Date(macedoniaTime);
+      const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const dayName = days[now.getDay()];
+      const dayHours = workingHours[dayName];
+
+      if (!dayHours || dayHours.active === false) return false;
+
+      const openTime = dayHours.open || dayHours.start;
+      const closeTime = dayHours.close || dayHours.end;
+
+      if (openTime && closeTime) {
+        const [openH, openM] = openTime.split(':').map(Number);
+        const [closeH, closeM] = closeTime.split(':').map(Number);
+        const currentH = now.getHours();
+        const currentM = now.getMinutes();
+        const openTotal = openH * 60 + openM;
+        const closeTotal = closeH * 60 + closeM;
+        const currentTotal = currentH * 60 + currentM;
+
+        if (currentTotal < openTotal || currentTotal > closeTotal) return false;
+      }
+      return true;
+    } catch (e) {
+      return true;
+    }
+  };
+
+  const getRestaurantCategories = (restId: number) => {
+    const categories = new Set<string>();
+    menuItems.filter(item => item.restaurant_id === restId).forEach(item => {
+      if (item.category) categories.add(item.category);
+    });
+    return Array.from(categories);
+  };
+
+  const allAvailableCategories = Array.from(new Set(availableRestaurants.flatMap(r => getRestaurantCategories(r.id))));
+
+  const filteredRestaurants = availableRestaurants.filter(rest => {
+    const matchesCategory = activeFilter === 'all' || getRestaurantCategories(rest.id).includes(activeFilter);
+    const matchesOpen = !showOnlyOpen || isRestaurantOpen(rest);
+    const matchesFree = !showFreeDelivery || (rest.delivery_fee === 0);
+    return matchesCategory && matchesOpen && matchesFree;
+  });
 
   return (
     <div 
@@ -1269,89 +1344,110 @@ export default function Customer() {
               </div>
             )}
 
-            <div className="mb-4 md:mb-8">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 mb-4 md:mb-6">
-                <div className="flex items-center justify-center gap-2 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2 md:p-3 rounded-xl border border-orange-100 dark:border-slate-800 shadow-sm cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors whitespace-nowrap" onClick={() => setStep('location')}>
-                  <MapPin size={14} className="text-orange-500 md:w-[16px] md:h-[16px]" />
-                  <span className="text-[10px] md:text-sm font-medium">Локација: {selectedCity} (Промени)</span>
-                </div>
-                
-                <div className="relative flex-1 max-w-2xl mx-auto w-full">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
-                  <input 
-                    type="text" 
-                    placeholder="Пребарај пица, паста, салата..." 
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 md:py-3 bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-800 rounded-xl md:rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-slate-800 dark:text-white text-xs md:text-base transition-colors"
-                  />
+            <div className="mb-4 md:mb-8 sticky top-20 z-10 scale-95 sm:scale-100 origin-top">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-2xl md:rounded-3xl border border-orange-100 dark:border-slate-800 shadow-2xl shadow-orange-500/5 p-1.5 transition-all">
+                  <div 
+                    onClick={() => setStep('location')}
+                    className="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 rounded-xl md:rounded-2xl cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors flex-shrink-0"
+                  >
+                    <MapPin size={16} />
+                    <span className="text-[10px] md:text-sm font-bold uppercase tracking-tight">{selectedCity}</span>
+                  </div>
+                  
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={18} />
+                    <input 
+                      type="text" 
+                      placeholder="Што ви се јаде денес?" 
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 md:py-3 bg-transparent border-none focus:ring-0 text-slate-800 dark:text-white text-sm md:text-base font-medium placeholder:text-slate-400"
+                    />
+                  </div>
+                  <button 
+                    onClick={() => setShowFiltersModal(true)}
+                    className={`p-2 md:p-3 rounded-xl md:rounded-2xl transition-colors flex-shrink-0 ${showOnlyOpen || showFreeDelivery ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
+                  >
+                    <SlidersHorizontal size={18} />
+                  </button>
                 </div>
 
-                <div className="hidden md:block text-sm text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 shadow-sm px-4 py-3 rounded-xl whitespace-nowrap text-center transition-colors">
-                  Достапни ресторани: <span className="font-bold text-slate-800 dark:text-white">{availableRestaurants.length}</span>
+                {/* Categories Slider - Clean & Minimal */}
+                <div className="overflow-x-auto flex items-center gap-2 pb-1 scrollbar-hide">
+                  <button 
+                    onClick={() => setActiveFilter('all')}
+                    className={`px-4 py-2 rounded-xl text-[10px] md:text-sm font-bold whitespace-nowrap transition-all uppercase tracking-wider ${activeFilter === 'all' ? 'bg-slate-900 dark:bg-orange-500 text-white shadow-md' : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-100 dark:border-slate-800'}`}
+                  >
+                    Сите
+                  </button>
+                  {allAvailableCategories.slice(0, 12).map(cat => (
+                    <button 
+                      key={cat}
+                      onClick={() => setActiveFilter(cat)}
+                      className={`px-4 py-2 rounded-xl text-[10px] md:text-sm font-bold whitespace-nowrap transition-all uppercase tracking-wider ${activeFilter === cat ? 'bg-slate-900 dark:bg-orange-500 text-white shadow-md' : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-100 dark:border-slate-800'}`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
 
+            {/* Compact Restaurant Selector */}
             {availableRestaurants.length > 0 && (
-              <div className="mb-8 relative group">
-                <button 
-                  onClick={() => scrollSlider('left')}
-                  className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 bg-white dark:bg-slate-800 text-orange-500 p-2 rounded-full shadow-md border border-orange-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
-                >
-                  <ChevronLeft size={20} />
-                </button>
+              <div className="mb-6 px-1">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Избери ресторан</h3>
+                  <div className="text-[10px] font-bold text-orange-500 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/10 px-2 py-0.5 rounded-md">
+                    {filteredRestaurants.length} достапни
+                  </div>
+                </div>
                 
-                <div 
-                  ref={sliderRef}
-                  className="overflow-x-auto pb-2 flex gap-4 scrollbar-hide scroll-smooth"
-                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                >
-                  <button 
+                <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide">
+                  <div 
                     onClick={() => setSelectedRestaurantId(null)}
-                    className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all ${!selectedRestaurantId ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-orange-100 dark:border-slate-800 hover:bg-orange-50 dark:hover:bg-orange-900/20'}`}
+                    className={`flex-shrink-0 w-24 h-24 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all border-2 ${!selectedRestaurantId ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-slate-400'}`}
                   >
-                    Сите ресторани
-                  </button>
-                  {availableRestaurants.map(rest => (
-                    <button 
+                    <div className={`p-2 rounded-xl ${!selectedRestaurantId ? 'bg-white/20' : 'bg-slate-50 dark:bg-slate-800'}`}>
+                      <Store size={20} />
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-tighter">Сите</span>
+                  </div>
+                  
+                  {filteredRestaurants.map(rest => (
+                    <div 
                       key={rest.id}
                       onClick={() => setSelectedRestaurantId(rest.id)}
-                      className={`px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all flex items-center gap-3 ${selectedRestaurantId === rest.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-orange-100 dark:border-slate-800 hover:bg-orange-50 dark:hover:bg-orange-900/20'}`}
+                      className={`flex-shrink-0 w-32 h-24 p-3 rounded-2xl flex flex-col justify-between cursor-pointer transition-all border-2 ${selectedRestaurantId === rest.id ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}
                     >
-                      <div className="flex flex-col items-start leading-tight">
-                        <div className="flex items-center gap-2">
-                          {rest.name}
-                          {!rest.is_open && (
-                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="Затворено"></span>
-                          )}
-                          {rest.is_open && (
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" title="Отворено"></span>
-                          )}
-                          {rest.is_open && rest.delivery_delay > 0 && (
-                            <span className={`text-[10px] font-bold ${selectedRestaurantId === rest.id ? 'text-white' : 'text-red-500'}`}>
-                              +{rest.delivery_delay} мин.
-                            </span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-2 h-2 rounded-full ${rest.is_at_capacity ? 'bg-orange-400 animate-pulse' : (rest.is_open ? 'bg-emerald-400' : 'bg-red-400')}`} />
+                          {rest.is_at_capacity && (
+                            <span className={`text-[7px] font-black uppercase px-1 rounded-sm ${selectedRestaurantId === rest.id ? 'bg-white text-orange-600' : 'bg-orange-500 text-white'}`}>ЗАФАТЕНО</span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          {rest.is_open ? (
-                            <span className={`text-[10px] font-medium ${selectedRestaurantId === rest.id ? 'text-white/80' : 'opacity-70 dark:text-slate-400'}`}>
-                              {rest.active_orders} нарачки
-                            </span>
-                          ) : (
-                            <span className={`text-[10px] font-bold uppercase tracking-wider ${selectedRestaurantId === rest.id ? 'text-white/90' : 'text-red-400'}`}>
-                              Затворено
-                            </span>
-                          )}
-                        </div>
+                        {(rest.delivery_delay > 0 || rest.average_prep_time) && (
+                          <span className={`text-[9px] font-black ${selectedRestaurantId === rest.id ? 'text-white' : 'text-orange-500'}`}>
+                            ~{(rest.average_prep_time || 30) + (rest.delivery_delay || 0)} мин.
+                          </span>
+                        )}
                       </div>
-                    </button>
+                      <div className="mt-2">
+                        <p className={`text-[11px] font-black leading-none truncate ${selectedRestaurantId === rest.id ? 'text-white' : 'text-slate-800 dark:text-white'}`}>{rest.name}</p>
+                        <p className={`text-[8px] font-bold uppercase tracking-tighter mt-1 truncate ${selectedRestaurantId === rest.id ? 'text-orange-100' : 'text-slate-400'}`}>
+                          {getRestaurantCategories(rest.id).slice(0, 1).join(' ')}
+                        </p>
+                      </div>
+                    </div>
                   ))}
                 </div>
+              </div>
+            )}
 
                 {selectedRestaurantId && !groupOrderCode && (
-                  <div className="mt-4 flex justify-center">
+                  <div className="flex justify-center -mt-2 mb-4">
                     {!isStartingGroup ? (
                       <button 
                         onClick={() => {
@@ -1362,50 +1458,42 @@ export default function Customer() {
                             setIsStartingGroup(true);
                           }
                         }}
-                        className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all"
+                        className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-600/20 hover:scale-105 active:scale-95 transition-all"
                       >
-                        <Users size={20} />
+                        <Users size={14} />
                         Започни групна нарачка
                       </button>
                     ) : (
-                      <div className="flex flex-col sm:flex-row items-center gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 shadow-xl animate-in slide-in-from-bottom-2">
+                      <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-1.5 rounded-xl border border-indigo-100 dark:border-indigo-900/30 shadow-xl animate-in slide-in-from-bottom-2">
                         <input 
                           type="text"
                           placeholder="Вашето име..."
                           value={groupOrderUserName}
                           onChange={(e) => setGroupOrderUserName(e.target.value)}
-                          className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium dark:text-white"
+                          className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border-none rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-medium dark:text-white"
                           autoFocus
+                          onKeyDown={(e) => e.key === 'Enter' && startGroupOrder()}
                         />
                         <div className="flex gap-1">
                           <button 
                             onClick={() => startGroupOrder()}
                             disabled={!groupOrderUserName.trim()}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                           >
-                            Започни
+                            OK
                           </button>
                           <button 
                             onClick={() => setIsStartingGroup(false)}
-                            className="p-2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg text-[10px] font-bold transition-colors"
                           >
-                            <X size={20} />
+                            X
                           </button>
                         </div>
                       </div>
                     )}
                   </div>
                 )}
-
-                <button 
-                  onClick={() => scrollSlider('right')}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 bg-white dark:bg-slate-800 text-orange-500 p-2 rounded-full shadow-md border border-orange-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <ChevronRight size={20} />
-                </button>
-              </div>
-            )}
-
+            
             {availableRestaurants.length === 0 ? (
               <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-orange-100 dark:border-slate-800 shadow-sm transition-colors duration-300">
                 <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1568,8 +1656,10 @@ export default function Customer() {
               <>
                 <div className="space-y-4 mb-8">
                   {cart.map(item => (
-                    <div key={item.cartId} className="flex gap-4 p-4 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50 dark:bg-slate-800/50 transition-colors">
-                      <img src={item.image_url || null} alt={item.name} className="w-20 h-20 object-cover rounded-xl" referrerPolicy="no-referrer" />
+                    <div key={item.cartId} className="flex flex-col sm:flex-row gap-4 p-4 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50 dark:bg-slate-800/50 transition-colors group">
+                      <div className="w-full sm:w-24 h-48 sm:h-24 flex-shrink-0">
+                        <img src={item.image_url || null} alt={item.name} className="w-full h-full object-cover rounded-xl shadow-sm group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
+                      </div>
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
                           <h3 className="font-bold text-slate-800 dark:text-white">{item.name}</h3>
@@ -1670,7 +1760,9 @@ export default function Customer() {
                           <div className="flex-1">
                             <div className="flex justify-between items-start">
                               <span className="font-bold text-slate-800 dark:text-white">{camp.name}</span>
-                              <span className="font-bold text-orange-600 dark:text-orange-500">-{camp.budget} ден.</span>
+                              <span className="font-bold text-orange-600 dark:text-orange-500">
+                                {camp.budget > 0 ? `-${camp.budget}` : `+${Math.abs(camp.budget)}`} ден.
+                              </span>
                             </div>
                             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{camp.description}</p>
                           </div>
@@ -1710,7 +1802,9 @@ export default function Customer() {
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
-                      <span className="font-bold">-{selectedCampaign.budget} ден.</span>
+                      <span className="font-bold">
+                        {selectedCampaign.budget > 0 ? `-${selectedCampaign.budget}` : `+${Math.abs(selectedCampaign.budget)}`} ден.
+                      </span>
                     </div>
                   )}
                   <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -2110,7 +2204,9 @@ export default function Customer() {
                   {selectedCampaign && selectedCampaign.is_visible !== 0 && selectedCampaign.is_visible !== false && (
                     <div className="flex justify-between items-center mb-4 text-orange-600 dark:text-orange-400">
                       <span>{selectedCampaign.name}:</span>
-                      <span className="font-bold">-{selectedCampaign.budget} ден.</span>
+                      <span className="font-bold">
+                        {selectedCampaign.budget > 0 ? `-${selectedCampaign.budget}` : `+${Math.abs(selectedCampaign.budget)}`} ден.
+                      </span>
                     </div>
                   )}
                   <div className="flex justify-between items-center mb-6 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -2275,6 +2371,89 @@ export default function Customer() {
           </Link>
         </div>
       </footer>
+
+      {/* Modern Filters Modal */}
+      <AnimatePresence>
+        {showFiltersModal && (
+          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-[2.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[85vh]"
+            >
+              <div className="p-6 md:p-8 overflow-y-auto">
+                <div className="flex items-center justify-between mb-8">
+                  <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Филтри</h3>
+                  <button onClick={() => setShowFiltersModal(false)} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-full text-slate-400">
+                    <ArrowLeft size={20} className="rotate-90 sm:rotate-0" />
+                  </button>
+                </div>
+
+                <div className="space-y-8">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Статус на ресторан</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => setShowOnlyOpen(!showOnlyOpen)}
+                        className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${showOnlyOpen ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500'}`}
+                      >
+                        <div className={`w-3 h-3 rounded-full ${showOnlyOpen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                        <span className="text-xs font-black uppercase tracking-widest">Отворено сега</span>
+                      </button>
+                      <button 
+                        onClick={() => setShowFreeDelivery(!showFreeDelivery)}
+                        className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${showFreeDelivery ? 'bg-orange-50 border-orange-500 text-orange-700' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500'}`}
+                      >
+                        <DollarSign size={20} className={showFreeDelivery ? 'text-orange-500' : 'text-slate-300'} />
+                        <span className="text-xs font-black uppercase tracking-widest">Бесплатна достава</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Брзи категории</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {allAvailableCategories.map(cat => (
+                        <button 
+                          key={cat}
+                          onClick={() => {
+                            setActiveFilter(cat);
+                            setShowFiltersModal(false);
+                          }}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${activeFilter === cat ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-transparent'}`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-10">
+                  <button 
+                    onClick={() => setShowFiltersModal(false)}
+                    className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-orange-500/30"
+                  >
+                    Примени филтри
+                  </button>
+                  <button 
+                    onClick={() => {
+                        setShowOnlyOpen(false);
+                        setShowFreeDelivery(false);
+                        setActiveFilter('all');
+                    }}
+                    className="w-full mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-orange-500 transition-colors"
+                  >
+                    Ресетирај сè
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       </div>
 
       {/* Item Customization Modal */}

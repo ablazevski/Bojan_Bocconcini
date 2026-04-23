@@ -15,6 +15,8 @@ import nodemailer from "nodemailer";
 import handlebars from "handlebars";
 import webpush from "web-push";
 import bcrypt from "bcryptjs";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 console.log("[SERVER] server.ts is being executed at top level");
 
@@ -30,6 +32,26 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const db = new Database('pizza.db');
 
+async function verifyTurnstile(token: string) {
+  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  if (!secretKey) {
+    console.warn('[TURNSTILE] No secret key configured, skipping verification');
+    return true;
+  }
+  if (!token) return false;
+
+  try {
+    const response = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      secret: secretKey,
+      response: token
+    });
+    return response.data.success;
+  } catch (err) {
+    console.error('[TURNSTILE] Verification error:', err);
+    return false;
+  }
+}
+
 // Create tables first
 db.exec(`
   CREATE TABLE IF NOT EXISTS global_settings (
@@ -40,6 +62,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS push_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
+    user_type TEXT DEFAULT 'customer',
     subscription TEXT UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -218,12 +241,23 @@ db.exec(`
       seo_title TEXT,
       meta_description TEXT,
       meta_keywords TEXT,
-      schema_json TEXT
+      schema_json TEXT,
+      notification_sound TEXT DEFAULT 'default.mp3',
+      notifications_enabled INTEGER DEFAULT 1,
+      max_active_orders INTEGER DEFAULT 0,
+      average_prep_time INTEGER DEFAULT 30
     );
   `);
 
+  fs.appendFileSync('server_error.log', `[${new Date().toISOString()}] BEFORE ALTER TABLES\n`);
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN edb TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN notification_sound TEXT DEFAULT 'default.mp3'");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE push_subscriptions ADD COLUMN user_type TEXT DEFAULT 'customer'");
   } catch (e) {}
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN is_active INTEGER DEFAULT 1");
@@ -277,6 +311,16 @@ db.exec(`
   } catch (e) {}
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN min_order_amount REAL DEFAULT 0");
+  } catch (e) {}
+
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN notifications_enabled INTEGER DEFAULT 1");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN max_active_orders INTEGER DEFAULT 0");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE restaurants ADD COLUMN average_prep_time INTEGER DEFAULT 30");
   } catch (e) {}
 
   db.exec(`
@@ -635,22 +679,29 @@ webpush.setVapidDetails(
   vapidKeys.privateKey
 );
 
-async function sendPushNotification(userId: number | null, payload: any, orderId?: number) {
-  let subscriptions;
-  if (userId) {
-    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ?').all(userId);
-  } else if (orderId) {
+async function sendPushNotification(targetId: number | null, payload: any, options?: { orderId?: number, type?: string }) {
+  let subscriptions: any[] = [];
+  
+  if (options?.type === 'restaurant' && targetId) {
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ? AND user_type = "restaurant"').all(targetId);
+  } else if (options?.type === 'delivery') {
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_type = "delivery"').all();
+  } else if (options?.type === 'admin') {
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_type = "admin"').all();
+  } else if (targetId) {
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ? AND user_type = "customer"').all(targetId);
+  } else if (options?.orderId) {
     // If no userId, try to find subscriptions associated with the email in the order
-    const order = db.prepare('SELECT customer_email FROM orders WHERE id = ?').get(orderId) as any;
+    const order = db.prepare('SELECT customer_email FROM orders WHERE id = ?').get(options.orderId) as any;
     if (order?.customer_email) {
       const user = db.prepare('SELECT id FROM users WHERE email = ?').get(order.customer_email) as any;
       if (user) {
-        subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ?').all(user.id);
+        subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ? AND user_type = "customer"').all(user.id);
       }
     }
   }
 
-  if (!subscriptions) return;
+  if (!subscriptions || subscriptions.length === 0) return;
 
   for (const sub of subscriptions as any[]) {
     try {
@@ -886,9 +937,8 @@ if (restCount.count === 0) {
   async function startServer() {
     console.log("[SERVER] Starting server initialization...");
     const app = express();
-    app.set('trust proxy', true);
-    const PORT = 3000;
-    
+    app.set('trust proxy', 1);
+
     app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -899,6 +949,46 @@ if (restCount.count === 0) {
       next();
     });
 
+    // Security headers
+    app.use(helmet({
+      contentSecurityPolicy: false, // Disabled to avoid issues with inline scripts/styles in this environment
+      crossOriginEmbedderPolicy: false
+    }));
+
+    // Rate limiting (Disabled generic limiter for dev)
+    /*
+    const generalLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000, 
+      max: 1000, 
+      message: { error: "Премногу барања од оваа IP адреса, ве молиме обидете се подоцна." }
+    });
+    app.use(generalLimiter);
+    */
+
+    const authLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 100, // Limit each IP to 100 auth requests per 15 minutes (increased from 20)
+      message: { error: "Премногу обиди за најава, ве молиме обидете се по 15 минути." }
+    });
+    app.use("/api/auth/", authLimiter);
+    app.use("/api/admin/login", authLimiter);
+    app.use("/api/restaurant/login", authLimiter);
+    app.use("/api/delivery/login", authLimiter);
+    app.use("/api/marketing/login", authLimiter);
+
+    const orderLimiter = rateLimit({
+      windowMs: 10 * 60 * 1000,
+      max: 100, // Limit each IP to 100 orders per 10 minutes (increased from 5)
+      message: { error: "Премногу нарачки за кратко време, ве молиме обидете се подоцна." }
+    });
+    app.use("/api/orders", orderLimiter);
+
+    app.get("/api/health", (req, res) => {
+      res.json({ status: "ok", time: new Date().toISOString() });
+    });
+
+    const PORT = 3000;
+    
     app.use((req, res, next) => {
       console.log(`[REQUEST] ${req.method} ${req.path}`);
       next();
@@ -1308,7 +1398,8 @@ app.post("/api/group-orders/:code/finalize", (req, res) => {
 
 app.get("/api/orders/track/:token", (req, res) => {
       const order = db.prepare(`
-        SELECT o.*, r.name as restaurant_name, r.phone as restaurant_phone, r.address as restaurant_address, r.lat as restaurant_lat, r.lng as restaurant_lng
+        SELECT o.*, r.name as restaurant_name, r.phone as restaurant_phone, r.address as restaurant_address, 
+               r.lat as restaurant_lat, r.lng as restaurant_lng, r.average_prep_time
         FROM orders o
         JOIN restaurants r ON o.restaurant_id = r.id
         WHERE o.tracking_token = ?
@@ -1340,8 +1431,8 @@ app.get("/api/orders/track/:token", (req, res) => {
           order.eta_minutes = Math.max(20, order.eta_minutes);
         }
       } else if (order.status === 'accepted' || order.status === 'preparing') {
-        // Assume 30 mins preparation time initially
-        order.eta_minutes = 30;
+        // Use restaurant's average prep time if available, otherwise 30
+        order.eta_minutes = order.average_prep_time || 30;
       }
       
       res.json(order);
@@ -1441,13 +1532,32 @@ app.get("/api/orders/track/:token", (req, res) => {
     // Email Management Routes
     app.post('/api/push/subscribe', (req, res) => {
       const { subscription } = req.body;
-      const user = (req.session as any).user;
-      
-      if (!user) return res.status(401).json({ error: 'Unauthorized' });
+      const sessionUser = (req.session as any).user;
+      const sessionRest = (req.session as any).restaurant;
+      const sessionDelivery = (req.session as any).delivery_partner;
+
+      let targetId = null;
+      let targetType = 'customer';
+
+      if (sessionUser) {
+        targetId = sessionUser.id;
+        targetType = 'customer';
+      } else if (sessionRest) {
+        targetId = sessionRest.id;
+        targetType = 'restaurant';
+      } else if (sessionDelivery) {
+        targetId = sessionDelivery.id;
+        targetType = 'delivery';
+      } else if (req.body.admin) {
+        targetId = 1;
+        targetType = 'admin';
+      }
+
+      if (!targetId && targetType !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
 
       try {
-        db.prepare('INSERT OR REPLACE INTO push_subscriptions (user_id, subscription) VALUES (?, ?)')
-          .run(user.id, JSON.stringify(subscription));
+        db.prepare('INSERT OR REPLACE INTO push_subscriptions (user_id, user_type, subscription) VALUES (?, ?, ?)')
+          .run(targetId, targetType, JSON.stringify(subscription));
         res.json({ success: true });
       } catch (error) {
         res.status(500).json({ error: 'Failed to subscribe' });
@@ -1581,8 +1691,14 @@ app.get("/api/orders/track/:token", (req, res) => {
       res.json(logs);
     });
 
-    app.post('/api/admin/login', (req, res) => {
-      const { username, password } = req.body;
+    app.post('/api/admin/login', async (req, res) => {
+      const { username, password, turnstileToken } = req.body;
+
+      const isHuman = await verifyTurnstile(turnstileToken);
+      if (!isHuman) {
+        return res.status(403).json({ success: false, message: "Ве молиме потвдете дека не сте робот." });
+      }
+
       const admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(username) as any;
       
       if (admin && bcrypt.compareSync(password, admin.password)) {
@@ -2533,8 +2649,14 @@ app.get("/api/orders/track/:token", (req, res) => {
     });
   
     // --- RESTAURANT REGISTRATION & ADMIN ---
-  app.post("/api/restaurants/register", (req, res) => {
-    const { name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours } = req.body;
+  app.post("/api/restaurants/register", async (req, res) => {
+    const { name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours, turnstileToken } = req.body;
+    
+    const isHuman = await verifyTurnstile(turnstileToken);
+    if (!isHuman) {
+      return res.status(403).json({ success: false, message: "Ве молиме потврдете дека не сте робот." });
+    }
+
     const insert = db.prepare(`
       INSERT INTO restaurants (name, city, address, email, phone, bank_account, logo_url, cover_url, has_own_delivery, delivery_zones, spare_1, spare_2, spare_3, spare_4, working_hours, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
@@ -2629,7 +2751,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       username, password, payment_config, logo_url, cover_url, header_image,
       is_active, has_admin_access,
       seo_title, meta_description, meta_keywords, schema_json,
-      allow_takeaway, takeaway_discount_type, takeaway_discount_value
+      allow_takeaway, takeaway_discount_type, takeaway_discount_value,
+      notifications_enabled, notification_sound, max_active_orders, average_prep_time
     } = req.body;
     
     db.prepare(`
@@ -2641,7 +2764,9 @@ app.get("/api/orders/track/:token", (req, res) => {
         logo_url = ?, cover_url = ?, header_image = ?,
         is_active = ?, has_admin_access = ?,
         seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?,
-        allow_takeaway = ?, takeaway_discount_type = ?, takeaway_discount_value = ?
+        allow_takeaway = ?, takeaway_discount_type = ?, takeaway_discount_value = ?,
+        notifications_enabled = ?, notification_sound = ?, max_active_orders = ?,
+        average_prep_time = ?
       WHERE id = ?
     `).run(
       name,
@@ -2672,6 +2797,10 @@ app.get("/api/orders/track/:token", (req, res) => {
       allow_takeaway || 0,
       takeaway_discount_type || 'percent',
       takeaway_discount_value || 0,
+      notifications_enabled ?? 1,
+      notification_sound || 'default.mp3',
+      max_active_orders || 0,
+      average_prep_time || 30,
       id
     );
     
@@ -2687,7 +2816,8 @@ app.get("/api/orders/track/:token", (req, res) => {
       username, password, payment_config, logo_url, cover_url, header_image, status,
       is_active, has_admin_access,
       seo_title, meta_description, meta_keywords, schema_json,
-      allow_takeaway, takeaway_discount_type, takeaway_discount_value
+      allow_takeaway, takeaway_discount_type, takeaway_discount_value,
+      notifications_enabled, notification_sound, max_active_orders, average_prep_time
     } = req.body;
     
     db.prepare(`
@@ -2697,7 +2827,9 @@ app.get("/api/orders/track/:token", (req, res) => {
         delivery_fee = ?, min_order_amount = ?, payment_config = ?, logo_url = ?, cover_url = ?, 
         header_image = ?, status = ?, is_active = ?, has_admin_access = ?,
         seo_title = ?, meta_description = ?, meta_keywords = ?, schema_json = ?,
-        allow_takeaway = ?, takeaway_discount_type = ?, takeaway_discount_value = ?
+        allow_takeaway = ?, takeaway_discount_type = ?, takeaway_discount_value = ?,
+        notifications_enabled = ?, notification_sound = ?, max_active_orders = ?,
+        average_prep_time = ?
       WHERE id = ?
     `).run(
       name,
@@ -2729,6 +2861,10 @@ app.get("/api/orders/track/:token", (req, res) => {
       allow_takeaway || 0,
       takeaway_discount_type || 'percent',
       takeaway_discount_value || 0,
+      notifications_enabled ?? 1,
+      notification_sound || 'default.mp3',
+      max_active_orders || 0,
+      average_prep_time || 30,
       id
     );
     
@@ -2940,8 +3076,14 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   // --- DELIVERY PARTNER REGISTRATION & ADMIN ---
-  app.post("/api/delivery/register", (req, res) => {
-    const { name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods } = req.body;
+  app.post("/api/delivery/register", async (req, res) => {
+    const { name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods, turnstileToken } = req.body;
+
+    const isHuman = await verifyTurnstile(turnstileToken);
+    if (!isHuman) {
+      return res.status(403).json({ success: false, message: "Ве молиме потврдете дека не сте робот." });
+    }
+
     const insert = db.prepare(`
       INSERT INTO delivery_partners (name, city, address, email, phone, bank_account, working_hours, preferred_restaurants, delivery_methods, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
@@ -3026,8 +3168,14 @@ app.get("/api/orders/track/:token", (req, res) => {
     res.json({ success: true });
   });
 
-  app.post("/api/delivery/login", (req, res) => {
-    const { username, password } = req.body;
+  app.post("/api/delivery/login", async (req, res) => {
+    const { username, password, turnstileToken } = req.body;
+
+    const isHuman = await verifyTurnstile(turnstileToken);
+    if (!isHuman) {
+      return res.status(403).json({ success: false, message: "Ве молиме потврдете дека не сте робот." });
+    }
+
     const partner = db.prepare("SELECT * FROM delivery_partners WHERE username = ? AND password = ? AND status = 'approved'").get(username, password);
     if (partner) {
       res.json({ success: true, partner });
@@ -3102,8 +3250,14 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   // --- RESTAURANT LOGIN & SETTINGS ---
-  app.post("/api/restaurants/login", (req, res) => {
-    const { username, password } = req.body;
+  app.post("/api/restaurants/login", async (req, res) => {
+    const { username, password, turnstileToken } = req.body;
+    
+    const isHuman = await verifyTurnstile(turnstileToken);
+    if (!isHuman) {
+      return res.status(403).json({ success: false, message: "Ве молиме потврдете дека не сте робот." });
+    }
+
     const restaurant = db.prepare("SELECT * FROM restaurants WHERE username = ? AND password = ? AND status = 'approved' AND has_admin_access = 1").get(username, password) as any;
     if (restaurant) {
       restaurant.id = Number(restaurant.id);
@@ -3135,10 +3289,33 @@ app.get("/api/orders/track/:token", (req, res) => {
   });
 
   app.put("/api/restaurants/:id/settings", (req, res) => {
-    const { name, password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, delivery_fee, min_order_amount, lat, lng } = req.body;
+    const { 
+      name, password, phone, bank_account, logo_url, cover_url, header_image, 
+      city, address, spare_1, spare_2, spare_3, spare_4, working_hours, 
+      delivery_fee, min_order_amount, lat, lng,
+      max_active_orders, average_prep_time, notifications_enabled, notification_sound
+    } = req.body;
+
     console.log(`Updating settings for restaurant ${req.params.id}: name=${name}, delivery_fee=${delivery_fee}, min_order_amount=${min_order_amount}`);
-    db.prepare("UPDATE restaurants SET name = ?, password = ?, phone = ?, bank_account = ?, logo_url = ?, cover_url = ?, header_image = ?, city = ?, address = ?, spare_1 = ?, spare_2 = ?, spare_3 = ?, spare_4 = ?, working_hours = ?, delivery_fee = ?, min_order_amount = ?, lat = ?, lng = ? WHERE id = ?")
-      .run(name, password, phone, bank_account, logo_url, cover_url, header_image, city, address, spare_1, spare_2, spare_3, spare_4, working_hours, delivery_fee || 0, min_order_amount || 0, lat || null, lng || null, req.params.id);
+    
+    db.prepare(`
+      UPDATE restaurants SET 
+        name = ?, password = ?, phone = ?, bank_account = ?, logo_url = ?, 
+        cover_url = ?, header_image = ?, city = ?, address = ?, spare_1 = ?, 
+        spare_2 = ?, spare_3 = ?, spare_4 = ?, working_hours = ?, 
+        delivery_fee = ?, min_order_amount = ?, lat = ?, lng = ?,
+        max_active_orders = ?, average_prep_time = ?, 
+        notifications_enabled = ?, notification_sound = ?
+      WHERE id = ?
+    `).run(
+      name, password, phone, bank_account, logo_url, 
+      cover_url, header_image, city, address, spare_1, 
+      spare_2, spare_3, spare_4, working_hours, 
+      delivery_fee || 0, min_order_amount || 0, lat || null, lng || null,
+      max_active_orders || 0, average_prep_time || 30,
+      notifications_enabled ?? 1, notification_sound || 'default.mp3',
+      req.params.id
+    );
     res.json({ success: true });
   });
 
@@ -3153,7 +3330,11 @@ app.get("/api/orders/track/:token", (req, res) => {
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
-    const menu = db.prepare("SELECT * FROM menu_items WHERE restaurant_id = ? AND is_available = 1 ORDER BY category, subcategory, name").all(restaurant.id);
+    const menu = db.prepare("SELECT * FROM menu_items WHERE restaurant_id = ? AND is_available = 1 ORDER BY category, subcategory, name").all(restaurant.id) as any[];
+    const parsedMenu = menu.map(item => ({
+      ...item,
+      modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : (item.modifiers || [])
+    }));
     
     const bundles = db.prepare("SELECT * FROM bundles WHERE restaurant_id = ? AND status = 'approved'").all(restaurant.id) as any[];
     for (const b of bundles) {
@@ -3163,9 +3344,16 @@ app.get("/api/orders/track/:token", (req, res) => {
         JOIN menu_items mi ON bi.menu_item_id = mi.id 
         WHERE bi.bundle_id = ?
       `).all(b.id);
+      for (const item of b.items) {
+        try {
+          item.modifiers = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : (item.modifiers || []);
+        } catch (e) {
+          item.modifiers = [];
+        }
+      }
     }
     
-    res.json({ restaurant, menu, bundles });
+    res.json({ restaurant, menu: parsedMenu, bundles });
   });
 
   app.get("/api/customer/restaurant-by-id/:id", (req, res) => {
@@ -3173,7 +3361,11 @@ app.get("/api/orders/track/:token", (req, res) => {
     if (!restaurant) {
       return res.status(404).json({ error: "Ресторанот не е пронајден" });
     }
-    const menu = db.prepare("SELECT * FROM menu_items WHERE restaurant_id = ? AND is_available = 1 ORDER BY category, subcategory, name").all(restaurant.id);
+    const menu = db.prepare("SELECT * FROM menu_items WHERE restaurant_id = ? AND is_available = 1 ORDER BY category, subcategory, name").all(restaurant.id) as any[];
+    const parsedMenu = menu.map(item => ({
+      ...item,
+      modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : (item.modifiers || [])
+    }));
     
     const bundles = db.prepare("SELECT * FROM bundles WHERE restaurant_id = ? AND status = 'approved'").all(restaurant.id) as any[];
     for (const b of bundles) {
@@ -3183,9 +3375,16 @@ app.get("/api/orders/track/:token", (req, res) => {
         JOIN menu_items mi ON bi.menu_item_id = mi.id 
         WHERE bi.bundle_id = ?
       `).all(b.id);
+      for (const item of b.items) {
+        try {
+          item.modifiers = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : (item.modifiers || []);
+        } catch (e) {
+          item.modifiers = [];
+        }
+      }
     }
     
-    res.json({ restaurant, menu, bundles });
+    res.json({ restaurant, menu: parsedMenu, bundles });
   });
 
   app.post("/api/customer/available", (req, res) => {
@@ -3233,6 +3432,10 @@ app.get("/api/orders/track/:token", (req, res) => {
     const restaurantIds = availableRestaurants.map(r => r.id);
     const placeholders = restaurantIds.map(() => '?').join(',');
     const items = db.prepare(`SELECT * FROM menu_items WHERE restaurant_id IN (${placeholders}) AND is_available = 1`).all(...restaurantIds) as any[];
+    const parsedItems = items.map(item => ({
+      ...item,
+      modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : (item.modifiers || [])
+    }));
     
     const bundles = db.prepare(`SELECT * FROM bundles WHERE restaurant_id IN (${placeholders}) AND status = 'approved'`).all(...restaurantIds) as any[];
     for (const b of bundles) {
@@ -3242,6 +3445,13 @@ app.get("/api/orders/track/:token", (req, res) => {
         JOIN menu_items mi ON bi.menu_item_id = mi.id 
         WHERE bi.bundle_id = ?
       `).all(b.id);
+      for (const item of b.items) {
+        try {
+          item.modifiers = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : (item.modifiers || []);
+        } catch (e) {
+          item.modifiers = [];
+        }
+      }
     }
     
     res.json({ 
@@ -3289,6 +3499,9 @@ app.get("/api/orders/track/:token", (req, res) => {
         // Add 5 minutes for every 4 active orders
         const deliveryDelay = Math.floor(activeOrders.count / 4) * 5;
 
+        // Check if at capacity
+        const isAtCapacity = r.max_active_orders > 0 && activeOrders.count >= r.max_active_orders;
+
         return { 
           id: r.id, 
           name: r.name, 
@@ -3298,15 +3511,18 @@ app.get("/api/orders/track/:token", (req, res) => {
           payment_config: r.payment_config,
           active_orders: activeOrders.count,
           is_open: isOpen,
+          is_at_capacity: isAtCapacity,
+          max_active_orders: r.max_active_orders,
           delivery_delay: deliveryDelay,
           allow_takeaway: r.allow_takeaway,
           takeaway_discount_type: r.takeaway_discount_type,
           takeaway_discount_value: r.takeaway_discount_value,
           delivery_fee: r.delivery_fee,
-          min_order_amount: r.min_order_amount
+          min_order_amount: r.min_order_amount,
+          average_prep_time: r.average_prep_time
         };
       }), 
-      items: items,
+      items: parsedItems,
       bundles: bundles
     });
   });
@@ -3364,7 +3580,7 @@ app.get("/api/orders/track/:token", (req, res) => {
 
     for (const [restaurantId, restItems] of Object.entries(itemsByRestaurant)) {
       // Check if restaurant is open
-      const restaurant = db.prepare("SELECT id, working_hours, name, payment_config, delivery_fee, min_order_amount, email FROM restaurants WHERE id = ?").get(restaurantId) as any;
+      const restaurant = db.prepare("SELECT id, working_hours, name, payment_config, delivery_fee, min_order_amount, email, max_active_orders FROM restaurants WHERE id = ?").get(restaurantId) as any;
       if (restaurant && restaurant.working_hours) {
         try {
           const workingHours = JSON.parse(restaurant.working_hours);
@@ -3401,6 +3617,19 @@ app.get("/api/orders/track/:token", (req, res) => {
           }
         } catch (e) {
           console.error("Error checking working hours:", e);
+        }
+      }
+
+      // Check for max active orders capacity
+      if (restaurant.max_active_orders > 0) {
+        const activeOrdersRow = db.prepare(`
+          SELECT COUNT(*) as count 
+          FROM orders 
+          WHERE restaurant_id = ? AND status IN ('accepted', 'preparing')
+        `).get(restaurantId) as { count: number };
+        
+        if (activeOrdersRow && activeOrdersRow.count >= restaurant.max_active_orders) {
+          return res.status(400).json({ error: `Ресторанот "${restaurant.name}" во моментов е презафатен (максимален капацитет). Ве молиме обидете се малку подоцна.` });
         }
       }
 
@@ -3485,7 +3714,7 @@ app.get("/api/orders/track/:token", (req, res) => {
       totalPrice += finalDeliveryFee;
 
       const trackingToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      const pickupCode = order_type === 'takeaway' ? Math.random().toString(36).substring(2, 8).toUpperCase() : null;
+      const pickupCode = order_type === 'takeaway' ? Math.floor(1000 + Math.random() * 9000).toString() : null;
 
       const info = insert.run(
         restaurantId, 
@@ -3536,8 +3765,22 @@ app.get("/api/orders/track/:token", (req, res) => {
 
       // Notify restaurant
       io.to(`restaurant_${restaurantId}`).emit("new_order", { id: info.lastInsertRowid });
+      sendPushNotification(Number(restaurantId), {
+        title: "Нова нарачка!",
+        body: `Пристигна нова нарачка #${info.lastInsertRowid} од ${customer_name} (${totalPrice} ден.)`,
+        icon: "/favicon.ico",
+        url: "/restaurant"
+      }, { type: 'restaurant' });
+
       // Notify delivery partners
       io.to("delivery_partners").emit("new_available_order");
+      sendPushNotification(null, {
+        title: "Нова достапна нарачка!",
+        body: `Има нова нарачка која чека доставувач кај ${restaurant.name}.`,
+        icon: "/logo.png",
+        url: "/delivery"
+      }, { type: 'delivery' });
+
       // Notify admin
       io.to("admin_room").emit("new_order", { id: info.lastInsertRowid, restaurantId });
     }
@@ -3888,7 +4131,7 @@ app.get("/api/orders/track/:token", (req, res) => {
       title: 'Нарачката е на чекање',
       body: `Вашата нарачка #${orderId} ќе влезе во подготовка за ${delayMinutes} минути.`,
       url: `/track/${order.tracking_token}`
-    }, Number(orderId)).catch(console.error);
+    }, { orderId: Number(orderId) }).catch(console.error);
 
     res.json({ success: true, targetTime });
   });
@@ -3931,7 +4174,7 @@ app.get("/api/orders/track/:token", (req, res) => {
           title: order.order_type === 'takeaway' ? 'Нарачката е подготвена за подигнување!' : 'Нарачката е подготвена!',
           body: order.order_type === 'takeaway' ? `Вашата нарачка #${orderId} е подготвена за преземање во ${order.restaurant_name || 'ресторанот'}.` : `Вашата нарачка #${orderId} е подготвена за достава.`,
           url: `/track/${order.tracking_token}`
-        }, Number(orderId)).catch(console.error);
+        }, { orderId: Number(orderId) }).catch(console.error);
       }
       return res.json({ success: true });
     }
@@ -3966,7 +4209,7 @@ app.get("/api/orders/track/:token", (req, res) => {
         title: 'Нарачката е прифатена!',
         body: `Вашата нарачка #${orderId} е прифатена од ресторанот.`,
         url: `/track/${order.tracking_token}`
-      }, Number(orderId)).catch(console.error);
+      }, { orderId: Number(orderId) }).catch(console.error);
 
       // Notify delivery partners
       io.to("delivery_partners").emit("new_available_order");
@@ -4008,7 +4251,7 @@ app.get("/api/orders/track/:token", (req, res) => {
           title: status === 'delivering' ? 'Нарачката е на пат!' : 'Нарачката е доставена!',
           body: `Вашата нарачка #${orderId} ${statusText}.`,
           url: `/track/${order.tracking_token}`
-        }, Number(orderId)).catch(console.error);
+        }, { orderId: Number(orderId) }).catch(console.error);
 
         // Send email notification
         if (order.customer_email) {
@@ -4287,7 +4530,7 @@ app.get("/api/orders/track/:token", (req, res) => {
           title: 'Нарачката е на пат!',
           body: `Вашата нарачка #${orderId} е преземена од доставувачот и е на пат кон вас.`,
           url: `/track/${order.tracking_token}`
-        }, Number(orderId)).catch(console.error);
+        }, { orderId: Number(orderId) }).catch(console.error);
       } else {
         // Just notify that a driver was assigned (optional, but good for restaurant UI)
         io.to(`order_${order.tracking_token}`).emit("driver_assigned", { partnerName });
@@ -4419,8 +4662,14 @@ app.get("/api/orders/track/:token", (req, res) => {
     }
   });
 
-  app.post("/api/marketing/login", (req, res) => {
-    const { username, password } = req.body;
+  app.post("/api/marketing/login", async (req, res) => {
+    const { username, password, turnstileToken } = req.body;
+
+    const isHuman = await verifyTurnstile(turnstileToken);
+    if (!isHuman) {
+      return res.status(403).json({ success: false, message: "Ве молиме потврдете дека не сте робот." });
+    }
+
     const associate = db.prepare("SELECT * FROM marketing_associates WHERE username = ? AND password = ?").get(username, password) as any;
     if (associate) {
       res.json({ success: true, associate });
@@ -4919,6 +5168,28 @@ app.get("/api/orders/track/:token", (req, res) => {
       }
     }, 10 * 60000); // Every 10 minutes
   });
+}
+
+// Seed initial restaurant
+try {
+  const restaurantCount = db.prepare('SELECT COUNT(*) as count FROM restaurants').get() as any;
+  if (!restaurantCount || restaurantCount.count === 0) {
+    db.prepare(`
+      INSERT INTO restaurants (name, city, address, phone, has_own_delivery, status, is_active, working_hours)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('Тест Пицерија', 'Скопје', 'Улица 123', '070123456', 1, 'approved', 1, JSON.stringify({
+      "0": { "open": "08:00", "close": "23:00", "active": true },
+      "1": { "open": "08:00", "close": "23:00", "active": true },
+      "2": { "open": "08:00", "close": "23:00", "active": true },
+      "3": { "open": "08:00", "close": "23:00", "active": true },
+      "4": { "open": "08:00", "close": "23:00", "active": true },
+      "5": { "open": "08:00", "close": "23:00", "active": true },
+      "6": { "open": "08:00", "close": "23:00", "active": true }
+    }));
+    console.log("[SERVER] Seeded test restaurant");
+  }
+} catch (e) {
+  console.error("[SERVER] Failed to seed restaurant", e);
 }
 
 startServer().catch(err => {
