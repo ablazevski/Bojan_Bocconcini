@@ -1,3 +1,4 @@
+import { RestaurantCard } from '../components/RestaurantCard';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star, Bike, Store, Clock, SlidersHorizontal } from 'lucide-react';
@@ -59,6 +60,43 @@ export default function Customer() {
   const [orderType, setOrderType] = useState<'delivery' | 'takeaway'>('delivery');
   const [pickupTime, setPickupTime] = useState({ hour: '12', minute: '00' });
   const [deliveryFee, setDeliveryFee] = useState<number>(0);
+  
+  const validateAndSnapPickupTime = (h: string, m: string) => {
+    const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"}));
+    const minAllowedTime = new Date(now.getTime() + 30 * 60000);
+    
+    const selectedTime = new Date();
+    selectedTime.setHours(Number(h));
+    selectedTime.setMinutes(Number(m));
+    selectedTime.setSeconds(0);
+    selectedTime.setMilliseconds(0);
+    
+    if (selectedTime < minAllowedTime) {
+      // Snap to valid time
+      const snappedMinutes = Math.ceil(minAllowedTime.getMinutes() / 15) * 15;
+      let newHour = minAllowedTime.getHours();
+      let newMinute = snappedMinutes;
+      
+      if (newMinute >= 60) {
+        newMinute = 0;
+        newHour = (newHour + 1) % 24;
+      }
+      
+      return { 
+        hour: newHour.toString().padStart(2, '0'), 
+        minute: newMinute.toString().padStart(2, '0')
+      };
+    }
+    return { hour: h, minute: m };
+  };
+
+  const handlePickupTimeChange = (newTime: { hour: string, minute: string }) => {
+    if (orderType === 'takeaway') {
+      setPickupTime(validateAndSnapPickupTime(newTime.hour, newTime.minute));
+    } else {
+      setPickupTime(newTime);
+    }
+  };
   const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string | string[]>>({});
@@ -839,6 +877,25 @@ export default function Customer() {
         return;
       }
 
+      if (orderType === 'takeaway') {
+        const selectedTime = new Date();
+        selectedTime.setHours(Number(pickupTime.hour));
+        selectedTime.setMinutes(Number(pickupTime.minute));
+        selectedTime.setSeconds(0);
+        selectedTime.setMilliseconds(0);
+        
+        // Use current time in Europe/Skopje timezone for comparison
+        const macedoniaNow = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Skopje"}));
+        
+        // Add 30 minutes to current time
+        const minAllowedTime = new Date(macedoniaNow.getTime() + 30 * 60000);
+        
+        if (selectedTime < minAllowedTime) {
+          setError("Времето на подигнување треба да биде најмалку 30 минути од сега.");
+          return;
+        }
+      }
+
       console.log("Creating regular order with payment method:", paymentMethod);
       const res = await fetch('/api/orders', {
         method: 'POST',
@@ -1416,31 +1473,13 @@ export default function Customer() {
                   </div>
                   
                   {filteredRestaurants.map(rest => (
-                    <div 
-                      key={rest.id}
+                    <RestaurantCard 
+                      key={rest.id} 
+                      restaurant={rest} 
+                      selected={selectedRestaurantId === rest.id}
                       onClick={() => setSelectedRestaurantId(rest.id)}
-                      className={`flex-shrink-0 w-32 h-24 p-3 rounded-2xl flex flex-col justify-between cursor-pointer transition-all border-2 ${selectedRestaurantId === rest.id ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <div className={`w-2 h-2 rounded-full ${rest.is_at_capacity ? 'bg-orange-400 animate-pulse' : (rest.is_open ? 'bg-emerald-400' : 'bg-red-400')}`} />
-                          {rest.is_at_capacity && (
-                            <span className={`text-[7px] font-black uppercase px-1 rounded-sm ${selectedRestaurantId === rest.id ? 'bg-white text-orange-600' : 'bg-orange-500 text-white'}`}>ЗАФАТЕНО</span>
-                          )}
-                        </div>
-                        {(rest.delivery_delay > 0 || rest.average_prep_time) && (
-                          <span className={`text-[9px] font-black ${selectedRestaurantId === rest.id ? 'text-white' : 'text-orange-500'}`}>
-                            ~{(rest.average_prep_time || 30) + (rest.delivery_delay || 0)} мин.
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-2">
-                        <p className={`text-[11px] font-black leading-none truncate ${selectedRestaurantId === rest.id ? 'text-white' : 'text-slate-800 dark:text-white'}`}>{rest.name}</p>
-                        <p className={`text-[8px] font-bold uppercase tracking-tighter mt-1 truncate ${selectedRestaurantId === rest.id ? 'text-orange-100' : 'text-slate-400'}`}>
-                          {getRestaurantCategories(rest.id).slice(0, 1).join(' ')}
-                        </p>
-                      </div>
-                    </div>
+                      category={getRestaurantCategories(rest.id).slice(0, 1).join(' ')}
+                    />
                   ))}
                 </div>
               </div>
@@ -2027,7 +2066,7 @@ export default function Customer() {
                               <label className="block text-[10px] uppercase font-bold text-orange-600 dark:text-orange-500 mb-1 ml-1">Час</label>
                               <select 
                                 value={pickupTime.hour}
-                                onChange={e => setPickupTime({...pickupTime, hour: e.target.value})}
+                                onChange={e => handlePickupTimeChange({...pickupTime, hour: e.target.value})}
                                 className="w-full p-3 bg-white dark:bg-slate-800 border border-orange-200 dark:border-orange-900/50 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none dark:text-white"
                               >
                                 {allowedHours.map(h => (
@@ -2040,7 +2079,7 @@ export default function Customer() {
                               <label className="block text-[10px] uppercase font-bold text-orange-600 dark:text-orange-500 mb-1 ml-1">Минути</label>
                               <select 
                                 value={pickupTime.minute}
-                                onChange={e => setPickupTime({...pickupTime, minute: e.target.value})}
+                                onChange={e => handlePickupTimeChange({...pickupTime, minute: e.target.value})}
                                 className="w-full p-3 bg-white dark:bg-slate-800 border border-orange-200 dark:border-orange-900/50 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none dark:text-white"
                               >
                                 {allowedMinutes.map(m => (

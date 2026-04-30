@@ -117,22 +117,20 @@ db.exec(`
     payment_transaction_id TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
-`);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS bundles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      restaurant_id INTEGER,
-      name TEXT,
-      description TEXT,
-      price REAL,
-      image_url TEXT,
-      status TEXT DEFAULT 'pending',
-      start_time TEXT,
-      end_time TEXT,
-      available_days TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+  CREATE TABLE IF NOT EXISTS bundles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    restaurant_id INTEGER,
+    name TEXT,
+    description TEXT,
+    price REAL,
+    image_url TEXT,
+    status TEXT DEFAULT 'pending',
+    start_time TEXT,
+    end_time TEXT,
+    available_days TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 
     CREATE TABLE IF NOT EXISTS bundle_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -249,6 +247,7 @@ db.exec(`
     );
   `);
 
+  fs.appendFileSync('server_error.log', `[${new Date().toISOString()}] BEFORE ALTER TABLES\n`);
   fs.appendFileSync('server_error.log', `[${new Date().toISOString()}] BEFORE ALTER TABLES\n`);
   try {
     db.exec("ALTER TABLE restaurants ADD COLUMN edb TEXT");
@@ -683,13 +682,13 @@ async function sendPushNotification(targetId: number | null, payload: any, optio
   let subscriptions: any[] = [];
   
   if (options?.type === 'restaurant' && targetId) {
-    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ? AND user_type = "restaurant"').all(targetId);
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ? AND user_type = \'restaurant\'').all(targetId);
   } else if (options?.type === 'delivery') {
-    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_type = "delivery"').all();
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_type = \'delivery\'').all();
   } else if (options?.type === 'admin') {
-    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_type = "admin"').all();
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_type = \'admin\'').all();
   } else if (targetId) {
-    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ? AND user_type = "customer"').all(targetId);
+    subscriptions = db.prepare('SELECT subscription FROM push_subscriptions WHERE user_id = ? AND user_type = \'customer\'').all(targetId);
   } else if (options?.orderId) {
     // If no userId, try to find subscriptions associated with the email in the order
     const order = db.prepare('SELECT customer_email FROM orders WHERE id = ?').get(options.orderId) as any;
@@ -982,6 +981,10 @@ if (restCount.count === 0) {
       message: { error: "Премногу нарачки за кратко време, ве молиме обидете се подоцна." }
     });
     app.use("/api/orders", orderLimiter);
+
+    app.get("/api/health", (req, res) => {
+      res.json({ status: "ok", time: new Date().toISOString() });
+    });
 
     app.get("/api/health", (req, res) => {
       res.json({ status: "ok", time: new Date().toISOString() });
@@ -5168,6 +5171,28 @@ app.get("/api/orders/track/:token", (req, res) => {
       }
     }, 10 * 60000); // Every 10 minutes
   });
+}
+
+// Seed initial restaurant
+try {
+  const restaurantCount = db.prepare('SELECT COUNT(*) as count FROM restaurants').get() as any;
+  if (!restaurantCount || restaurantCount.count === 0) {
+    db.prepare(`
+      INSERT INTO restaurants (name, city, address, phone, has_own_delivery, status, is_active, working_hours)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('Тест Пицерија', 'Скопје', 'Улица 123', '070123456', 1, 'approved', 1, JSON.stringify({
+      "0": { "open": "08:00", "close": "23:00", "active": true },
+      "1": { "open": "08:00", "close": "23:00", "active": true },
+      "2": { "open": "08:00", "close": "23:00", "active": true },
+      "3": { "open": "08:00", "close": "23:00", "active": true },
+      "4": { "open": "08:00", "close": "23:00", "active": true },
+      "5": { "open": "08:00", "close": "23:00", "active": true },
+      "6": { "open": "08:00", "close": "23:00", "active": true }
+    }));
+    console.log("[SERVER] Seeded test restaurant");
+  }
+} catch (e) {
+  console.error("[SERVER] Failed to seed restaurant", e);
 }
 
 // Seed initial restaurant
