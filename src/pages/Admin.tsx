@@ -69,6 +69,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 }
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { io } from 'socket.io-client';
+import { BarChart as ReChartsBar, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 interface PendingRestaurant {
   id: number;
@@ -299,6 +300,7 @@ function AdminContent() {
     cta_text: ''
   });
   const [orders, setOrders] = useState<any[]>([]);
+  const [orderStats, setOrderStats] = useState<any[]>([]);
   const [billingData, setBillingData] = useState<{restaurants: any[], deliveryPartners: any[]}>({restaurants: [], deliveryPartners: []});
   const [billingStartDate, setBillingStartDate] = useState('');
   const [billingEndDate, setBillingEndDate] = useState('');
@@ -704,6 +706,15 @@ function AdminContent() {
     }
   };
 
+  const fetchOrderStats = async () => {
+    try {
+      const data = await safeFetchJson('/api/admin/order-stats');
+      if (Array.isArray(data)) setOrderStats(data);
+    } catch (e) {
+      console.error('Failed to fetch order stats', e);
+    }
+  };
+
   const fetchInvoices = async () => {
     try {
       const data = await safeFetchJson('/api/admin/invoices');
@@ -762,6 +773,7 @@ function AdminContent() {
         safeFetchJson('/api/admin/users').then(data => { if (Array.isArray(data)) setUsers(data); }),
         safeFetchJson('/api/admin/reviews').then(data => { if (Array.isArray(data)) setReviews(data); }),
         fetchOrders(),
+        fetchOrderStats(),
         fetchBilling(),
         fetchInvoices(),
         fetchHomeSlider(),
@@ -1714,13 +1726,20 @@ function AdminContent() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/" className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
-            <ArrowLeft size={20} />
-          </Link>
-          <h1 className="text-xl font-bold text-slate-800 flex-shrink-0">Админ Панел</h1>
-          <div className="flex bg-slate-100 p-1 rounded-lg ml-4 overflow-x-auto scrollbar-hide">
+      <header className="bg-white border-b border-slate-200 px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 sticky top-0 z-20">
+        <div className="flex items-center justify-between w-full sm:w-auto gap-4">
+          <div className="flex items-center gap-4">
+            <Link to="/" className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
+              <ArrowLeft size={18} />
+            </Link>
+            <h1 className="text-lg font-bold text-slate-800 flex-shrink-0">Админ Панел</h1>
+          </div>
+          <button onClick={handleLogout} className="sm:hidden text-[10px] font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg">
+            Одјава
+          </button>
+        </div>
+        
+        <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto overflow-x-auto scrollbar-hide whitespace-nowrap">
             {hasPermission('dashboard') && (
               <button 
                 onClick={() => setActiveTab('dashboard')}
@@ -1897,8 +1916,7 @@ function AdminContent() {
               Маркетинг
             </Link>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
+        <div className="hidden sm:flex items-center gap-3">
           <div className="flex flex-col items-end">
             <span className="text-sm font-medium text-slate-700">{admin.name}</span>
             <span className="text-[10px] text-slate-500 uppercase tracking-wider">{admin.role}</span>
@@ -1909,7 +1927,7 @@ function AdminContent() {
           <button 
             onClick={handleLogout}
             className="ml-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-            title="Одјави се"
+            title="Одјава"
           >
             <LogOut size={20} />
           </button>
@@ -1977,12 +1995,59 @@ function AdminContent() {
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Вкупно ресторани</p>
                 <h3 className="text-3xl font-bold text-slate-800">{approvedRestaurants.length}</h3>
               </div>
-              <div 
-                onClick={() => setActiveTab('delivery')}
-                className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:border-blue-300 transition-colors"
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:border-blue-300 transition-colors"
               >
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Вкупно доставувачи</p>
                 <h3 className="text-3xl font-bold text-slate-800">{approvedDelivery.length}</h3>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-6">
+                <BarChart className="text-orange-500" size={20} />
+                Дневна продажба (последни 7 дена)
+              </h3>
+              <div className="h-[300px] w-full">
+                {orderStats.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ReChartsBar data={orderStats}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="date" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#94a3b8', fontSize: 10 }}
+                        tickFormatter={(str) => {
+                          const date = new Date(str);
+                          return date.toLocaleDateString('mk-MK', { weekday: 'short', day: 'numeric' });
+                        }}
+                      />
+                      <YAxis 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#94a3b8', fontSize: 10 }}
+                        tickFormatter={(value) => `${value} ден.`}
+                      />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        formatter={(value: any) => [`${value} ден.`, 'Продажба']}
+                        labelFormatter={(label) => {
+                          const date = new Date(label);
+                          return date.toLocaleDateString('mk-MK', { day: 'numeric', month: 'long', year: 'numeric' });
+                        }}
+                      />
+                      <Bar dataKey="total_sales" radius={[4, 4, 0, 0]}>
+                        {orderStats.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={index === orderStats.length - 1 ? '#f97316' : '#fdba74'} />
+                        ))}
+                      </Bar>
+                    </ReChartsBar>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-400 italic">
+                    Нема доволно податоци за приказ на графикон.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -3825,9 +3890,14 @@ function AdminContent() {
                           </div>
                         )}
                       </div>
-                      <div className="p-4">
-                        <div className="font-bold text-slate-800 truncate">{item.title || 'Без наслов'}</div>
-                        <div className="text-xs text-slate-500 truncate">{item.cta_text || 'Без текст на копче'}</div>
+                      <div className="p-4 flex justify-between items-center">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-slate-800 truncate">{item.title || 'Без наслов'}</div>
+                          <div className="text-xs text-slate-500 truncate">{item.cta_text || 'Без текст на копче'}</div>
+                        </div>
+                        <div className="ml-2 bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-200">
+                          #{item.display_order ?? 0}
+                        </div>
                       </div>
                     </div>
                   ))}

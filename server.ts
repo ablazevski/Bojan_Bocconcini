@@ -533,6 +533,7 @@ try { db.exec('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "customer"'); } ca
 
 // Migration for home_slider title
 try { db.exec('ALTER TABLE home_slider ADD COLUMN title TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE home_slider ADD COLUMN display_order INTEGER DEFAULT 0'); } catch (e) {}
 
 // Ensure admin role for specific user
 try {
@@ -742,6 +743,13 @@ const seedTemplates = [
         <a href="{{tracking_url}}" style="background-color: #f97316; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold;">Следи ја нарачката</a>
       </div>
       
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+      <div style="background-color: #f0fdf4; border: 1px solid #dcfce7; padding: 20px; border-radius: 12px; text-align: center;">
+        <h3 style="color: #166534; margin-top: 0;">Стани лојален член! 🌟</h3>
+        <p style="color: #14532d; font-size: 14px;">Приклучи се на нашата лојална програма за ексклузивни попусти и бесплатни оброци.</p>
+        <a href="{{base_url}}" style="color: #15803d; font-weight: bold; text-decoration: none;">Дознај повеќе тука →</a>
+      </div>
+      
       <p>Благодариме што нарачувате преку PizzaTime!</p>
     `,
     description: 'Се испраќа до купувачот по успешна нарачка'
@@ -829,6 +837,14 @@ const seedTemplates = [
       <h1>Здраво {{customer_name}},</h1>
       <p>Вашата нарачка е успешно {{#if is_takeaway}}преземена од ресторанот{{else}}доставена до вашата адреса{{/if}}. Се надеваме дека ќе уживате во храната!</p>
       <p>Ве молиме оставете рецензија за вашето искуство: <a href="{{tracking_url}}">Остави рецензија</a></p>
+      
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+      <div style="background-color: #f0fdf4; border: 1px solid #dcfce7; padding: 20px; border-radius: 12px; text-align: center;">
+        <h3 style="color: #166534; margin-top: 0;">Стани лојален член! 🌟</h3>
+        <p style="color: #14532d; font-size: 14px;">Приклучи се на нашата лојална програма за ексклузивни попусти и бесплатни оброци.</p>
+        <a href="{{base_url}}" style="color: #15803d; font-weight: bold; text-decoration: none;">Дознај повеќе тука →</a>
+      </div>
+
       <p>Благодариме што нарачувате преку PizzaTime!</p>
     `,
     description: 'Се испраќа до купувачот по успешна достава или преземање'
@@ -867,6 +883,13 @@ const seedTemplates = [
           
           <div style="text-align: center; margin-top: 30px;">
             <a href="{{tracking_url}}" style="background-color: #f97316; color: white; padding: 12px 25px; text-decoration: none; border-radius: 10px; font-weight: bold;">Следи ја нарачката во живо</a>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+          <div style="background-color: #f0fdf4; border: 1px solid #dcfce7; padding: 20px; border-radius: 12px; text-align: center;">
+            <h3 style="color: #166534; margin-top: 0;">Стани лојален член! 🌟</h3>
+            <p style="color: #14532d; font-size: 14px;">Приклучи се на нашата лојална програма за ексклузивни попусти и бесплатни оброци.</p>
+            <a href="{{base_url}}" style="color: #15803d; font-weight: bold; text-decoration: none;">Дознај повеќе тука →</a>
           </div>
         </div>
         <div style="background-color: #f1f5f9; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
@@ -3752,6 +3775,7 @@ app.get("/api/orders/track/:token", (req, res) => {
           total_price: totalPrice,
           restaurant_name: restaurant.name,
           tracking_url: trackingUrl,
+          base_url: process.env.APP_URL || 'http://localhost:3000',
           is_takeaway: order_type === 'takeaway',
           pickup_time: pickup_time,
           pickup_code: pickupCode
@@ -3965,7 +3989,8 @@ app.get("/api/orders/track/:token", (req, res) => {
           restaurant_name: restaurant?.name || 'Ресторанот',
           total_price: order.total_price,
           transaction_id: params.TransId || 'N/A',
-          tracking_url: trackingUrl
+          tracking_url: trackingUrl,
+          base_url: process.env.APP_URL || 'http://localhost:3000'
         }).catch(console.error);
       }
 
@@ -4267,6 +4292,7 @@ app.get("/api/orders/track/:token", (req, res) => {
             customer_name: order.customer_name,
             restaurant_name: restaurant?.name || 'Ресторанот',
             tracking_url: trackingUrl,
+            base_url: process.env.APP_URL || 'http://localhost:3000',
             is_takeaway: order.order_type === 'takeaway'
           }).catch(console.error);
         }
@@ -4549,6 +4575,24 @@ app.get("/api/orders/track/:token", (req, res) => {
     io.to("admin_room").emit("order_status_changed");
     
     res.json({ success: true });
+  });
+
+  app.get("/api/admin/order-stats", (req, res) => {
+    if (!checkAdminAuth(req, res, 'dashboard')) return;
+    
+    // Get daily sales for the last 7 days
+    const stats = db.prepare(`
+      SELECT 
+        date(created_at) as date,
+        SUM(total_price) as total_sales,
+        COUNT(id) as total_orders
+      FROM orders 
+      WHERE created_at >= date('now', '-7 days')
+      GROUP BY date(created_at)
+      ORDER BY date ASC
+    `).all();
+    
+    res.json(stats);
   });
 
   app.get("/api/admin/orders", (req, res) => {

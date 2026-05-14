@@ -1,0 +1,21 @@
+{
+  "name": "PizzaTime Control",
+  "short_name": "PizzaTime",
+  "description": "Панел за ресторани и доставувачи на PizzaTime",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f97316",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3595/3595455.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3595/3595455.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

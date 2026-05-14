@@ -1,7 +1,7 @@
 import { RestaurantCard } from '../components/RestaurantCard';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star, Bike, Store, Clock, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Search, ShoppingBag, MapPin, Plus, X, Map, ChevronRight, ChevronLeft, CheckCircle, LogIn, LogOut, Award, ExternalLink, DollarSign, Facebook, Instagram, Twitter, Linkedin, Users, Sun, Moon, ArrowRight, Info, Sparkles, GraduationCap, Star, Bike, Store, Clock, SlidersHorizontal, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import LocationPickerMap from '../components/LocationPickerMap';
@@ -46,6 +46,80 @@ export default function Customer() {
   const navigate = useNavigate();
   const [step, setStep] = useState<'city' | 'location' | 'restaurants' | 'menu' | 'cart' | 'checkout' | 'success'>('city');
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<number | null>(null);
+
+  // Deep linking effect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const restId = params.get('r');
+    const prodId = params.get('p');
+
+    const processDeepLink = async () => {
+      // 1. Check for subdomain first (e.g. restaurant.pizzatime.mk)
+      const hostname = window.location.hostname;
+      const parts = hostname.split('.');
+      let subdomainUsername = null;
+      
+      // If we have something like [subdomain].[domain].[tld]
+      // and it's not 'www', 'ais-dev' etc.
+      if (parts.length >= 3 && parts[0] !== 'www' && !parts[0].startsWith('ais-dev')) {
+        subdomainUsername = parts[0];
+      }
+
+      if (restId || subdomainUsername) {
+        try {
+          // Fetch restaurant details either by ID or Username
+          const url = restId 
+            ? `/api/customer/restaurant-by-id/${restId}`
+            : `/api/customer/restaurant/${subdomainUsername}`;
+            
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            
+            // Populate available restaurants with this one so selection works
+            setAvailableRestaurants([data.restaurant]);
+            if (data.restaurant.city) {
+              setSelectedCity(data.restaurant.city);
+            }
+            setMenuItems(data.menu.map((item: any) => ({
+              ...item,
+              modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
+            })));
+            setBundles(data.bundles || []);
+            setSelectedRestaurantId(data.restaurant.id);
+            setSelectedRestaurantUsername(data.restaurant.username);
+            setStep('menu');
+
+            // If a product ID was also provided, add it to cart
+            if (prodId) {
+              const itemToAdd = data.menu.find((m: any) => m.id === Number(prodId));
+              if (itemToAdd) {
+                const cartItem: CartItem = {
+                  ...itemToAdd,
+                  cartId: Math.random().toString(36).substr(2, 9),
+                  selectedModifiers: {},
+                  finalPrice: itemToAdd.price,
+                  modifiers: typeof itemToAdd.modifiers === 'string' ? JSON.parse(itemToAdd.modifiers) : itemToAdd.modifiers
+                };
+                setCart(prev => [...prev, cartItem]);
+                // Briefly show cart to confirm
+                setTimeout(() => setStep('cart'), 500);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Deep link/Subdomain processing error:', err);
+        }
+      }
+      
+      // Clear params to avoid re-triggering, but keep subdomain in URL
+      if (restId || prodId) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    };
+
+    processDeepLink();
+  }, []);
   const [selectedRestaurantUsername, setSelectedRestaurantUsername] = useState<string | null>(null);
   const [cities, setCities] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>('');
@@ -123,6 +197,7 @@ export default function Customer() {
   const [isStartingGroup, setIsStartingGroup] = useState(false);
   const [groupCodeInput, setGroupCodeInput] = useState('');
   const [showFiltersModal, setShowFiltersModal] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
 
   const [checkoutForm, setCheckoutForm] = useState({
     firstName: '',
@@ -142,6 +217,60 @@ export default function Customer() {
         behavior: 'smooth'
       });
     }
+  };
+
+  const handleLocationConfirmManual = async (city: string, lat: number, lng: number) => {
+    try {
+      const res = await fetch('/api/customer/available', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ city, lat, lng })
+      });
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { error: 'Настана грешка при вчитување на податоците.' };
+      }
+      
+      if (!res.ok) {
+        setError(data.error || 'Настана грешка при проверка на достапноста.');
+        return;
+      }
+      
+      setAvailableRestaurants(data.restaurants);
+      setBundles(data.bundles || []);
+      
+      const parsedItems = data.items.map((item: any) => ({
+        ...item,
+        modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
+      }));
+      
+      setMenuItems(parsedItems);
+
+      if (cart.length > 0) {
+        const isRestaurantAvailable = data.restaurants.some((r: any) => r.id === selectedRestaurantId);
+        if (isRestaurantAvailable) {
+          setStep('cart');
+        } else {
+          setError('Избраниот ресторан не доставува до вашата локација. Вашата кошничка ќе биде испразнета.');
+          setCart([]);
+          setSelectedRestaurantId(null);
+          setStep('menu');
+        }
+      } else {
+        setStep('menu');
+      }
+    } catch (err) {
+      console.error('Location confirm error:', err);
+      setError('Настана грешка при проверка на достапноста. Ве молиме обидете се повторно.');
+    }
+  };
+
+  const handleLocationConfirm = async () => {
+    if (!location || !selectedCity) return;
+    await handleLocationConfirmManual(selectedCity, location[0], location[1]);
   };
 
   useEffect(() => {
@@ -200,7 +329,35 @@ export default function Customer() {
     }
 
     safeFetchJson('/api/customer/cities')
-      .then(data => setCities(data))
+      .then(data => {
+        setCities(data);
+        // Try to auto-detect location and city if permission is already granted
+        if ("geolocation" in navigator) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              setLocation([latitude, longitude]);
+              // Try to find the city via reverse geocoding
+              fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
+                .then(res => res.json())
+                .then(geoData => {
+                  if (geoData && geoData.address) {
+                    const cityCandidate = geoData.address.city || geoData.address.town || geoData.address.village;
+                    if (cityCandidate && data.includes(cityCandidate)) {
+                      setSelectedCity(cityCandidate);
+                      setStep('menu'); // Skip to menu if we found a city and location
+                      handleLocationConfirmManual(cityCandidate, latitude, longitude);
+                    }
+                  }
+                })
+                .catch(err => console.error('Reverse geocoding failed', err));
+            },
+            (error) => {
+              console.log('Geolocation not permitted or failed:', error.message);
+            }
+          );
+        }
+      })
       .catch(err => console.error('Failed to fetch cities', err));
       
     safeFetchJson('/api/customer/campaigns/active')
@@ -572,58 +729,6 @@ export default function Customer() {
   const handleCitySelect = (city: string) => {
     setSelectedCity(city);
     setStep('location');
-  };
-
-  const handleLocationConfirm = async () => {
-    if (!location || !selectedCity) return;
-    
-    try {
-      const res = await fetch('/api/customer/available', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ city: selectedCity, lat: location[0], lng: location[1] })
-      });
-      
-      let data;
-      try {
-        data = await res.json();
-      } catch (e) {
-        data = { error: 'Настана грешка при вчитување на податоците.' };
-      }
-      
-      if (!res.ok) {
-        setError(data.error || 'Настана грешка при проверка на достапноста.');
-        return;
-      }
-      
-      setAvailableRestaurants(data.restaurants);
-      setBundles(data.bundles || []);
-      
-      // Parse modifiers from JSON string
-      const parsedItems = data.items.map((item: any) => ({
-        ...item,
-        modifiers: typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
-      }));
-      
-      setMenuItems(parsedItems);
-
-      if (cart.length > 0) {
-        const isRestaurantAvailable = data.restaurants.some((r: any) => r.id === selectedRestaurantId);
-        if (isRestaurantAvailable) {
-          setStep('cart');
-        } else {
-          setError('Избраниот ресторан не доставува до вашата локација. Вашата кошничка ќе биде испразнета.');
-          setCart([]);
-          setSelectedRestaurantId(null);
-          setStep('menu');
-        }
-      } else {
-        setStep('menu');
-      }
-    } catch (err) {
-      console.error('Location confirm error:', err);
-      setError('Настана грешка при проверка на достапноста. Ве молиме обидете се повторно.');
-    }
   };
 
   const openItemModal = (item: MenuItem) => {
@@ -1042,25 +1147,28 @@ export default function Customer() {
     ? bundles.filter(b => b.restaurant_id === selectedRestaurantId && isBundleAvailable(b))
     : bundles.filter(isBundleAvailable);
 
-  const filteredItems = restaurantItems.filter(item => 
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-    
-  const groupedItems = filteredItems.reduce((acc, item) => {
-    const cat = item.category || 'Општо';
-    const sub = item.subcategory || 'Останато';
-    if (!acc[cat]) acc[cat] = {};
-    if (!acc[cat][sub]) acc[cat][sub] = [];
-    acc[cat][sub].push(item);
-    return acc;
-  }, {} as Record<string, Record<string, MenuItem[]>>);
+  const groupedItems = useMemo(() => {
+    const filteredItems = restaurantItems.filter(item => 
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.category.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+      
+    const grouped = filteredItems.reduce((acc, item) => {
+      const cat = item.category || 'Општо';
+      const sub = item.subcategory || 'Останато';
+      if (!acc[cat]) acc[cat] = {};
+      if (!acc[cat][sub]) acc[cat][sub] = [];
+      acc[cat][sub].push(item);
+      return acc;
+    }, {} as Record<string, Record<string, MenuItem[]>>);
 
-  if (restaurantBundles.length > 0) {
-    if (!groupedItems['Пакети']) groupedItems['Пакети'] = {};
-    groupedItems['Пакети']['Промотивни пакети'] = restaurantBundles.map(b => ({ ...b, isBundle: true }));
-  }
+    if (restaurantBundles.length > 0) {
+      if (!grouped['Пакети']) grouped['Пакети'] = {};
+      grouped['Пакети']['Промотивни пакети'] = restaurantBundles.map(b => ({ ...b, isBundle: true }));
+    }
+    return grouped;
+  }, [restaurantItems, searchTerm, restaurantBundles]);
 
   const isRestaurantOpen = (rest: any) => {
     if (!rest.working_hours) return true;
@@ -1181,8 +1289,9 @@ export default function Customer() {
         </header>
         
         <main className="max-w-5xl mx-auto p-6">
+          <AnimatePresence mode="wait">
           {joiningGroup && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
+            <div key="joining-group" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
               <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -1271,7 +1380,13 @@ export default function Customer() {
             </div>
           )}
         {step === 'city' && (
-          <div className="max-w-md mx-auto mt-12 bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 text-center transition-colors duration-300">
+          <motion.div 
+            key="step-city"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="max-w-md mx-auto mt-12 bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 text-center transition-colors duration-300"
+          >
             <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 text-orange-500 dark:text-orange-400 rounded-full flex items-center justify-center mx-auto mb-6">
               <MapPin size={32} />
             </div>
@@ -1283,8 +1398,79 @@ export default function Customer() {
                 Моментално нема активни ресторани на платформата.
               </div>
             ) : (
-              <div className="space-y-3">
-                {cities.map(city => (
+            <div className="space-y-3">
+              <button 
+                onClick={() => {
+                  if ("geolocation" in navigator) {
+                    setIsLocating(true);
+                    navigator.geolocation.getCurrentPosition(
+                      (pos) => {
+                        const { latitude, longitude } = pos.coords;
+                        setLocation([latitude, longitude]);
+                        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
+                          .then(res => res.json())
+                          .then(geoData => {
+                            setIsLocating(false);
+                            if (geoData && geoData.address) {
+                              const cityCandidate = geoData.address.city || geoData.address.town || geoData.address.village;
+                              if (cityCandidate && cities.includes(cityCandidate)) {
+                                setSelectedCity(cityCandidate);
+                                setStep('menu');
+                                handleLocationConfirmManual(cityCandidate, latitude, longitude);
+                              } else {
+                                toast.error(`Не најдовме поддржан ресторан за вашата локација (${cityCandidate || 'Непознато'}). Пробајте рачно.`);
+                              }
+                            } else {
+                              toast.error(`Не можевме да ја утврдиме вашата адреса. Ве молиме изберете град рачно.`);
+                            }
+                          })
+                          .catch(err => {
+                            setIsLocating(false);
+                            console.error('Reverse geocoding error:', err);
+                            toast.error('Проблем со мапата. Ве молиме изберете град рачно.');
+                          });
+                      },
+                      (err) => {
+                        setIsLocating(false);
+                        console.error('Geolocation error:', err);
+                        if (err.code === 1) {
+                          toast.error('Пристапот до локација е одбиен. Ве молиме изберете град рачно.');
+                        } else if (err.code === 2) {
+                          toast.error('Локацијата не е достапна. Ве молиме изберете град рачно.');
+                        } else if (err.code === 3) {
+                          toast.error('Времето за лоцирање истече. Пробајте рачно.');
+                        } else {
+                          toast.error('Не можеме да ве лоцираме. Ве молиме изберете град рачно.');
+                        }
+                      },
+                      { timeout: 10000, enableHighAccuracy: true }
+                    );
+                  } else {
+                    toast.error('Вашиот прелистувач не поддржува автоматско лоцирање.');
+                  }
+                }}
+                disabled={isLocating}
+                className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-orange-500 text-white font-bold hover:bg-orange-600 transition-colors shadow-lg shadow-orange-500/30 mb-4 disabled:opacity-70 disabled:cursor-wait"
+              >
+                {isLocating ? (
+                  <>
+                    <Loader2 size={20} className="animate-spin" />
+                    Лоцирање...
+                  </>
+                ) : (
+                  <>
+                    <MapPin size={20} />
+                    Пронајди ме автоматски
+                  </>
+                )}
+              </button>
+              
+              <div className="relative py-4">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200 dark:border-slate-800"></div></div>
+                <div className="relative flex justify-center text-xs uppercase"><span className="bg-white dark:bg-slate-900 px-2 text-slate-500">Или избери рачно</span></div>
+              </div>
+
+              {cities.map(city => (
                   <button 
                     key={city}
                     onClick={() => handleCitySelect(city)}
@@ -1298,11 +1484,17 @@ export default function Customer() {
             )}
 
             {/* Tracking section removed as per user request */}
-          </div>
+          </motion.div>
         )}
 
         {step === 'location' && (
-          <div className="max-w-2xl mx-auto mt-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 transition-colors duration-300">
+          <motion.div 
+            key="step-location"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="max-w-2xl mx-auto mt-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 transition-colors duration-300"
+          >
             <div className="flex items-center gap-4 mb-6">
               <button onClick={() => setStep('city')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 transition-colors">
                 <ArrowLeft size={20} />
@@ -1329,11 +1521,16 @@ export default function Customer() {
               <Map size={20} />
               Потврди локација и види мени
             </button>
-          </div>
+          </motion.div>
         )}
 
         {step === 'menu' && (
-          <>
+          <motion.div 
+            key="step-menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
             {/* Home Slider */}
             {homeSlider.length > 0 && (
               <div className="mb-6 md:mb-12 relative overflow-hidden rounded-2xl md:rounded-[2.5rem] shadow-xl shadow-orange-500/10 group">
@@ -1428,6 +1625,34 @@ export default function Customer() {
                   >
                     <SlidersHorizontal size={18} />
                   </button>
+                  {selectedRestaurantId && (
+                    <button 
+                      onClick={() => {
+                        const restaurant = availableRestaurants.find(r => r.id === selectedRestaurantId);
+                        let url = window.location.origin;
+                        
+                        if (restaurant?.username) {
+                          const hostname = window.location.hostname;
+                          const parts = hostname.split('.');
+                          // If we're on a main domain like pizzatime.mk, construct subdomain
+                          if (parts.length >= 2 && !hostname.includes('ais-dev')) {
+                            const domain = parts.slice(-2).join('.');
+                            url = `${window.location.protocol}//${restaurant.username}.${domain}`;
+                          } else {
+                            // Fallback for dev/preview environments
+                            url = `${window.location.origin}${window.location.pathname}?r=${selectedRestaurantId}`;
+                          }
+                        }
+
+                        navigator.clipboard.writeText(url);
+                        alert('Линкот за директен пристап е копиран!');
+                      }}
+                      className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors flex-shrink-0"
+                      title="Сподели мени"
+                    >
+                      <ExternalLink size={18} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Categories Slider - Clean & Minimal */}
@@ -1662,11 +1887,17 @@ export default function Customer() {
                 )}
               </>
             )}
-          </>
+          </motion.div>
         )}
 
         {step === 'cart' && (
-          <div className="max-w-3xl mx-auto mt-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 transition-colors duration-300">
+          <motion.div 
+            key="step-cart"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="max-w-3xl mx-auto mt-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 transition-colors duration-300"
+          >
             <div className="flex items-center gap-4 mb-8">
               <button 
                 onClick={() => {
@@ -1906,11 +2137,17 @@ export default function Customer() {
                 </div>
               </>
             )}
-          </div>
+          </motion.div>
         )}
 
         {step === 'checkout' && (
-          <div className="max-w-4xl mx-auto mt-8">
+          <motion.div 
+            key="step-checkout"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="max-w-4xl mx-auto mt-8"
+          >
             <div className="flex items-center gap-4 mb-8">
               <button onClick={() => setStep('cart')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 transition-colors bg-white dark:bg-slate-900 shadow-sm">
                 <ArrowLeft size={20} />
@@ -2290,11 +2527,17 @@ export default function Customer() {
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
         )}
 
         {step === 'success' && (
-          <div className="max-w-md mx-auto mt-20 bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 text-center">
+          <motion.div 
+            key="step-success"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            className="max-w-md mx-auto mt-20 bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-orange-100 dark:border-slate-800 text-center"
+          >
             <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 text-green-500 dark:text-green-400 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle size={40} />
             </div>
@@ -2330,8 +2573,9 @@ export default function Customer() {
             >
               Нова нарачка
             </button>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </main>
       <footer className="mt-12 pt-12 border-t border-orange-100 dark:border-slate-800 relative z-10 pb-12">
         <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-10">

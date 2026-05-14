@@ -22,6 +22,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 import { safeFetchJson } from '../utils/api';
 import { Turnstile } from '@marsidev/react-turnstile';
+import PWAInstallPrompt from '../components/PWAInstallPrompt';
 
 interface Order {
   id: number;
@@ -84,6 +85,7 @@ export default function Delivery() {
   const [error, setError] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'orders' | 'settings' | 'team' | 'analytics' | 'earnings'>('orders');
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
   const [earnings, setEarnings] = useState<any[]>([]);
   const [loadingEarnings, setLoadingEarnings] = useState(false);
   const [availableRestaurants, setAvailableRestaurants] = useState<any[]>([]);
@@ -144,6 +146,38 @@ export default function Delivery() {
       setPartner(p);
     }
   }, []);
+
+  useEffect(() => {
+    const unlock = () => {
+      if (isAudioUnlocked) return;
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume().then(() => {
+            console.log("AudioContext unlocked successfully");
+            setIsAudioUnlocked(true);
+            const buffer = audioCtx.createBuffer(1, 1, 22050);
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+            source.start(0);
+          }).catch(e => console.warn("Failed to resume AudioContext", e));
+        } else {
+          setIsAudioUnlocked(true);
+        }
+      } catch (e) {
+        console.warn("AudioContext initialization failed", e);
+      }
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+    window.addEventListener('click', unlock);
+    window.addEventListener('touchstart', unlock);
+    return () => {
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+  }, [isAudioUnlocked]);
 
   useEffect(() => {
     if (partner) {
@@ -582,17 +616,17 @@ export default function Delivery() {
 
   return (
     <div className="min-h-screen bg-emerald-50/30">
-      <header className="bg-white border-b border-emerald-100 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-4">
+      <header className="bg-white border-b border-emerald-100 px-4 md:px-6 py-4 flex items-center justify-between gap-4 sticky top-0 z-10 overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-2 md:gap-4 shrink-0">
           <Link to="/" className="p-2 hover:bg-emerald-50 rounded-full text-emerald-500 transition-colors">
-            <ArrowLeft size={20} />
+            <ArrowLeft className="w-4 h-4 md:w-5 md:h-5" />
           </Link>
-          <div>
-            <h1 className="text-xl font-bold text-slate-800">Доставувач</h1>
-            <p className="text-xs text-emerald-600 font-medium">{partner.name}</p>
+          <div className="shrink-0">
+            <h1 className="text-base md:text-xl font-bold text-slate-800 truncate max-w-[100px] md:max-w-none">Доставувач</h1>
+            <p className="text-[10px] md:text-xs text-emerald-600 font-medium truncate max-w-[100px] md:max-w-none">{partner.name}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3 shrink-0">
           <button 
             onClick={() => setActiveTab(activeTab === 'earnings' ? 'orders' : 'earnings')}
             className={`p-2 rounded-full transition-colors ${activeTab === 'earnings' ? 'bg-amber-100 text-amber-600' : 'hover:bg-emerald-50 text-slate-400'}`}
@@ -1220,6 +1254,7 @@ export default function Delivery() {
           </>
         )}
       </main>
+      <PWAInstallPrompt />
     </div>
   );
 }

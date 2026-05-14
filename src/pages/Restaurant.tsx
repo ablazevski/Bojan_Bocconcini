@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Settings, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText, ChevronDown, ChevronRight, Bell } from 'lucide-react';
+import { ArrowLeft, Pizza, Clock, CheckCircle, Plus, Trash2, Image as ImageIcon, MenuSquare, Settings2, Settings, Pencil, MapPin, Save, LogOut, X, TrendingUp, DollarSign, ShoppingBag, Check, Share2, Upload, Truck, Star, Target, Bike, Car, Printer, User, Moon, Sun, Receipt, RefreshCw, Eye, Percent, Store, FileText, ChevronDown, ChevronRight, Bell, ExternalLink } from 'lucide-react';
 import DeliveryZoneMap from '../components/DeliveryZoneMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
+import PWAInstallPrompt from '../components/PWAInstallPrompt';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -333,6 +334,7 @@ export default function Restaurant() {
   const [orderView, setOrderView] = useState<'active' | 'completed' | 'scheduled'>('active');
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [hasNewOrders, setHasNewOrders] = useState(false);
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
   const [latestOrderForModal, setLatestOrderForModal] = useState<Order | null>(null);
   const maxOrderIdRef = useRef<number>(0);
   const audioIntervalRef = useRef<any>(null);
@@ -849,6 +851,43 @@ export default function Restaurant() {
   }, [loggedInRestaurant, fetchActiveDeliveryPartners]);
 
   useEffect(() => {
+    const unlock = () => {
+      if (isAudioUnlocked) return;
+      
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume().then(() => {
+            console.log("AudioContext unlocked successfully");
+            setIsAudioUnlocked(true);
+            // Play a silent buffer to fully prime it
+            const buffer = audioCtx.createBuffer(1, 1, 22050);
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+            source.start(0);
+          }).catch(e => console.warn("Failed to resume AudioContext", e));
+        } else {
+          setIsAudioUnlocked(true);
+        }
+      } catch (e) {
+        console.warn("AudioContext initialization failed", e);
+      }
+      
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+
+    window.addEventListener('click', unlock);
+    window.addEventListener('touchstart', unlock);
+    
+    return () => {
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+  }, [isAudioUnlocked]);
+
+  useEffect(() => {
     if (loggedInRestaurant && isSessionSynced) {
       fetchMenu();
       fetchOrders();
@@ -1284,17 +1323,17 @@ export default function Restaurant() {
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
           </div>
         )}
-        <div className="px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="px-4 md:px-6 py-4 flex items-center justify-between gap-2 overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-2 md:gap-4 shrink-0">
           <Link to="/" className="p-2 hover:bg-red-50 rounded-full text-red-500 transition-colors">
-            <ArrowLeft size={20} />
+            <ArrowLeft className="w-4 h-4 md:w-5 md:h-5" />
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-slate-800 dark:text-white">{loggedInRestaurant.name}</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Ресторан Панел</p>
+            <h1 className="text-base md:text-xl font-bold text-slate-800 dark:text-white truncate max-w-[120px] md:max-w-none">{loggedInRestaurant.name}</h1>
+            <p className="text-[10px] md:text-xs text-slate-500 dark:text-slate-400">Ресторан Панел</p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4 shrink-0">
           <div className="hidden md:flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
             <button 
               onClick={() => setActiveTab('dashboard')}
@@ -1384,10 +1423,10 @@ export default function Restaurant() {
     </header>
       
       {/* Mobile Tabs */}
-      <div className="md:hidden bg-white dark:bg-slate-900 border-b border-red-100 dark:border-slate-800 p-2 flex gap-2 transition-colors">
+      <div className="md:hidden bg-white dark:bg-slate-900 border-b border-red-100 dark:border-slate-800 p-2 flex gap-2 overflow-x-auto scrollbar-hide whitespace-nowrap transition-colors">
         <button 
           onClick={() => setActiveTab('dashboard')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
+          className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Дашборд
         </button>
@@ -1396,31 +1435,31 @@ export default function Restaurant() {
             setActiveTab('orders');
             stopNotificationSound();
           }}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'} ${hasNewOrders ? 'bg-red-600 text-white animate-pulse' : ''}`}
+          className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'} ${hasNewOrders ? 'bg-red-600 text-white animate-pulse' : ''}`}
         >
           Нарачки
         </button>
         <button 
           onClick={() => setActiveTab('menu')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'menu' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
+          className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'menu' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Мени
         </button>
         <button 
           onClick={() => setActiveTab('bundles')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'bundles' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
+          className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'bundles' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Пакети
         </button>
         <button 
           onClick={() => setActiveTab('invoicing')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'invoicing' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
+          className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'invoicing' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Фактури
         </button>
         <button 
           onClick={() => setActiveTab('settings')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
+          className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'}`}
         >
           Поставки
         </button>
@@ -2768,6 +2807,22 @@ export default function Restaurant() {
                         {item.is_available === 0 ? <><X size={16} /> Нема на залиха</> : <><Check size={16} /> Достапно</>}
                       </button>
                       <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            const url = `${window.location.origin}/r/${loggedInRestaurant.username}?p=${item.id}`;
+                            if (navigator.clipboard && window.isSecureContext) {
+                              navigator.clipboard.writeText(url)
+                                .then(() => toast.success('Линкот за директно додавање во кошничка е копиран!'))
+                                .catch(() => prompt('Вашиот прелистувач не дозволува автоматско копирање. Копирајте го линкот:', url));
+                            } else {
+                              prompt('Копирајте го линкот:', url);
+                            }
+                          }}
+                          className="text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium"
+                          title="Копирај директен линк до овој производ"
+                        >
+                          <ExternalLink size={16} />
+                        </button>
                         <button onClick={() => handleEditItem(item)} className="text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
                           <Pencil size={16} /> Уреди
                         </button>
@@ -4099,6 +4154,7 @@ export default function Restaurant() {
         </motion.div>
       )}
     </AnimatePresence>
+    <PWAInstallPrompt />
     </div>
   );
 }
